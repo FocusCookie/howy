@@ -9,12 +9,26 @@ import SwiftUI
 @MainActor
 @Observable
 final class QuickEntryModel {
+    /// What can be attached: a file (pasted from Finder, dropped, picked) or image data (a pasted screenshot).
+    enum AttachmentSource {
+        case file(URL)
+        case image(Data)
+    }
+
     let flow: QuickEntryFlow
     @ObservationIgnored private let store: TodoStore
     @ObservationIgnored var close: () -> Void = {}
+    /// Runs once the flow has finished (saved, cancelled, deleted), e.g. to clear unused staged files.
+    @ObservationIgnored var didFinish: () -> Void = {}
+    /// Opens attachments and file pickers for this panel (set by the app controller).
+    @ObservationIgnored var presenter: AttachmentPresenter?
 
     /// Set when saving or deleting failed; the panel stays open so nothing typed is lost.
     private(set) var errorMessage: String?
+    /// The thumbnail under the pointer.
+    var hoveredAttachmentID: UUID?
+    /// The attachment whose reference the caret is on, or the pointer hovers, in the note.
+    var noteReferenceName: String?
 
     init(flow: QuickEntryFlow, store: TodoStore) {
         self.flow = flow
@@ -24,8 +38,90 @@ final class QuickEntryModel {
     /// Returns `true` when the key was consumed.
     func handle(_ key: QuickEntryKey) -> Bool {
         let consumed = flow.handle(key)
+        performRequest()
         finishIfNeeded()
         return consumed
+    }
+
+    // MARK: Attachments
+
+    var hoveredAttachment: TodoAttachment? {
+        hoveredAttachmentID.flatMap { id in flow.attachments.first { $0.id == id } }
+    }
+
+    /// The name shown in the divider above the attachments: hovered, selected, or referenced at the caret.
+    var spotlightName: String? {
+        hoveredAttachment?.name ?? flow.selectedAttachment?.name ?? noteReferenceName
+    }
+
+    /// The attachment whose references the note highlights: hovered or selected.
+    var highlightedName: String? {
+        hoveredAttachment?.name ?? flow.selectedAttachment?.name
+    }
+
+    func url(for attachment: TodoAttachment) -> URL? {
+        store.attachments?.url(for: attachment, todoID: flow.todoID)
+    }
+
+    /// Copies the sources into staging and attaches them. Returns the note references, in order.
+    @discardableResult
+    func attach(_ sources: [AttachmentSource]) -> [String] {
+        guard let files = store.attachments else { return [] }
+        var references: [String] = []
+        for source in sources {
+            do {
+                let attachment: TodoAttachment
+                switch source {
+                case .file(let url):
+                    let name = AttachmentNaming.unique(url.lastPathComponent, existing: flow.attachmentNames)
+                    attachment = try files.stage(copying: url, as: name)
+                case .image(let data):
+                    attachment = try files.stage(data: data, as: AttachmentNaming.pastedName(extension: "png", existing: flow.attachmentNames))
+                }
+                withAnimation(.snappy(duration: 0.2)) { references.append(flow.attach(attachment)) }
+                errorMessage = nil
+            } catch {
+                log.error("Attaching failed: \(error, privacy: .public)")
+                errorMessage = "Couldn't attach that file."
+            }
+        }
+        return references
+    }
+
+    func remove(_ attachment: TodoAttachment) {
+        if hoveredAttachmentID == attachment.id { hoveredAttachmentID = nil }
+        withAnimation(.snappy(duration: 0.2)) { flow.removeAttachment(id: attachment.id) }
+    }
+
+    /// Opens an attachment as Settings says, or the other way (`alternate`, ⌥).
+    func open(_ attachment: TodoAttachment, alternate: Bool) {
+        let mode = AttachmentOpenMode.load()
+        presenterOpen(attachment, mode: alternate ? mode.other : mode)
+    }
+
+    /// Opens an attachment in a given way (context menu). Quick Look gets all of them, so ←/→ browse.
+    func presenterOpen(_ attachment: TodoAttachment, mode: AttachmentOpenMode) {
+        let available = flow.attachments.compactMap { item in url(for: item).map { (item.id, $0) } }
+        guard let index = available.firstIndex(where: { $0.0 == attachment.id }) else {
+            errorMessage = "That file is missing."
+            return
+        }
+        flow.selectAttachment(id: attachment.id)
+        presenter?.open(available.map(\.1), at: index, mode: mode)
+    }
+
+    func chooseFiles() {
+        presenter?.chooseFiles { [weak self] urls in
+            self?.attach(urls.map { .file($0) })
+        }
+    }
+
+    private func performRequest() {
+        switch flow.takeRequest() {
+        case .open(let attachment, let alternate): open(attachment, alternate: alternate)
+        case .chooseFiles: chooseFiles()
+        case nil: break
+        }
     }
 
     func save() {
@@ -50,8 +146,9 @@ final class QuickEntryModel {
         case .cancelled:
             close()
         default:
-            break
+            return
         }
+        if flow.isFinished { didFinish() }
     }
 
     private func persist() -> Bool {
@@ -59,8 +156,17 @@ final class QuickEntryModel {
         do {
             if let id = draft.todoID {
                 try store.update(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant)
+                try store.setAttachments(draft.attachments, for: id) // a retry after a failure redoes only this
             } else {
-                try store.add(title: draft.title, note: draft.note, quadrant: draft.quadrant)
+                // Files first: if they fail, no todo exists yet that a retry would duplicate.
+                let id = UUID()
+                try store.setAttachments(draft.attachments, for: id)
+                do {
+                    try store.add(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant)
+                } catch {
+                    store.attachments?.removeAll(for: id)
+                    throw error
+                }
             }
             errorMessage = nil
             return true
@@ -94,6 +200,7 @@ final class ArchiveModel {
         let title: String
         let quadrant: Quadrant
         let completedAt: Date
+        let attachmentCount: Int
     }
 
     private(set) var items: [Item] = []
@@ -118,7 +225,10 @@ final class ArchiveModel {
     private func reload() {
         do {
             items = try store.archivedTodos().map {
-                Item(id: $0.id, title: $0.title, quadrant: $0.quadrant, completedAt: $0.completedAt ?? .now)
+                Item(
+                    id: $0.id, title: $0.title, quadrant: $0.quadrant, completedAt: $0.completedAt ?? .now,
+                    attachmentCount: store.attachmentList(for: $0.id).count
+                )
             }
         } catch {
             log.error("Archive fetch failed: \(error, privacy: .public)")

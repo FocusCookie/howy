@@ -74,6 +74,7 @@ final class AppController {
         Task { @MainActor [weak self] in
             self?.registerLoginItemOnFirstLaunch()
             self?.purgeArchive()
+            self?.collectStagedAttachments()
         }
     }
 
@@ -233,7 +234,10 @@ final class AppController {
             showArchive(activate: activate)
             return
         }
-        let flow = QuickEntryFlow(mode: .edit(QuickEntryDraft(todo: todo)), lastUsed: lastUsed, drafts: drafts)
+        let flow = QuickEntryFlow(
+            mode: .edit(QuickEntryDraft(todo: todo, attachments: store.attachmentList(for: id))),
+            lastUsed: lastUsed, drafts: drafts
+        )
         let model = QuickEntryModel(flow: flow, store: store)
         presentQuickEntry(model, kind: .edit, activate: activate)
         if let back {
@@ -261,9 +265,29 @@ final class AppController {
             return model.handle(key)
         }
         model.close = { [weak panel] in panel?.dismiss() }
+        model.presenter = AttachmentPresenter(panel: panel) { [weak self] in self?.activateForPanel() }
+        model.didFinish = { [weak self] in self?.collectStagedAttachments() }
         // Focus loss, the hotkey, or another panel replacing this one: keep what was typed.
         // (No-op after Esc / save / delete, which finished the flow already.)
         panel.willClose = { model.flow.abandon() }
+    }
+
+    /// Makes Howy the active app for the open panel (Quick Look, a file picker need it), remembering
+    /// the app in front so focus goes back there when the panel closes.
+    private func activateForPanel() {
+        guard !NSApp.isActive else { return }
+        if !activatedForPanel {
+            let front = NSWorkspace.shared.frontmostApplication
+            previousApp = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
+        }
+        activatedForPanel = true
+        NSApp.activate()
+    }
+
+    /// Deletes staged attachment files no unsaved draft refers to any more.
+    private func collectStagedAttachments() {
+        guard let files = try? AttachmentStore.shared() else { return }
+        files.collectStaging(keeping: drafts.stashedAttachmentIDs())
     }
 
     private func showError(title: String, message: String, activate: Bool) {

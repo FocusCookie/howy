@@ -23,11 +23,20 @@ extension QuickEntryKey {
         case 53: // Esc
             self = .escape
         case 36, 76: // Return, keypad Enter
-            if command, modifiers == .command { self = .commandEnter } else if plain { self = .enter } else { return nil }
+            if command, modifiers == .command {
+                self = .commandEnter
+            } else if modifiers == .option {
+                self = .optionEnter
+            } else if plain {
+                self = .enter
+            } else {
+                return nil
+            }
         case 48: // Tab
             if modifiers == .shift { self = .shiftTab } else if plain { self = .tab } else { return nil }
         case 51 where modifiers == .command: // ⌘⌫
             self = .commandDelete
+        case 51 where plain: self = .backspace
         case 49 where plain: self = .space
         case 126 where modifiers == .command: self = .moveUp
         case 125 where modifiers == .command: self = .moveDown

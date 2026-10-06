@@ -12,12 +12,27 @@ public struct StashedDraft: Codable, Hashable, Sendable {
     public var title: String
     public var note: String
     public var field: Field
+    /// The draft's attachments (staged or, for an edit, already committed).
+    public var attachments: [TodoAttachment]
 
-    public init(quadrant: Quadrant, title: String, note: String, field: Field) {
+    public init(quadrant: Quadrant, title: String, note: String, field: Field, attachments: [TodoAttachment] = []) {
         self.quadrant = quadrant
         self.title = title
         self.note = note
         self.field = field
+        self.attachments = attachments
+    }
+
+    private enum CodingKeys: String, CodingKey { case quadrant, title, note, field, attachments }
+
+    /// Drafts stashed before attachments existed have none.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        quadrant = try container.decode(Quadrant.self, forKey: .quadrant)
+        title = try container.decode(String.self, forKey: .title)
+        note = try container.decode(String.self, forKey: .note)
+        field = try container.decode(Field.self, forKey: .field)
+        attachments = try container.decodeIfPresent([TodoAttachment].self, forKey: .attachments) ?? []
     }
 }
 
@@ -29,6 +44,8 @@ public protocol DraftStore: AnyObject {
     func setCreateDraft(_ draft: StashedDraft?)
     func editDraft(for id: UUID) -> StashedDraft?
     func setEditDraft(_ draft: StashedDraft?, for id: UUID)
+    /// Every attachment id any stashed draft refers to (their staged files must be kept).
+    func stashedAttachmentIDs() -> Set<UUID>
 }
 
 /// The stash contents shared by the in-memory and `UserDefaults` stores.
@@ -44,6 +61,10 @@ struct DraftStash: Codable, Hashable, Sendable {
     var create: StashedDraft?
     /// Oldest first.
     var edits: [EditEntry] = []
+
+    var attachmentIDs: Set<UUID> {
+        Set(((create.map { [$0] } ?? []) + edits.map(\.draft)).flatMap(\.attachments).map(\.id))
+    }
 
     func edit(for id: UUID) -> StashedDraft? {
         edits.last { $0.id == id }?.draft
@@ -68,6 +89,7 @@ public final class MemoryDraftStore: DraftStore {
     public func setCreateDraft(_ draft: StashedDraft?) { stash.create = draft }
     public func editDraft(for id: UUID) -> StashedDraft? { stash.edit(for: id) }
     public func setEditDraft(_ draft: StashedDraft?, for id: UUID) { stash.setEdit(draft, for: id) }
+    public func stashedAttachmentIDs() -> Set<UUID> { stash.attachmentIDs }
 }
 
 /// A `DraftStore` in `UserDefaults` (JSON), so drafts survive an app restart.
@@ -97,6 +119,8 @@ public final class UserDefaultsDraftStore: DraftStore {
         stash.setEdit(draft, for: id)
         save(stash)
     }
+
+    public func stashedAttachmentIDs() -> Set<UUID> { load().attachmentIDs }
 
     private func load() -> DraftStash {
         guard let data = defaults.data(forKey: key),

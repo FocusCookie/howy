@@ -56,7 +56,7 @@ struct QuickEntryView: View {
         case .editingTitle:
             focus = .title
             DispatchQueue.main.async { panel.window?.moveCaretToEnd() }
-        case .pickingQuadrant:
+        case .pickingQuadrant, .browsingAttachments:
             focus = nil
         default:
             break // the note editor takes focus itself
@@ -82,7 +82,11 @@ struct QuickEntryView: View {
             text: flow.note,
             isFocused: flow.phase == .editingNote,
             onChange: { flow.note = $0 },
-            onFocus: { flow.focus(.editingNote) }
+            onFocus: { flow.focus(.editingNote) },
+            attachmentNames: Set(flow.attachmentNames),
+            highlightedName: model.highlightedName,
+            onAttach: { model.attach($0) },
+            onReferenceChange: { model.noteReferenceName = $0 }
         )
         .overlay(alignment: .topLeading) {
             if flow.note.isEmpty {
@@ -92,6 +96,9 @@ struct QuickEntryView: View {
                     .allowsHitTesting(false)
             }
         }
+
+        AttachmentDivider(name: model.spotlightName)
+        AttachmentStrip(model: model)
     }
 
     private var footer: some View {
@@ -125,8 +132,11 @@ struct QuickEntryView: View {
         switch shownPhase {
         case .pickingQuadrant: "←↑↓→ or 1–4 · ↩ choose · esc " + (flow.isEditing ? "cancel" : "close")
         case _ where flow.isConfirmingDelete: "↩ delete · esc keep"
-        case .editingTitle: "↩ note · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘⌫ delete" : "close")
-        default: "⌘↩ save · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘⌫ delete" : "close")
+        case .editingTitle: "↩ note · ⌥↩ files · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘⌫ delete" : "close")
+        case .browsingAttachments where flow.attachments.isEmpty: "↩ add files · ⇧⇥ note · ⌘↩ save · esc " + (flow.isEditing ? "cancel" : "close")
+        case .browsingAttachments where flow.isAddSelected: "↩ add files · ← select · ⇧⇥ note · ⌘↩ save"
+        case .browsingAttachments: "←→ select · space open · ⌥↩ other way · ⌫ remove · ⇧⇥ note"
+        default: "⌘↩ save · ⌥↩ files · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘⌫ delete" : "close")
         }
     }
 }

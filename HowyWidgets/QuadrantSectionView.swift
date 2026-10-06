@@ -81,13 +81,25 @@ struct TodoRow: View {
             .accessibilityLabel("Complete \(todo.title)")
 
             Link(destination: DeepLink.edit(todo.id).url) {
-                Text(todo.title)
-                    .font(WidgetMetrics.rowFont)
-                    .foregroundStyle(.primary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .contentShape(Rectangle())
+                HStack(spacing: 3) {
+                    Text(todo.title)
+                        .font(WidgetMetrics.rowFont)
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                    if todo.attachmentCount > 0 {
+                        HStack(spacing: 1) {
+                            Image(systemName: "paperclip")
+                            if todo.attachmentCount > 1 { Text("\(todo.attachmentCount)").monospacedDigit() }
+                        }
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .layoutPriority(1)
+                        .accessibilityLabel("with attachments")
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
             }
         }
     }

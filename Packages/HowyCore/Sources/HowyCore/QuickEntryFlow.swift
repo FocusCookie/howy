@@ -19,6 +19,10 @@ public enum QuickEntryKey: Hashable, Sendable {
     case moveUp
     /// ⌘↓ or ⌘J: move the selected row down (browse list).
     case moveDown
+    /// ⌥↩: into the attachments (title, note); open the other way (attachments).
+    case optionEnter
+    /// A plain ⌫. Deletes text in the fields; removes the selected attachment.
+    case backspace
     /// Any other key that is plain typing (letters, shifted keys, backspace...). The text field
     /// handles it, except where the flow has nothing to type into (picker, delete prompt).
     case other
@@ -31,17 +35,19 @@ public struct QuickEntryDraft: Hashable, Sendable {
     public var title: String
     public var note: String
     public var quadrant: Quadrant
+    public var attachments: [TodoAttachment]
 
-    public init(todoID: UUID? = nil, title: String, note: String, quadrant: Quadrant) {
+    public init(todoID: UUID? = nil, title: String, note: String, quadrant: Quadrant, attachments: [TodoAttachment] = []) {
         self.todoID = todoID
         self.title = title
         self.note = note
         self.quadrant = quadrant
+        self.attachments = attachments
     }
 
-    /// Edit-mode source loaded from an existing todo.
-    public init(todo: Todo) {
-        self.init(todoID: todo.id, title: todo.title, note: todo.note, quadrant: todo.quadrant)
+    /// Edit-mode source loaded from an existing todo and its committed attachments.
+    public init(todo: Todo, attachments: [TodoAttachment] = []) {
+        self.init(todoID: todo.id, title: todo.title, note: todo.note, quadrant: todo.quadrant, attachments: attachments)
     }
 }
 
@@ -73,7 +79,7 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 
 /// UI-independent state machine behind the quick-entry and edit modal.
 ///
-/// Phases: `pickingQuadrant → editingTitle → editingNote → saved | cancelled`.
+/// Phases: `pickingQuadrant → editingTitle → editingNote (↔ browsingAttachments) → saved | cancelled`.
 ///
 /// Key handling (`handle(_:)` returns `true` when the key was consumed; `false` means
 /// "let the focused control do its default", e.g. type the character):
@@ -81,6 +87,11 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 ///   1–4 choose a quadrant and jump to the title; Enter/Tab go to the title.
 /// - Title: Enter/Tab go to the note; Shift+Tab goes back to the picker.
 /// - Note: Enter is a line break (not consumed); Tab not consumed; Shift+Tab goes to the title.
+/// - Title, note: ⌥Enter goes to the attachments.
+/// - Attachments: ←/→ select (clamped); Space/Enter ask to open the selected one, ⌥Enter to open
+///   it the other way (`takeRequest()`); Enter with none asks to pick files; ⌫ removes the
+///   selected one (and its references in the note); Shift+Tab goes back to the note. Other keys
+///   are swallowed (nothing to type into).
 /// - Anywhere active: ⌘Enter saves if the trimmed title is non-empty (otherwise consumed and
 ///   blocked); Esc cancels.
 /// - Create mode: ⌘⌫ (any phase) clears the draft (title and note) and returns to the picker.
@@ -103,6 +114,14 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 @MainActor
 @Observable
 public final class QuickEntryFlow {
+    /// What the attachment keys ask the caller to do.
+    public enum AttachmentRequest: Hashable, Sendable {
+        /// Open this attachment the way Settings says, or the other way (`alternate`, ⌥).
+        case open(TodoAttachment, alternate: Bool)
+        /// Show a file picker; the chosen files are attached without a note reference.
+        case chooseFiles
+    }
+
     public enum Mode: Hashable, Sendable {
         /// `preselected` overrides the last-used quadrant (e.g. a widget's quadrant label tap).
         case create(preselected: Quadrant? = nil)
@@ -110,7 +129,7 @@ public final class QuickEntryFlow {
     }
 
     public enum Phase: Hashable, Sendable {
-        case pickingQuadrant, editingTitle, editingNote, saved, cancelled
+        case pickingQuadrant, editingTitle, editingNote, browsingAttachments, saved, cancelled
         /// Edit mode: the user confirmed deleting the todo.
         case deleted
     }
@@ -121,6 +140,13 @@ public final class QuickEntryFlow {
     public var quadrant: Quadrant
     public var title: String
     public var note: String
+    /// The attachments, in the order they were added. Changed via `attach` / `removeAttachment`.
+    public private(set) var attachments: [TodoAttachment]
+    /// The selection while `phase == .browsingAttachments`: an attachment, or `attachments.count`
+    /// for the Add button after them (the only stop when there are none).
+    public private(set) var selectedAttachmentIndex: Int?
+    /// Something for the caller to do with attachments (open one, pick files); see `takeRequest()`.
+    public private(set) var request: AttachmentRequest?
     /// Set once `phase == .saved`.
     public private(set) var savedDraft: QuickEntryDraft?
     /// The "Delete this todo?" prompt is showing (edit mode only).
@@ -157,12 +183,14 @@ public final class QuickEntryFlow {
                 quadrant = preselected ?? stashed.quadrant
                 title = stashed.title
                 note = stashed.note
+                attachments = stashed.attachments
                 isRestoredDraft = true
             } else {
                 phase = .pickingQuadrant
                 quadrant = preselected ?? startQuadrant.resolve(lastUsed: lastUsed.load())
                 title = ""
                 note = ""
+                attachments = []
             }
         case .edit(let draft):
             if let id = draft.todoID, let stashed = drafts?.editDraft(for: id) {
@@ -170,12 +198,14 @@ public final class QuickEntryFlow {
                 quadrant = stashed.quadrant
                 title = stashed.title
                 note = stashed.note
+                attachments = stashed.attachments
                 isRestoredDraft = true
             } else {
                 phase = .editingTitle
                 quadrant = draft.quadrant
                 title = draft.title
                 note = draft.note
+                attachments = draft.attachments
             }
         }
     }
@@ -232,7 +262,7 @@ public final class QuickEntryFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .enter, .tab: phase = .editingTitle
             case .shiftTab, .moveUp, .moveDown: return false
-            case .other, .space: break // nothing to type into
+            case .other, .space, .optionEnter, .backspace: break // nothing to type into
             case .escape, .commandEnter, .commandDelete: break
             }
             return true
@@ -240,18 +270,102 @@ public final class QuickEntryFlow {
             switch key {
             case .enter, .tab: phase = .editingNote
             case .shiftTab: phase = .pickingQuadrant
+            case .optionEnter: enterAttachments()
             default: return false
             }
             return true
         case .editingNote:
-            if key == .shiftTab {
-                phase = .editingTitle
-                return true
+            switch key {
+            case .shiftTab: phase = .editingTitle
+            case .optionEnter: enterAttachments()
+            default: return false
             }
-            return false
+            return true
+        case .browsingAttachments:
+            handleAttachmentKey(key)
+            return true
         case .saved, .cancelled, .deleted:
             return false
         }
+    }
+
+    private func handleAttachmentKey(_ key: QuickEntryKey) {
+        switch key {
+        case .left: moveAttachmentSelection(by: -1)
+        case .right: moveAttachmentSelection(by: 1)
+        case .space, .enter, .optionEnter:
+            if let attachment = selectedAttachment {
+                request = .open(attachment, alternate: key == .optionEnter)
+            } else if key != .optionEnter {
+                request = .chooseFiles
+            }
+        case .backspace:
+            if let attachment = selectedAttachment { removeAttachment(id: attachment.id) }
+        case .shiftTab: phase = .editingNote
+        default: break
+        }
+    }
+
+    private func enterAttachments() {
+        if selectedAttachmentIndex == nil { selectedAttachmentIndex = 0 }
+        phase = .browsingAttachments
+    }
+
+    /// ←/→ through the attachments and then the Add button, clamped at both ends.
+    private func moveAttachmentSelection(by delta: Int) {
+        let index = selectedAttachmentIndex ?? 0
+        selectedAttachmentIndex = min(max(index + delta, 0), attachments.count)
+    }
+
+    // MARK: Attachments
+
+    /// The names already used, for naming a new attachment (`AttachmentNaming`).
+    public var attachmentNames: [String] { attachments.map(\.name) }
+
+    /// Adds an attachment (its file is already staged). Returns the Markdown reference for the
+    /// note; the caller inserts it where it belongs (paste, drop on the note) or ignores it.
+    @discardableResult
+    public func attach(_ attachment: TodoAttachment) -> String {
+        guard !isFinished else { return "" }
+        // With Add selected, its index now points at the first new file, which gets selected.
+        attachments.append(attachment)
+        return AttachmentReference.markdown(for: attachment)
+    }
+
+    /// Removes an attachment and its references in the note. The selection stays in place (clamped).
+    public func removeAttachment(id: UUID) {
+        guard !isFinished, let index = attachments.firstIndex(where: { $0.id == id }) else { return }
+        let removed = attachments.remove(at: index)
+        if !attachments.contains(where: { $0.name == removed.name }) {
+            note = AttachmentReference.removing(name: removed.name, from: note)
+        }
+        if let selected = selectedAttachmentIndex, selected > index || selected == attachments.count {
+            // Keep the same attachment selected, or stay on the last one (Add once none are left).
+            selectedAttachmentIndex = selected > index ? selected - 1 : max(attachments.count - 1, 0)
+        }
+    }
+
+    /// Selects an attachment (e.g. a click) without changing the phase.
+    public func selectAttachment(id: UUID) {
+        selectedAttachmentIndex = attachments.firstIndex { $0.id == id } ?? selectedAttachmentIndex
+    }
+
+    /// The selected attachment while browsing them (`nil` on the Add button).
+    public var selectedAttachment: TodoAttachment? {
+        guard phase == .browsingAttachments, let index = selectedAttachmentIndex,
+              attachments.indices.contains(index) else { return nil }
+        return attachments[index]
+    }
+
+    /// True while browsing the attachments with the Add button selected.
+    public var isAddSelected: Bool {
+        phase == .browsingAttachments && selectedAttachmentIndex == attachments.count
+    }
+
+    /// Hands over the pending request (once).
+    public func takeRequest() -> AttachmentRequest? {
+        defer { request = nil }
+        return request
     }
 
     // MARK: Pointer / programmatic actions
@@ -266,6 +380,7 @@ public final class QuickEntryFlow {
     /// Moves focus to a phase, e.g. when a field is clicked. Ignores finished phases.
     public func focus(_ phase: Phase) {
         guard !isFinished, phase != .saved, phase != .cancelled, phase != .deleted else { return }
+        if phase == .browsingAttachments { return enterAttachments() }
         self.phase = phase
     }
 
@@ -281,7 +396,8 @@ public final class QuickEntryFlow {
             todoID: todoID,
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             note: note,
-            quadrant: quadrant
+            quadrant: quadrant,
+            attachments: attachments
         )
         if !isEditing { lastUsed.save(quadrant) }
         setStash(nil)
@@ -337,6 +453,8 @@ public final class QuickEntryFlow {
         guard !isFinished, !isEditing else { return }
         title = ""
         note = ""
+        attachments = []
+        selectedAttachmentIndex = nil
         saveAttempted = false
         isRestoredDraft = false
         setStash(nil)
@@ -348,17 +466,19 @@ public final class QuickEntryFlow {
     private var isBlank: Bool {
         title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && attachments.isEmpty
     }
 
     private func stashCurrent() {
         let field: StashedDraft.Field = switch phase {
         case .editingTitle: .title
-        case .editingNote: .note
+        case .editingNote, .browsingAttachments: .note
         default: .quadrant
         }
-        let current = StashedDraft(quadrant: quadrant, title: title, note: note, field: field)
+        let current = StashedDraft(quadrant: quadrant, title: title, note: note, field: field, attachments: attachments)
         if case .edit(let original) = mode {
             let unchanged = original.title == title && original.note == note && original.quadrant == quadrant
+                && original.attachments == attachments
             setStash(unchanged ? nil : current)
         } else {
             setStash(isBlank ? nil : current)

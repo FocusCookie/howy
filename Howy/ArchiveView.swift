@@ -44,7 +44,10 @@ struct ArchiveView: View {
         HStack(spacing: 10) {
             Circle().fill(item.quadrant.color).frame(width: 8, height: 8)
             VStack(alignment: .leading, spacing: 2) {
-                Text(item.title).lineLimit(1)
+                HStack(spacing: 6) {
+                    Text(item.title).lineLimit(1)
+                    AttachmentBadge(count: item.attachmentCount)
+                }
                 HStack(spacing: 4) {
                     Text(item.quadrant.displayName).foregroundStyle(item.quadrant.color)
                     Text("·")

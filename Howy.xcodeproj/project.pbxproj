@@ -9,6 +9,7 @@
 /* Begin PBXBuildFile section */
 		019CF87496B336BC20D191A9 /* HowyWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E9FE3030E07090E9F8BC6F18 /* HowyWidgets.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		0BEB18744CD3292407B6FAF5 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = E4F76CE09D2B7F3E46E75BB9 /* KeyboardShortcuts */; };
+		153C596D7F69E1F33BA723D8 /* AttachmentStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12FE93F971D6BC7323D0A45 /* AttachmentStrip.swift */; };
 		20BEB12BB1D529D71CD38B23 /* HowyWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 118DD4D73296779867497E3E /* HowyWidgetsBundle.swift */; };
 		244FECEB4C6C6B3194C8803E /* AppController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA157940BCFA22FDF04BFD5 /* AppController.swift */; };
 		25D5B2A27CCBCFF8ABBB75B0 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5509DAF1BE87FB19D03ADA /* BrowseView.swift */; };
@@ -33,6 +34,7 @@
 		DE48955C881B5F50A5581DEC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9104238927E773B54C4668 /* SettingsView.swift */; };
 		EB8D902146CAB44DDD4BC4FC /* LauncherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C36129D26F9300D8846BDBF0 /* LauncherView.swift */; };
 		ED11D9CDEE5DAB429F3CE181 /* HowyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D8838F23A0C476077574AA5 /* HowyApp.swift */; };
+		EEAB1366DA3D0F5C45E6B3C3 /* AttachmentPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF81572FE839637F2370177 /* AttachmentPresenter.swift */; };
 		F06594C81CF5B817C94F2B71 /* ArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */; };
 /* End PBXBuildFile section */
 
@@ -72,6 +74,7 @@
 		3809069098234A71ADA3218F /* ShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorder.swift; sourceTree = "<group>"; };
 		3B983BC97682573579868AD1 /* CompleteTodoIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompleteTodoIntent.swift; sourceTree = "<group>"; };
 		4C67371D1BD06CC98E9938C2 /* QuickEntryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEntryModel.swift; sourceTree = "<group>"; };
+		4EF81572FE839637F2370177 /* AttachmentPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentPresenter.swift; sourceTree = "<group>"; };
 		592A97D5AAA1C221E9A3CB09 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		59A555489BCA3149A8A9B9C0 /* Howy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Howy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5D8838F23A0C476077574AA5 /* HowyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowyApp.swift; sourceTree = "<group>"; };
@@ -86,6 +89,7 @@
 		9E7FED2B1EF708C91DEA9C54 /* ErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorView.swift; sourceTree = "<group>"; };
 		9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantGrid.swift; sourceTree = "<group>"; };
 		AAA157940BCFA22FDF04BFD5 /* AppController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppController.swift; sourceTree = "<group>"; };
+		C12FE93F971D6BC7323D0A45 /* AttachmentStrip.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AttachmentStrip.swift; sourceTree = "<group>"; };
 		C36129D26F9300D8846BDBF0 /* LauncherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherView.swift; sourceTree = "<group>"; };
 		C4F9E894BCBF91E34D384F6D /* QuadrantSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantSectionView.swift; sourceTree = "<group>"; };
 		CF7864E63A309407B19B6FBB /* QuadrantWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantWidget.swift; sourceTree = "<group>"; };
@@ -157,6 +161,8 @@
 			children = (
 				AAA157940BCFA22FDF04BFD5 /* AppController.swift */,
 				7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */,
+				4EF81572FE839637F2370177 /* AttachmentPresenter.swift */,
+				C12FE93F971D6BC7323D0A45 /* AttachmentStrip.swift */,
 				8B5509DAF1BE87FB19D03ADA /* BrowseView.swift */,
 				9E7FED2B1EF708C91DEA9C54 /* ErrorView.swift */,
 				1FFCC700EF1E05B8C1E3D8BD /* FloatingPanel.swift */,
@@ -286,6 +292,8 @@
 			files = (
 				244FECEB4C6C6B3194C8803E /* AppController.swift in Sources */,
 				F06594C81CF5B817C94F2B71 /* ArchiveView.swift in Sources */,
+				EEAB1366DA3D0F5C45E6B3C3 /* AttachmentPresenter.swift in Sources */,
+				153C596D7F69E1F33BA723D8 /* AttachmentStrip.swift in Sources */,
 				25D5B2A27CCBCFF8ABBB75B0 /* BrowseView.swift in Sources */,
 				5D63323548115299DB3B4CD3 /* ErrorView.swift in Sources */,
 				9B761ADAED73A65DF3F6BE2B /* FloatingPanel.swift in Sources */,

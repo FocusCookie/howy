@@ -82,6 +82,23 @@ Howy is a small menu-bar app for macOS with desktop widgets:
 36e. As a user, I want to click a row to edit it and tick its checkbox to complete it, so that the mouse works too.
 36f. As a user, I want Esc in a todo I opened from Browse to bring me back to its list, Esc in the list to bring me back to the quadrants, and only Esc on the quadrants or clicking elsewhere to close the modal, so that I can work through several todos in one go.
 
+### Attachments
+
+48. As a user, I want to attach files (mostly screenshots) to a todo, so that the todo carries the extra information I captured.
+49. As a user, I want a small drop area under the note in quick entry and edit (title, divider, note, divider, drop area), so that attachments have an obvious home without taking much space.
+50. As a user, I want ⌘V in the note to attach a copied image or a file copied in Finder and insert a Markdown reference where the caret is (`![attachment-1](attachment-1.png)` for images, `[report.pdf](report.pdf)` for other files), so that the note says where the screenshot belongs.
+51. As a user, I want dropping files onto the note to attach them with an inline reference, and dropping onto (or clicking) the drop area to attach them without one, so that I choose whether the note mentions them.
+52. As a user, I want pasted images named attachment-1, attachment-2, … per todo (next = highest + 1), and dropped or picked files to keep their own names, so that references are short and easy to recognise.
+53. As a user, I want small thumbnails in the drop area in the order I added them (images previewed, other files with their icon), so that I see what is attached.
+54. As a user, I want the hovered or keyboard-selected attachment's name shown centred in the divider above the drop area (`──── attachment-1.png ────`, a plain line otherwise), so that I can read names without tooltips.
+55. As a user, I want the thumbnail to light up when the caret is on (or the pointer hovers) its reference in the note, and the reference to be highlighted when I hover or select the thumbnail, so that I see which text belongs to which file.
+56. As a user, I want ⌥↩ in the title or note to move into the attachment area, ←→ to select, Space or ↩ to open, ⌥↩ (or ⌥-click) to open the other way, ⌫ to remove, → past the last attachment to select the Add button (where ↩ or Space picks files; it is the only stop when there are none), and ⇧⇥ to go back to the note, so that attachments work from the keyboard; Tab in the note still types a tab.
+57. As a user, I want to choose in Settings whether attachments open in Quick Look (default; the panel stays and I'm back where I was) or in their default app (the panel closes like on any focus loss, my edit is kept), and a click to follow that setting, so that opening works the way I prefer.
+58. As a user, I want removing a thumbnail (hover ✕ or ⌫) to also remove its reference from the note, while deleting the reference text keeps the attachment, so that I never get dead links and never lose a file by editing text.
+59. As a user, I want attachment changes to follow the edit: kept only when I save, thrown away with Esc, and carried along in unsaved drafts, so that attachments behave like the title and note.
+60. As a user, I want a paperclip (with a count above one) on todos with attachments in the Browse list, the widgets and the archive, so that they are easy to spot.
+61. As a user, I want attachments kept while a todo is archived (restored with it) and deleted with the todo, so that nothing lingers or disappears early.
+
 ### Archive
 
 37. As a user, I want completed todos to go into a single archive, so that nothing is lost the moment I tick it.
@@ -135,6 +152,7 @@ Howy is a small menu-bar app for macOS with desktop widgets:
 - **Colours:** red, orange, blue, green for quadrants 1–4. Respect light/dark mode and the tinted/accented widget rendering mode.
 - **Widget look:** clear container background with `containerBackgroundRemovable(false)` (the system otherwise replaces it with its own glass panel, which is also the suspected cause of widgets vanishing during Space switches); four separate translucent tiles (neutral base + faint quadrant tint + hairline edge, plain fills rather than materials) with gaps; labels without dots. Accented/vibrant modes use a faint primary fill.
 - **Store details:** titles are trimmed; restore bumps sortDate (restored todo returns to the top); writes that change nothing don't commit or reload widgets; a versioned SwiftData schema (v1) with a migration plan.
+- **Attachments:** files are copied into the App Group container, no schema change: committed files live in `Attachments/<todo id>/<attachment id>/<name>` with an ordered `attachments.json` manifest per todo; files added during an unsaved edit or draft wait in `Attachments/staging/<attachment id>/<name>`. Saving commits the edit's list (moves staged files in, deletes removed ones, rewrites the manifest, reloads widgets if anything changed). Drafts (quick entry and edit) carry their attachment list; after every finished modal, staged files no stashed draft refers to are deleted (also on launch). Deleting or purging a todo deletes its folder; completing keeps it. Names are unique per todo ("report 2.pdf" on a clash); references in the note are Markdown links whose target is the percent-encoded name (no whitespace), so the note stays plain Markdown. Pure core pieces: naming, reference formatting/finding/removal and caret lookup, the attachment store (file-system backed, tested in a temp folder), and the quick-entry flow's attachment phase (selection, open/remove/pick requests, ⌥↩ / ⇧⇥ transitions). The app adds paste/drop handling in the note editor, a SwiftUI drop area with QuickLookThumbnailing thumbnails, Quick Look via `QLPreviewPanel` (the floating panel is held open and gets key back when it closes), `NSOpenPanel` for picking (needs the user-selected read-only entitlement), and the "Open attachments in" setting (Quick Look / default app, stored in user defaults). Widget, Browse and archive rows show a paperclip from an attachment count on the todo snapshot.
 - **Axiom skills** (macOS, integration, SwiftUI, data) guide the implementation, except their `group.` App Group convention, which is overridden by the team-prefixed decision above.
 
 ## Testing Decisions
@@ -144,8 +162,8 @@ Howy is a small menu-bar app for macOS with desktop widgets:
 - **Todo store:** tested against an in-memory SwiftData container with an injected fake clock. Cases: add/update/move ordering, complete hides from open and shows in archive, restore returns to the original quadrant, delete, purge removes exactly items older than 7 days, empty title rejected.
 - **Quick-entry flow:** tested by feeding key-event sequences and asserting the resulting state and the saved draft. Cases: arrow navigation and wrap/clamp, 1–4 shortcuts, Tab/Enter field transitions, Enter-as-newline in the note, ⌘Enter save from title and note, Esc cancel, empty-title block, last-used preselection, the start-quadrant setting (fixed beats last used, preselection beats both), edit mode loading and quadrant change.
 - **Widget content builder:** tested per widget family with varying todo counts: fits exactly, overflow and "+N more", empty quadrant, counts.
-- **Also tested in core:** row reordering (keys, drag moves, store order and new-todo-on-top), launcher flow (highlight, 1/2, Enter/Tab, Esc, finished flow), the shortcut-mode setting and the launcher's start choice, key mapping, delete confirmation, drafts (stash/restore/clear, preselected-quadrant override, edit drafts), browse flow (picker ↔ list, counts, selection after completing), Markdown highlighter, deep links, App Group resolution, two stores on one on-disk file.
-- **Manual checklist (not automated):** widget appearance in light/dark/tinted modes, separate tiles without a system panel, widgets staying visible during Space switches, widget gallery availability, both global shortcuts and recording them in Settings, App Group sharing between app and widget, checkbox App Intent, deep links, launch at login, menu-bar-only behaviour, glass panel look, opening animation, picker glow, live Markdown styling (incl. IME and undo), draft survival across restart.
+- **Also tested in core:** attachments (naming, reference format/find/remove/caret lookup, store commit/staging/garbage collection/delete/purge, flow attachment phase and keys, drafts carrying attachments), row reordering (keys, drag moves, store order and new-todo-on-top), launcher flow (highlight, 1/2, Enter/Tab, Esc, finished flow), the shortcut-mode setting and the launcher's start choice, key mapping, delete confirmation, drafts (stash/restore/clear, preselected-quadrant override, edit drafts), browse flow (picker ↔ list, counts, selection after completing), Markdown highlighter, deep links, App Group resolution, two stores on one on-disk file.
+- **Manual checklist (not automated):** widget appearance in light/dark/tinted modes, separate tiles without a system panel, widgets staying visible during Space switches, widget gallery availability, both global shortcuts and recording them in Settings, App Group sharing between app and widget, checkbox App Intent, deep links, launch at login, menu-bar-only behaviour, glass panel look, opening animation, picker glow, live Markdown styling (incl. IME and undo), draft survival across restart, attachments (paste/drop/pick, thumbnails, Quick Look and default app, highlight both ways, paperclips).
 - Prior art: none. This is a new repo, and these tests set the pattern.
 
 ## Out of Scope
@@ -153,7 +171,8 @@ Howy is a small menu-bar app for macOS with desktop widgets:
 - iCloud or any sync; iPhone/iPad apps.
 - Importing from TickTick.
 - Due dates, reminders, tags, subtasks, lists/projects beyond the four quadrants.
-- Manual drag-to-sort and drag between quadrants (moving is done in the edit modal).
+- Drag between quadrants (moving is done in the edit modal).
+- Attachments: rendering images inline in the note, renaming, reordering, size or count limits, thumbnails or opening files from widgets.
 - A main matrix window.
 - Distribution (App Store, notarisation). Personal use only.
 - Markdown in widgets.

@@ -98,6 +98,7 @@ struct BrowseView: View {
             Text(todo.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            AttachmentBadge(count: todo.attachmentCount)
             dragHandle(todo, index: index, isActive: isSelected || isDragged)
         }
         .padding(.leading, 10)

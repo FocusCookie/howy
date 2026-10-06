@@ -53,10 +53,13 @@ public struct TodoSnapshot: Identifiable, Hashable, Codable, Sendable {
     public var id: UUID
     public var title: String
     public var quadrant: Quadrant
+    /// How many files are attached (for the paperclip); filled in by `TodoStore`.
+    public var attachmentCount: Int
 
-    public init(id: UUID, title: String, quadrant: Quadrant) {
+    public init(id: UUID, title: String, quadrant: Quadrant, attachmentCount: Int = 0) {
         self.id = id
         self.title = title
         self.quadrant = quadrant
+        self.attachmentCount = attachmentCount
     }
 }

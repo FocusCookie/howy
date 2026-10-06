@@ -10,6 +10,7 @@ struct SettingsView: View {
     @State private var newTodoQuadrant = NewTodoQuadrant.load()
     @State private var recorder = ShortcutRecorderModel()
     @State private var launcherDefault = LauncherChoice.loadDefault()
+    @State private var openMode = AttachmentOpenMode.load()
 
     var body: some View {
         Form {
@@ -49,6 +50,20 @@ struct SettingsView: View {
                     }
                 }
                 .onChange(of: newTodoQuadrant) { _, value in value.save() }
+            }
+            Section {
+                Picker("Open attachments in:", selection: $openMode) {
+                    ForEach(AttachmentOpenMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .onChange(of: openMode) { _, value in value.save() }
+            } header: {
+                Text("Attachments")
+            } footer: {
+                Text("Click, Space or ↩ opens an attachment this way; ⌥-click or ⌥↩ opens it the other way.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
             Section("General") {
                 Toggle("Start Howy at login", isOn: Binding(

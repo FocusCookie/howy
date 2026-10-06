@@ -17,7 +17,7 @@ import Testing
         #expect(key(code, .command) == .commandEnter)
         #expect(key(code, .shift) == nil)
         #expect(key(code, [.command, .shift]) == nil)
-        #expect(key(code, .option) == nil)
+        #expect(key(code, .option) == .optionEnter)
     }
 
     @Test func tabAndShiftTab() {
@@ -29,7 +29,7 @@ import Testing
 
     @Test func commandBackspaceOnly() {
         #expect(key(51, .command) == .commandDelete)
-        #expect(key(51) == .other)
+        #expect(key(51) == .backspace)
         #expect(key(51, [.command, .shift]) == nil)
     }
 

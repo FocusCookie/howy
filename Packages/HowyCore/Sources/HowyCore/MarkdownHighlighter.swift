@@ -132,6 +132,14 @@ public enum MarkdownHighlighter {
 
         delimited(Pattern.inlineCode, .inlineCode, delimiter: 1, blankAll: true)
 
+        // Images first (an attachment reference): `![` and `](target)` dimmed, the alt text like a link.
+        for m in Pattern.image.matches(in: work as String, range: NSRange(location: 0, length: work.length)) {
+            let alt = m.range(at: 1)
+            spans.append(.init(.syntax, NSRange(location: m.range.location, length: 2)))
+            if alt.length > 0 { spans.append(.init(.link, alt)) }
+            spans.append(.init(.syntax, NSRange(location: NSMaxRange(alt), length: NSMaxRange(m.range) - NSMaxRange(alt))))
+            blank(m.range)
+        }
         for m in Pattern.link.matches(in: work as String, range: NSRange(location: 0, length: work.length)) {
             let label = m.range(at: 1)
             spans.append(.init(.link, label))
@@ -166,6 +174,7 @@ public enum MarkdownHighlighter {
         static let quote = regex(#"^ {0,3}(>+) ?"#)
         static let listItem = regex(#"^[ \t]*([-*+]|\d{1,9}[.)])[ \t]+"#)
         static let inlineCode = regex(#"`[^`\n]+`"#)
+        static let image = regex(#"!\[([^\]\n]*)\]\(([^)\s]+)\)"#)
         static let link = regex(#"\[([^\]\n]+)\]\(([^)\s]+)\)"#)
         static let bareURL = regex(#"\bhttps?://[^\s<>()\u0001]+[^\s<>()\u0001.,;:!?'"]"#)
         static let boldStars = regex(#"\*\*(?=\S)(?:[^*\n]|\*(?!\*))+?(?<=\S)\*\*"#)

@@ -1,4 +1,5 @@
 import AppKit
+import Quartz
 import SwiftUI
 
 /// Spotlight-style panel: borderless, non-activating, floating, on all spaces, centred on the
@@ -7,6 +8,13 @@ import SwiftUI
 /// The window is clear and shadowless; `PanelCard` draws the blurred card and its shadow.
 /// A transparent margin around the card leaves room for that shadow and for the opening
 /// scale-down (`PanelRoot`), so neither is clipped by the window frame.
+///
+/// The window has a fixed size: as wide as the card plus margin, and reaching from above the
+/// card's top edge down to the bottom of the screen. The card sits at the top (`PanelRoot`) and
+/// only *it* changes height when a screen is swapped or grows. Letting the SwiftUI content size
+/// the window instead made the window's frame animation and the card's own animation run out of
+/// step, which re-centred the card in the window every frame and made its top edge jump.
+/// Clicks on the transparent part fall through to whatever is beneath, as on any clear window.
 ///
 /// Losing key status is not always the user clicking away: activating the app, a menu closing or
 /// a widget host handing over focus all take it away briefly. So resigns shortly after `present()`
@@ -25,6 +33,12 @@ final class FloatingPanel: NSPanel {
 
     private var didClose = false
     private var presentedAt: Date?
+    /// While above zero, losing key status doesn't close the panel (Quick Look, a file picker).
+    private var holds = 0
+    /// Feeds the Quick Look panel while this panel controls it.
+    var previewSource: (any QLPreviewPanelDataSource & QLPreviewPanelDelegate)?
+    /// Called when Quick Look stops being controlled by this panel (it closed).
+    var onPreviewEnd: (() -> Void)?
 
     /// Resigns this soon after `present()` are treated as activation noise and undone.
     private static let graceInterval: TimeInterval = 0.6
@@ -56,22 +70,24 @@ final class FloatingPanel: NSPanel {
 
         presentation.content = AnyView(content())
         let host = NSHostingView(rootView: PanelRoot(presentation: presentation, width: width))
-        host.sizingOptions = [.preferredContentSize]
+        host.sizingOptions = [] // the window keeps its frame; the card inside changes height
         contentView = host
     }
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
 
-    /// Shows the panel centred horizontally, its top edge in the upper third of the active screen.
+    /// Shows the panel centred horizontally, the card's top edge in the upper third of the
+    /// active screen; the window extends to the bottom of that screen.
     func present() {
-        layoutIfNeeded()
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         if let visible = screen?.visibleFrame {
-            let size = frame.size
-            let top = visible.maxY - visible.height * 0.22 + Self.margin // the card's top edge
-            setFrameOrigin(NSPoint(x: visible.midX - size.width / 2, y: top - size.height))
+            let width = frame.width
+            let cardTop = visible.maxY - visible.height * 0.22
+            let windowTop = cardTop + Self.margin
+            let rect = NSRect(x: visible.midX - width / 2, y: visible.minY, width: width, height: windowTop - visible.minY)
+            setFrame(rect.integral, display: false)
         }
         presentedAt = Date()
         makeKeyAndOrderFront(nil)
@@ -86,13 +102,12 @@ final class FloatingPanel: NSPanel {
 
     private static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 
-    /// Keeps the top edge fixed when the SwiftUI content changes height.
-    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
-        var rect = frameRect
-        if isVisible, rect.size.height != frame.size.height {
-            rect.origin.y = frame.maxY - rect.size.height
-        }
-        super.setFrame(rect, display: flag)
+    /// The card's current frame on screen (the visible part of this mostly transparent window).
+    var cardFrame: NSRect {
+        guard let content = contentView else { return frame }
+        let card = presentation.cardFrame // SwiftUI window coordinates: origin top-left
+        let inWindow = NSRect(x: card.minX, y: content.bounds.height - card.maxY, width: card.width, height: card.height)
+        return convertToScreen(inWindow)
     }
 
     override func sendEvent(_ event: NSEvent) {
@@ -103,9 +118,100 @@ final class FloatingPanel: NSPanel {
         super.sendEvent(event)
     }
 
+    /// Keeps the panel open while another window (Quick Look, a file picker) has key status.
+    func holdOpen() {
+        holds += 1
+    }
+
+    /// Ends a `holdOpen()`. The last one takes key status back, or closes the panel when focus
+    /// has gone elsewhere in the meantime (like any focus loss).
+    func releaseHold() {
+        guard holds > 0 else { return }
+        holds -= 1
+        guard holds == 0, !didClose else { return }
+        makeKey()
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.resignRecheckDelay) { [weak self] in
+            guard let self, !self.didClose, self.holds == 0, !self.isKeyWindow else { return }
+            self.closeForFocusLoss()
+        }
+    }
+
+    // MARK: Focus loss
+
+    /// Watches the mouse after a click in another app: that may be the start of dragging a file
+    /// onto the panel (from Finder, a screenshot thumbnail, …).
+    private var mouseMonitor: Any?
+    private var mouseDragged = false
+
+    /// Closes the panel because focus went elsewhere, unless the mouse button is down in another
+    /// app: then it waits for the release. A drag that ends over the panel keeps it open (the drop
+    /// lands there) and takes key status back; a plain click elsewhere closes it on release.
+    private func closeForFocusLoss() {
+        guard NSEvent.pressedMouseButtons & 1 != 0 else {
+            closedByFocusLoss = true
+            dismiss()
+            return
+        }
+        guard mouseMonitor == nil else { return }
+        mouseDragged = false
+        mouseMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDragged, .leftMouseUp]) { [weak self] event in
+            MainActor.assumeIsolated { self?.watchedMouse(event) }
+        }
+    }
+
+    private func watchedMouse(_ event: NSEvent) {
+        if event.type == .leftMouseDragged {
+            mouseDragged = true
+            return
+        }
+        stopWatchingMouse()
+        guard !didClose, !isKeyWindow, holds == 0 else { return }
+        if mouseDragged, NSMouseInRect(NSEvent.mouseLocation, cardFrame, false) {
+            // Dropped on the panel: let the drop finish, then take the keyboard back.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
+                guard let self, !self.didClose, !self.isKeyWindow else { return }
+                self.makeKey()
+            }
+        } else {
+            closedByFocusLoss = true
+            dismiss()
+        }
+    }
+
+    private func stopWatchingMouse() {
+        if let mouseMonitor { NSEvent.removeMonitor(mouseMonitor) }
+        mouseMonitor = nil
+    }
+
+    // MARK: Quick Look
+
+    override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
+        previewSource != nil
+    }
+
+    override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = previewSource
+        panel.delegate = previewSource
+        panel.currentPreviewItemIndex = 0 // the source lists the chosen file first
+    }
+
+    override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        panel.dataSource = nil
+        panel.delegate = nil
+        previewSource = nil
+        let end = onPreviewEnd
+        onPreviewEnd = nil
+        end?()
+    }
+
+    override func becomeKey() {
+        super.becomeKey()
+        stopWatchingMouse()
+    }
+
     override func resignKey() {
         super.resignKey()
-        guard !didClose else { return }
+        guard !didClose, holds == 0 else { return }
         let sincePresent = presentedAt.map { Date().timeIntervalSince($0) } ?? .infinity
         log.notice("""
             Panel resigned key after \(sincePresent, format: .fixed(precision: 3), privacy: .public)s; \
@@ -123,8 +229,7 @@ final class FloatingPanel: NSPanel {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.resignRecheckDelay) { [weak self] in
             guard let self, !self.didClose, !self.isKeyWindow else { return }
-            self.closedByFocusLoss = true
-            self.dismiss()
+            self.closeForFocusLoss()
         }
     }
 
@@ -133,13 +238,15 @@ final class FloatingPanel: NSPanel {
 
     /// Swaps in another screen (e.g. Browse → edit → Browse) inside the same card: the card resizes
     /// and the contents cross-fade, instead of one panel fading out and a new one zooming in.
+    /// The height change uses a bounce-free curve: a spring with bounce would overshoot by an amount
+    /// that grows with the height difference, so big swaps (edit → list) would settle visibly.
     /// The previous screen's `willClose` runs first; `keyHandler` is cleared for the caller to set.
     func replaceContent<Content: View>(@ViewBuilder _ content: () -> Content) {
         willClose?()
         willClose = nil
         keyHandler = nil
         let view = AnyView(content())
-        withAnimation(Self.reduceMotion ? .easeOut(duration: 0.15) : .snappy(duration: 0.26)) {
+        withAnimation(Self.reduceMotion ? .easeOut(duration: 0.15) : .smooth(duration: 0.26)) {
             presentation.content = view
             presentation.contentID += 1
         }
@@ -156,6 +263,10 @@ final class FloatingPanel: NSPanel {
         guard !didClose else { return }
         didClose = true
         keyHandler = nil
+        stopWatchingMouse()
+        if previewSource != nil, QLPreviewPanel.sharedPreviewPanelExists() {
+            QLPreviewPanel.shared()?.orderOut(nil)
+        }
         ignoresMouseEvents = true
         willClose?()
         willClose = nil
@@ -191,6 +302,8 @@ final class PanelPresentation {
     /// The current screen; `contentID` changes with it so the swap is a transition.
     var content = AnyView(EmptyView())
     var contentID = 0
+    /// Where the card is inside the window (SwiftUI's window space), kept up to date by `PanelRoot`.
+    var cardFrame = CGRect.zero
 }
 
 extension EnvironmentValues {
@@ -198,10 +311,10 @@ extension EnvironmentValues {
     @Entry var panelState: PanelPresentation.State = .shown
 }
 
-/// The panel's root: one card for every screen the panel shows, Spotlight-style entrance (fade in
-/// while settling from a slight zoom; fade only with Reduce Motion) and a quick fade out, inside
-/// the transparent window margin. Screens swapped by `replaceContent` cross-fade, top-aligned,
-/// while the card animates to the new height.
+/// The panel's root: one card for every screen the panel shows, pinned to the top of the (taller,
+/// transparent) window, with a Spotlight-style entrance (fade in while settling from a slight
+/// zoom; fade only with Reduce Motion) and a quick fade out. Screens swapped by `replaceContent`
+/// cross-fade, top-aligned, while the card animates to the new height; the window stays put.
 private struct PanelRoot: View {
     let presentation: PanelPresentation
     let width: CGFloat
@@ -212,24 +325,20 @@ private struct PanelRoot: View {
             ZStack(alignment: .top) {
                 presentation.content
                     .id(presentation.contentID)
-                    .transition(screenTransition)
+                    // A plain cross-fade, like changes within a screen (quadrants → list). Zooming the
+                    // incoming screen re-rasterised its text at sub-pixel offsets every frame, which
+                    // made it shimmer by a pixel until the animation settled.
+                    .transition(.opacity)
             }
             .frame(maxWidth: .infinity, alignment: .top)
         }
             .frame(width: width)
             .environment(\.panelState, presentation.state)
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { presentation.cardFrame = $0 }
             .scaleEffect(scale)
             .opacity(presentation.state == .shown ? 1 : 0)
             .padding(FloatingPanel.margin)
-    }
-
-    /// The incoming screen settles from a hair larger, the outgoing one fades on its own.
-    private var screenTransition: AnyTransition {
-        guard !reduceMotion else { return .opacity }
-        return .asymmetric(
-            insertion: .opacity.combined(with: .scale(scale: 1.01, anchor: .top)),
-            removal: .opacity
-        )
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
     }
 
     private var scale: CGFloat {
@@ -255,6 +364,9 @@ struct PanelCard<Content: View>: View {
     var body: some View {
         content
             .padding(16)
+            // While the card grows to a taller screen, the new screen is laid out at its full height
+            // already; without this it would show below the card's edge until the card catches up.
+            .clipShape(Self.shape)
             .background { PanelBackground(shape: Self.shape) }
             .background { PanelShadow(shape: Self.shape) }
     }

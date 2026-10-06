@@ -26,15 +26,19 @@ public final class TodoStore {
 
     let modelContainer: ModelContainer
     public let context: ModelContext
+    /// The todos' attached files; `nil` for stores without attachments (most tests).
+    public let attachments: AttachmentStore?
     private let now: @Sendable () -> Date
     private let didWrite: (@MainActor () -> Void)?
 
     public init(
         modelContainer: ModelContainer,
+        attachments: AttachmentStore? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         didWrite: (@MainActor () -> Void)? = nil
     ) {
         self.modelContainer = modelContainer
+        self.attachments = attachments
         self.context = modelContainer.mainContext
         self.now = now
         self.didWrite = didWrite
@@ -47,16 +51,20 @@ public final class TodoStore {
         now: @escaping @Sendable () -> Date = { Date() },
         didWrite: (@MainActor () -> Void)? = { TodoStore.reloadWidgetTimelines() }
     ) throws -> TodoStore {
-        try TodoStore(modelContainer: makeContainer(url: sharedStoreURL()), now: now, didWrite: didWrite)
+        try TodoStore(
+            modelContainer: makeContainer(url: sharedStoreURL()), attachments: AttachmentStore.shared(),
+            now: now, didWrite: didWrite
+        )
     }
 
     /// A store on a SQLite file at `url` (tests, tools).
     static func onDisk(
         url: URL,
+        attachments: AttachmentStore? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         didWrite: (@MainActor () -> Void)? = nil
     ) throws -> TodoStore {
-        try TodoStore(modelContainer: makeContainer(url: url), now: now, didWrite: didWrite)
+        try TodoStore(modelContainer: makeContainer(url: url), attachments: attachments, now: now, didWrite: didWrite)
     }
 
     /// The App Group store URL: `<group container>/Library/Application Support/Howy.store`.
@@ -84,13 +92,14 @@ public final class TodoStore {
 
     /// An in-memory store for tests and previews.
     public static func inMemory(
+        attachments: AttachmentStore? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         didWrite: (@MainActor () -> Void)? = nil
     ) throws -> TodoStore {
         let schema = Schema(versionedSchema: HowySchemaV1.self)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, migrationPlan: HowyMigrationPlan.self, configurations: configuration)
-        return TodoStore(modelContainer: container, now: now, didWrite: didWrite)
+        return TodoStore(modelContainer: container, attachments: attachments, now: now, didWrite: didWrite)
     }
 
     /// Asks WidgetKit to reload every Howy widget timeline.
@@ -103,9 +112,9 @@ public final class TodoStore {
     // MARK: Writes
 
     @discardableResult
-    public func add(title: String, note: String = "", quadrant: Quadrant) throws -> Todo {
+    public func add(id: UUID = UUID(), title: String, note: String = "", quadrant: Quadrant) throws -> Todo {
         let title = try Self.validated(title)
-        let todo = Todo(title: title, note: note, quadrant: quadrant, createdAt: now())
+        let todo = Todo(id: id, title: title, note: note, quadrant: quadrant, createdAt: now())
         context.insert(todo)
         try commit()
         return todo
@@ -162,13 +171,22 @@ public final class TodoStore {
         try commit()
     }
 
+    /// Deletes the todo and its attached files.
     public func delete(id: UUID) throws {
         context.delete(try require(id))
         try commit()
+        attachments?.removeAll(for: id)
     }
 
-    /// Deletes archived todos completed more than 7 days before `now` (default: the injected clock).
-    /// A todo completed exactly 7 days ago is kept. Returns the number removed.
+    /// Makes `list` the todo's attachments (see `AttachmentStore.commit`); reloads widgets when
+    /// that changed anything, since they show a paperclip.
+    public func setAttachments(_ list: [TodoAttachment], for id: UUID) throws {
+        guard let attachments else { return }
+        if try attachments.commit(list, for: id) { didWrite?() }
+    }
+
+    /// Deletes archived todos (and their files) completed more than 7 days before `now` (default:
+    /// the injected clock). A todo completed exactly 7 days ago is kept. Returns the number removed.
     @discardableResult
     public func purgeArchive(now: Date? = nil) throws -> Int {
         let cutoff = (now ?? self.now()).addingTimeInterval(-Self.archiveRetention)
@@ -176,9 +194,11 @@ public final class TodoStore {
             todo.completedAt.flatMap { $0 < cutoff } == true
         }))
         guard !expired.isEmpty else { return 0 }
+        let ids = expired.map(\.id)
         expired.forEach(context.delete)
         try commit()
-        return expired.count
+        ids.forEach { attachments?.removeAll(for: $0) }
+        return ids.count
     }
 
     // MARK: Reads
@@ -210,9 +230,21 @@ public final class TodoStore {
     public func openSnapshots() throws -> [Quadrant: [TodoSnapshot]] {
         var result: [Quadrant: [TodoSnapshot]] = [:]
         for quadrant in Quadrant.allCases {
-            result[quadrant] = try openTodos(in: quadrant).map(\.snapshot)
+            result[quadrant] = try openTodos(in: quadrant).map(snapshot(of:))
         }
         return result
+    }
+
+    /// A todo as a value, with its attachment count.
+    public func snapshot(of todo: Todo) -> TodoSnapshot {
+        var snapshot = todo.snapshot
+        snapshot.attachmentCount = attachments?.attachments(for: todo.id).count ?? 0
+        return snapshot
+    }
+
+    /// A todo's committed attachments, in order.
+    public func attachmentList(for id: UUID) -> [TodoAttachment] {
+        attachments?.attachments(for: id) ?? []
     }
 
     // MARK: Helpers
