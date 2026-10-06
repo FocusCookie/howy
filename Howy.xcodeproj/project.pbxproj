@@ -1,0 +1,607 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		019CF87496B336BC20D191A9 /* HowyWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E9FE3030E07090E9F8BC6F18 /* HowyWidgets.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
+		0BEB18744CD3292407B6FAF5 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = E4F76CE09D2B7F3E46E75BB9 /* KeyboardShortcuts */; };
+		20BEB12BB1D529D71CD38B23 /* HowyWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 118DD4D73296779867497E3E /* HowyWidgetsBundle.swift */; };
+		244FECEB4C6C6B3194C8803E /* AppController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA157940BCFA22FDF04BFD5 /* AppController.swift */; };
+		25D5B2A27CCBCFF8ABBB75B0 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5509DAF1BE87FB19D03ADA /* BrowseView.swift */; };
+		382DA95CE190BB17CDE95C7D /* QuickEntryModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4C67371D1BD06CC98E9938C2 /* QuickEntryModel.swift */; };
+		4CA80814C4F06C0B28A1BDEA /* HowyCore in Frameworks */ = {isa = PBXBuildFile; productRef = CEC58E681F37DE007F0CB3BE /* HowyCore */; };
+		5D63323548115299DB3B4CD3 /* ErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E7FED2B1EF708C91DEA9C54 /* ErrorView.swift */; };
+		68F67A4A7A8F6DCCD7645F39 /* CompleteTodoIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B983BC97682573579868AD1 /* CompleteTodoIntent.swift */; };
+		697598A21BE560FE7EAA3D0A /* QuadrantSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F9E894BCBF91E34D384F6D /* QuadrantSectionView.swift */; };
+		7B8617FF23F33CDA934FF17B /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */; };
+		87597DDB9BF1C8A5DB3B686C /* Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CA0B7EB52C029E60626C72D /* Shortcuts.swift */; };
+		882E6D310D0C467DF5D54791 /* QuickEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863690EEA21F9E6873E85406 /* QuickEntryView.swift */; };
+		90CAB29D5AFA6A47AD728A80 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1849ED8A8D6DAF74152C550F /* WidgetKit.framework */; };
+		97DAF4E1F5C8FFDFDE99EF36 /* QuadrantGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */; };
+		98988958D07DD7B453ECF9BD /* QuadrantWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF7864E63A309407B19B6FBB /* QuadrantWidget.swift */; };
+		9B761ADAED73A65DF3F6BE2B /* FloatingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FFCC700EF1E05B8C1E3D8BD /* FloatingPanel.swift */; };
+		B43A9308E89E286F488BAA7E /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 592A97D5AAA1C221E9A3CB09 /* SwiftUI.framework */; };
+		B77C098ACFE28CB2EC6E5A8F /* QuadrantOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C9E76EDAD31A9A47FC7ACF /* QuadrantOption.swift */; };
+		B78F79856B67B0C7107B52B4 /* MarkdownNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84290BBDBCD49A56EEA94F7B /* MarkdownNoteEditor.swift */; };
+		C5639B016D47EB71A3CE9DC1 /* HowyCore in Frameworks */ = {isa = PBXBuildFile; productRef = E5EBC8E946015D2A35A22D00 /* HowyCore */; };
+		CDFC60838C8D93BA083DE9B0 /* MatrixWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25C03950EBBF841ECF760DEA /* MatrixWidget.swift */; };
+		D707E4AD8D4B61428DE72FE0 /* ShortcutRecorder.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3809069098234A71ADA3218F /* ShortcutRecorder.swift */; };
+		DE48955C881B5F50A5581DEC /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7F9104238927E773B54C4668 /* SettingsView.swift */; };
+		EB8D902146CAB44DDD4BC4FC /* LauncherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C36129D26F9300D8846BDBF0 /* LauncherView.swift */; };
+		ED11D9CDEE5DAB429F3CE181 /* HowyApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5D8838F23A0C476077574AA5 /* HowyApp.swift */; };
+		F06594C81CF5B817C94F2B71 /* ArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		9F09AF14E45268BE24453DA5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = DB307E32D78F001328046DD1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 3676F6FA2678A2D1786753FC;
+			remoteInfo = HowyWidgets;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		120D7D4AD0F57C475ED6F25A /* Embed Foundation Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				019CF87496B336BC20D191A9 /* HowyWidgets.appex in Embed Foundation Extensions */,
+			);
+			name = "Embed Foundation Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		07826C86F3F5CB305345155D /* HowyWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HowyWidgets.entitlements; sourceTree = "<group>"; };
+		118DD4D73296779867497E3E /* HowyWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowyWidgetsBundle.swift; sourceTree = "<group>"; };
+		1849ED8A8D6DAF74152C550F /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
+		1DFCC3BAAE7282D02BA9592F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		1FFCC700EF1E05B8C1E3D8BD /* FloatingPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FloatingPanel.swift; sourceTree = "<group>"; };
+		20444C9F3B7F7B7BCF0C2245 /* Howy.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Howy.entitlements; sourceTree = "<group>"; };
+		25C03950EBBF841ECF760DEA /* MatrixWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MatrixWidget.swift; sourceTree = "<group>"; };
+		280FD78D51B44CA4BB54E1B7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		3809069098234A71ADA3218F /* ShortcutRecorder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShortcutRecorder.swift; sourceTree = "<group>"; };
+		3B983BC97682573579868AD1 /* CompleteTodoIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompleteTodoIntent.swift; sourceTree = "<group>"; };
+		4C67371D1BD06CC98E9938C2 /* QuickEntryModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEntryModel.swift; sourceTree = "<group>"; };
+		592A97D5AAA1C221E9A3CB09 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
+		59A555489BCA3149A8A9B9C0 /* Howy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Howy.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		5D8838F23A0C476077574AA5 /* HowyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowyApp.swift; sourceTree = "<group>"; };
+		63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
+		7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
+		7F9104238927E773B54C4668 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		82DDD24CA1511C11CC068778 /* HowyCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = HowyCore; path = Packages/HowyCore; sourceTree = SOURCE_ROOT; };
+		84290BBDBCD49A56EEA94F7B /* MarkdownNoteEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownNoteEditor.swift; sourceTree = "<group>"; };
+		863690EEA21F9E6873E85406 /* QuickEntryView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuickEntryView.swift; sourceTree = "<group>"; };
+		8B5509DAF1BE87FB19D03ADA /* BrowseView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BrowseView.swift; sourceTree = "<group>"; };
+		8CA0B7EB52C029E60626C72D /* Shortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Shortcuts.swift; sourceTree = "<group>"; };
+		9E7FED2B1EF708C91DEA9C54 /* ErrorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ErrorView.swift; sourceTree = "<group>"; };
+		9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantGrid.swift; sourceTree = "<group>"; };
+		AAA157940BCFA22FDF04BFD5 /* AppController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppController.swift; sourceTree = "<group>"; };
+		C36129D26F9300D8846BDBF0 /* LauncherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherView.swift; sourceTree = "<group>"; };
+		C4F9E894BCBF91E34D384F6D /* QuadrantSectionView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantSectionView.swift; sourceTree = "<group>"; };
+		CF7864E63A309407B19B6FBB /* QuadrantWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantWidget.swift; sourceTree = "<group>"; };
+		D1C9E76EDAD31A9A47FC7ACF /* QuadrantOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantOption.swift; sourceTree = "<group>"; };
+		E9FE3030E07090E9F8BC6F18 /* HowyWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HowyWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		0412FB595A05CAD2E1634DEE /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				4CA80814C4F06C0B28A1BDEA /* HowyCore in Frameworks */,
+				90CAB29D5AFA6A47AD728A80 /* WidgetKit.framework in Frameworks */,
+				B43A9308E89E286F488BAA7E /* SwiftUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E91A15C8DE49803803688498 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C5639B016D47EB71A3CE9DC1 /* HowyCore in Frameworks */,
+				0BEB18744CD3292407B6FAF5 /* KeyboardShortcuts in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		10E9664554C913A918517FC5 /* HowyWidgets */ = {
+			isa = PBXGroup;
+			children = (
+				3B983BC97682573579868AD1 /* CompleteTodoIntent.swift */,
+				07826C86F3F5CB305345155D /* HowyWidgets.entitlements */,
+				118DD4D73296779867497E3E /* HowyWidgetsBundle.swift */,
+				280FD78D51B44CA4BB54E1B7 /* Info.plist */,
+				25C03950EBBF841ECF760DEA /* MatrixWidget.swift */,
+				D1C9E76EDAD31A9A47FC7ACF /* QuadrantOption.swift */,
+				C4F9E894BCBF91E34D384F6D /* QuadrantSectionView.swift */,
+				CF7864E63A309407B19B6FBB /* QuadrantWidget.swift */,
+				63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */,
+			);
+			path = HowyWidgets;
+			sourceTree = "<group>";
+		};
+		2FB6E5ADCA31B247EBEC5B02 /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				592A97D5AAA1C221E9A3CB09 /* SwiftUI.framework */,
+				1849ED8A8D6DAF74152C550F /* WidgetKit.framework */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		4DD3C3EC30E302BB6CE4D88F = {
+			isa = PBXGroup;
+			children = (
+				5566004A7876F8CCB6BD31DD /* Howy */,
+				10E9664554C913A918517FC5 /* HowyWidgets */,
+				59DBBC12AA6E401439073038 /* Packages */,
+				2FB6E5ADCA31B247EBEC5B02 /* Frameworks */,
+				8B8EACE6791151D904412A66 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5566004A7876F8CCB6BD31DD /* Howy */ = {
+			isa = PBXGroup;
+			children = (
+				AAA157940BCFA22FDF04BFD5 /* AppController.swift */,
+				7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */,
+				8B5509DAF1BE87FB19D03ADA /* BrowseView.swift */,
+				9E7FED2B1EF708C91DEA9C54 /* ErrorView.swift */,
+				1FFCC700EF1E05B8C1E3D8BD /* FloatingPanel.swift */,
+				20444C9F3B7F7B7BCF0C2245 /* Howy.entitlements */,
+				5D8838F23A0C476077574AA5 /* HowyApp.swift */,
+				1DFCC3BAAE7282D02BA9592F /* Info.plist */,
+				C36129D26F9300D8846BDBF0 /* LauncherView.swift */,
+				84290BBDBCD49A56EEA94F7B /* MarkdownNoteEditor.swift */,
+				9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */,
+				4C67371D1BD06CC98E9938C2 /* QuickEntryModel.swift */,
+				863690EEA21F9E6873E85406 /* QuickEntryView.swift */,
+				7F9104238927E773B54C4668 /* SettingsView.swift */,
+				3809069098234A71ADA3218F /* ShortcutRecorder.swift */,
+				8CA0B7EB52C029E60626C72D /* Shortcuts.swift */,
+			);
+			path = Howy;
+			sourceTree = "<group>";
+		};
+		59DBBC12AA6E401439073038 /* Packages */ = {
+			isa = PBXGroup;
+			children = (
+				82DDD24CA1511C11CC068778 /* HowyCore */,
+			);
+			path = Packages;
+			sourceTree = "<group>";
+		};
+		8B8EACE6791151D904412A66 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				59A555489BCA3149A8A9B9C0 /* Howy.app */,
+				E9FE3030E07090E9F8BC6F18 /* HowyWidgets.appex */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		3676F6FA2678A2D1786753FC /* HowyWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 66B48DD84824A3E8227FD3EB /* Build configuration list for PBXNativeTarget "HowyWidgets" */;
+			buildPhases = (
+				FFA66A8F569B5947B8BC710C /* Sources */,
+				0412FB595A05CAD2E1634DEE /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = HowyWidgets;
+			packageProductDependencies = (
+				CEC58E681F37DE007F0CB3BE /* HowyCore */,
+			);
+			productName = HowyWidgets;
+			productReference = E9FE3030E07090E9F8BC6F18 /* HowyWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		56F1319CBBBABE9C9C8A334D /* Howy */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 5E17AD9811F1BA13140EA77E /* Build configuration list for PBXNativeTarget "Howy" */;
+			buildPhases = (
+				F5E70010D6395CF727BAA9A8 /* Sources */,
+				E91A15C8DE49803803688498 /* Frameworks */,
+				120D7D4AD0F57C475ED6F25A /* Embed Foundation Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				5406EDAEC6AE3B03C58204DB /* PBXTargetDependency */,
+			);
+			name = Howy;
+			packageProductDependencies = (
+				E5EBC8E946015D2A35A22D00 /* HowyCore */,
+				E4F76CE09D2B7F3E46E75BB9 /* KeyboardShortcuts */,
+			);
+			productName = Howy;
+			productReference = 59A555489BCA3149A8A9B9C0 /* Howy.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		DB307E32D78F001328046DD1 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					3676F6FA2678A2D1786753FC = {
+						DevelopmentTeam = GQ9M79TF33;
+						ProvisioningStyle = Automatic;
+					};
+					56F1319CBBBABE9C9C8A334D = {
+						DevelopmentTeam = GQ9M79TF33;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 1C3E716EBD295C4605822872 /* Build configuration list for PBXProject "Howy" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 4DD3C3EC30E302BB6CE4D88F;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				FB65FDB3719EBC21AC7A90BD /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */,
+				11D2F8B05CFA4257F40A1469 /* XCLocalSwiftPackageReference "Packages/HowyCore" */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 8B8EACE6791151D904412A66 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				56F1319CBBBABE9C9C8A334D /* Howy */,
+				3676F6FA2678A2D1786753FC /* HowyWidgets */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		F5E70010D6395CF727BAA9A8 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				244FECEB4C6C6B3194C8803E /* AppController.swift in Sources */,
+				F06594C81CF5B817C94F2B71 /* ArchiveView.swift in Sources */,
+				25D5B2A27CCBCFF8ABBB75B0 /* BrowseView.swift in Sources */,
+				5D63323548115299DB3B4CD3 /* ErrorView.swift in Sources */,
+				9B761ADAED73A65DF3F6BE2B /* FloatingPanel.swift in Sources */,
+				ED11D9CDEE5DAB429F3CE181 /* HowyApp.swift in Sources */,
+				EB8D902146CAB44DDD4BC4FC /* LauncherView.swift in Sources */,
+				B78F79856B67B0C7107B52B4 /* MarkdownNoteEditor.swift in Sources */,
+				97DAF4E1F5C8FFDFDE99EF36 /* QuadrantGrid.swift in Sources */,
+				382DA95CE190BB17CDE95C7D /* QuickEntryModel.swift in Sources */,
+				882E6D310D0C467DF5D54791 /* QuickEntryView.swift in Sources */,
+				DE48955C881B5F50A5581DEC /* SettingsView.swift in Sources */,
+				D707E4AD8D4B61428DE72FE0 /* ShortcutRecorder.swift in Sources */,
+				87597DDB9BF1C8A5DB3B686C /* Shortcuts.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		FFA66A8F569B5947B8BC710C /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				68F67A4A7A8F6DCCD7645F39 /* CompleteTodoIntent.swift in Sources */,
+				20BEB12BB1D529D71CD38B23 /* HowyWidgetsBundle.swift in Sources */,
+				CDFC60838C8D93BA083DE9B0 /* MatrixWidget.swift in Sources */,
+				B77C098ACFE28CB2EC6E5A8F /* QuadrantOption.swift in Sources */,
+				697598A21BE560FE7EAA3D0A /* QuadrantSectionView.swift in Sources */,
+				98988958D07DD7B453ECF9BD /* QuadrantWidget.swift in Sources */,
+				7B8617FF23F33CDA934FF17B /* WidgetData.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		5406EDAEC6AE3B03C58204DB /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 3676F6FA2678A2D1786753FC /* HowyWidgets */;
+			targetProxy = 9F09AF14E45268BE24453DA5 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		2FB28E8D5CA7F5A78C940AFC /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = GQ9M79TF33;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		45B1A4FF3EECBA978F82C5C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = GQ9M79TF33;
+				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 27.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		5DED95F57C978DCB7DDF89C4 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = HowyWidgets/HowyWidgets.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = HowyWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.lichtwart.howy.widgets;
+				PRODUCT_NAME = HowyWidgets;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Debug;
+		};
+		66B4646538FE1FFA8282869E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = HowyWidgets/HowyWidgets.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = HowyWidgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.lichtwart.howy.widgets;
+				PRODUCT_NAME = HowyWidgets;
+				SDKROOT = macosx;
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		9DF695369412C8F8A1BE5A16 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Howy/Howy.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Howy/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.lichtwart.howy;
+				PRODUCT_NAME = Howy;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		DBAD6FE349339B141180637C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Howy/Howy.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_APP_SANDBOX = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Howy/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = io.lichtwart.howy;
+				PRODUCT_NAME = Howy;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1C3E716EBD295C4605822872 /* Build configuration list for PBXProject "Howy" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				45B1A4FF3EECBA978F82C5C4 /* Debug */,
+				2FB28E8D5CA7F5A78C940AFC /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		5E17AD9811F1BA13140EA77E /* Build configuration list for PBXNativeTarget "Howy" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DBAD6FE349339B141180637C /* Debug */,
+				9DF695369412C8F8A1BE5A16 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		66B48DD84824A3E8227FD3EB /* Build configuration list for PBXNativeTarget "HowyWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				5DED95F57C978DCB7DDF89C4 /* Debug */,
+				66B4646538FE1FFA8282869E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		11D2F8B05CFA4257F40A1469 /* XCLocalSwiftPackageReference "Packages/HowyCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = Packages/HowyCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		FB65FDB3719EBC21AC7A90BD /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/sindresorhus/KeyboardShortcuts";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.4.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		CEC58E681F37DE007F0CB3BE /* HowyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HowyCore;
+		};
+		E4F76CE09D2B7F3E46E75BB9 /* KeyboardShortcuts */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = FB65FDB3719EBC21AC7A90BD /* XCRemoteSwiftPackageReference "KeyboardShortcuts" */;
+			productName = KeyboardShortcuts;
+		};
+		E5EBC8E946015D2A35A22D00 /* HowyCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = HowyCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = DB307E32D78F001328046DD1 /* Project object */;
+}

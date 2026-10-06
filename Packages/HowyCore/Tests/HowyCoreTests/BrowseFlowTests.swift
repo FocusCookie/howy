@@ -1,0 +1,281 @@
+import Foundation
+import Testing
+@testable import HowyCore
+
+@MainActor
+@Suite struct BrowseFlowTests {
+    func todos(_ quadrant: Quadrant, _ titles: [String]) -> [TodoSnapshot] {
+        titles.map { TodoSnapshot(id: UUID(), title: $0, quadrant: quadrant) }
+    }
+
+    func make(q1: [String] = ["c", "b", "a"], q2: [String] = [], q3: [String] = ["x"], q4: [String] = []) -> BrowseFlow {
+        BrowseFlow(todos: [
+            .urgentImportant: todos(.urgentImportant, q1),
+            .notUrgentImportant: todos(.notUrgentImportant, q2),
+            .urgentUnimportant: todos(.urgentUnimportant, q3),
+            .notUrgentUnimportant: todos(.notUrgentUnimportant, q4),
+        ])
+    }
+
+    func titles(_ flow: BrowseFlow) -> [String] { flow.rows.map(\.title) }
+
+    // MARK: picker
+
+    @Test func startsInPickerWithCounts() {
+        let flow = make()
+        #expect(flow.phase == .picking)
+        #expect(flow.quadrant == .urgentImportant)
+        #expect(flow.count(in: .urgentImportant) == 3)
+        #expect(flow.count(in: .notUrgentImportant) == 0)
+        #expect(flow.count(in: .urgentUnimportant) == 1)
+        #expect(flow.count(in: .notUrgentUnimportant) == 0)
+        #expect(flow.selectedIndex == nil)
+    }
+
+    @Test func missingQuadrantsCountAsEmpty() {
+        let flow = BrowseFlow(todos: [:])
+        #expect(Quadrant.allCases.allSatisfy { flow.count(in: $0) == 0 })
+    }
+
+    @Test func arrowsMoveAndClampInPicker() {
+        let flow = make()
+        #expect(flow.handle(.left) == .handled)
+        #expect(flow.quadrant == .urgentImportant)
+        flow.handle(.right)
+        flow.handle(.down)
+        #expect(flow.quadrant == .notUrgentUnimportant)
+        flow.handle(.down)
+        #expect(flow.quadrant == .notUrgentUnimportant)
+        #expect(flow.phase == .picking)
+    }
+
+    @Test(arguments: [QuickEntryKey.enter, .tab])
+    func enterOpensTheHighlightedQuadrant(key: QuickEntryKey) {
+        let flow = make()
+        flow.handle(.down)
+        #expect(flow.handle(key) == .handled)
+        #expect(flow.phase == .listing)
+        #expect(flow.quadrant == .urgentUnimportant)
+        #expect(titles(flow) == ["x"])
+        #expect(flow.selectedIndex == 0)
+    }
+
+    @Test func digitJumpsStraightToTheList() {
+        let flow = make()
+        #expect(flow.handle(.digit(1)) == .handled)
+        #expect(flow.phase == .listing)
+        #expect(titles(flow) == ["c", "b", "a"], "newest first, as given")
+        #expect(flow.selectedIndex == 0)
+    }
+
+    @Test(arguments: [QuickEntryKey.other, .space, .digit(7), .shiftTab, .commandEnter])
+    func pickerSwallowsKeysWithNothingToDo(key: QuickEntryKey) {
+        let flow = make()
+        #expect(flow.handle(key) == .handled)
+        #expect(flow.phase == .picking)
+    }
+
+    @Test func escapeInPickerCloses() {
+        let flow = make()
+        #expect(flow.handle(.escape) == .close)
+        #expect(flow.phase == .closed)
+        #expect(flow.handle(.enter) == .ignored, "closed flow ignores keys")
+    }
+
+    // MARK: list
+
+    @Test func emptyQuadrantListHasNoSelection() {
+        let flow = make()
+        flow.choose(.notUrgentImportant)
+        #expect(flow.phase == .listing)
+        #expect(flow.rows.isEmpty)
+        #expect(flow.selectedIndex == nil)
+        #expect(flow.handle(.enter) == .handled)
+        #expect(flow.handle(.space) == .handled)
+        #expect(flow.handle(.down) == .handled)
+        #expect(flow.selectedIndex == nil)
+    }
+
+    @Test func upDownMoveSelectionAndClamp() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.up)
+        #expect(flow.selectedIndex == 0)
+        flow.handle(.down)
+        flow.handle(.down)
+        flow.handle(.down)
+        #expect(flow.selectedIndex == 2)
+        flow.handle(.up)
+        #expect(flow.selectedTodo?.title == "b")
+    }
+
+    @Test func enterOpensTheSelectedTodo() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        let id = flow.rows[1].id
+        #expect(flow.handle(.enter) == .open(id))
+    }
+
+    @Test(arguments: [QuickEntryKey.escape, .shiftTab])
+    func escapeOrShiftTabGoesBackToPicker(key: QuickEntryKey) {
+        let flow = make()
+        flow.choose(.urgentUnimportant)
+        #expect(flow.handle(key) == .handled)
+        #expect(flow.phase == .picking)
+        #expect(flow.quadrant == .urgentUnimportant, "picker keeps the quadrant highlighted")
+        #expect(flow.selectedIndex == nil)
+    }
+
+    @Test func digitInListSwitchesQuadrant() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        #expect(flow.handle(.digit(3)) == .handled)
+        #expect(flow.phase == .listing)
+        #expect(titles(flow) == ["x"])
+        #expect(flow.selectedIndex == 0)
+    }
+
+    @Test func listIgnoresTypingButConsumesIt() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        #expect(flow.handle(.other) == .handled)
+        #expect(flow.handle(.left) == .handled)
+        #expect(flow.phase == .listing)
+    }
+
+    // MARK: completing
+
+    @Test func spaceCompletesTheSelectedRowAndKeepsThePosition() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        let middle = flow.rows[1].id
+        #expect(flow.handle(.space) == .complete(middle))
+        #expect(titles(flow) == ["c", "a"])
+        #expect(flow.selectedTodo?.title == "a", "the next row moves up under the selection")
+        #expect(flow.count(in: .urgentImportant) == 2)
+    }
+
+    @Test func completingTheLastRowSelectsTheNewLast() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        flow.handle(.down)
+        flow.handle(.space)
+        #expect(titles(flow) == ["c", "b"])
+        #expect(flow.selectedIndex == 1)
+    }
+
+    @Test func completingTheOnlyRowLeavesNoSelection() {
+        let flow = make()
+        flow.choose(.urgentUnimportant)
+        flow.handle(.space)
+        #expect(flow.rows.isEmpty)
+        #expect(flow.selectedIndex == nil)
+        #expect(flow.count(in: .urgentUnimportant) == 0)
+        #expect(flow.phase == .listing, "stays on the (now empty) list")
+    }
+
+    @Test func completingByIdAboveTheSelectionKeepsTheSelectedTodo() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        flow.handle(.down) // "a"
+        let first = flow.rows[0].id
+        #expect(flow.complete(id: first))
+        #expect(flow.selectedTodo?.title == "a")
+        #expect(!flow.complete(id: UUID()), "unknown id")
+    }
+
+    @Test func reloadKeepsTheSelectedTodoWhenStillThere() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down) // "b"
+        let b = flow.rows[1]
+        flow.reload([.urgentImportant: [TodoSnapshot(id: UUID(), title: "new", quadrant: .urgentImportant)] + flow.rows])
+        #expect(flow.selectedTodo == b)
+        flow.reload([.urgentImportant: []])
+        #expect(flow.selectedIndex == nil)
+        #expect(flow.count(in: .urgentUnimportant) == 0)
+    }
+
+    @Test func pointerSelect() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.select(id: flow.rows[2].id)
+        #expect(flow.selectedIndex == 2)
+        flow.select(id: UUID())
+        #expect(flow.selectedIndex == 2)
+    }
+
+    // MARK: back from editing
+
+    @Test func resumeListingSelectsTheEditedTodo() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        let edited = flow.rows[1].id
+        flow.backToPicker()
+        flow.resumeListing(.urgentImportant, selecting: edited, fallbackIndex: 1)
+        #expect(flow.phase == .listing)
+        #expect(flow.quadrant == .urgentImportant)
+        #expect(flow.selectedTodo?.id == edited)
+    }
+
+    @Test func resumeListingFallsBackToTheOldPositionWhenTheTodoIsGone() {
+        let flow = make()
+        flow.resumeListing(.urgentImportant, selecting: UUID(), fallbackIndex: 1)
+        #expect(flow.selectedIndex == 1)
+        flow.resumeListing(.urgentImportant, selecting: UUID(), fallbackIndex: 7)
+        #expect(flow.selectedIndex == 2)
+    }
+
+    @Test func resumeListingOnAnEmptyQuadrantSelectsNothing() {
+        let flow = make()
+        flow.resumeListing(.notUrgentImportant, selecting: UUID(), fallbackIndex: 0)
+        #expect(flow.phase == .listing)
+        #expect(flow.selectedIndex == nil)
+    }
+
+    @Test func escapeAfterResumingGoesBackToThePicker() {
+        let flow = make()
+        flow.resumeListing(.urgentUnimportant, selecting: nil, fallbackIndex: 0)
+        #expect(flow.handle(.escape) == .handled)
+        #expect(flow.phase == .picking)
+        #expect(flow.handle(.escape) == .close)
+    }
+
+    // MARK: reordering
+
+    @Test func commandKeysMoveTheSelectedRowAndKeepItSelected() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        #expect(flow.handle(.moveDown) == .reorder(.urgentImportant))
+        #expect(titles(flow) == ["b", "c", "a"])
+        #expect(flow.selectedTodo?.title == "c")
+        #expect(flow.handle(.moveDown) == .reorder(.urgentImportant))
+        #expect(titles(flow) == ["b", "a", "c"])
+        #expect(flow.handle(.moveDown) == .handled) // already last
+        #expect(flow.handle(.moveUp) == .reorder(.urgentImportant))
+        #expect(titles(flow) == ["b", "c", "a"])
+        #expect(flow.selectedIndex == 1)
+    }
+
+    @Test func moveKeysDoNothingInPickerOrEmptyList() {
+        let flow = make()
+        #expect(flow.handle(.moveDown) == .handled)
+        flow.choose(.notUrgentImportant)
+        #expect(flow.handle(.moveUp) == .handled)
+    }
+
+    @Test func dragMoveClampsAndSelectionFollowsItsTodo() throws {
+        let flow = make()
+        flow.choose(.urgentImportant) // selects "c"
+        let a = try #require(flow.rows.last)
+        #expect(flow.move(id: a.id, to: -5))
+        #expect(titles(flow) == ["a", "c", "b"])
+        #expect(flow.selectedTodo?.title == "c")
+        #expect(!flow.move(id: a.id, to: 0))
+        #expect(flow.count(in: .urgentImportant) == 3)
+    }
+}
