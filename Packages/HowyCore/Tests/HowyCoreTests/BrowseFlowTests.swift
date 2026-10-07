@@ -68,7 +68,7 @@ import Testing
         #expect(flow.selectedIndex == 0)
     }
 
-    @Test(arguments: [QuickEntryKey.other, .space, .digit(7), .shiftTab, .commandEnter])
+    @Test(arguments: [QuickEntryKey.other, .space, .letter("d"), .digit(7), .shiftTab, .commandEnter])
     func pickerSwallowsKeysWithNothingToDo(key: QuickEntryKey) {
         let flow = make()
         #expect(flow.handle(key) == .handled)
@@ -153,7 +153,7 @@ import Testing
         #expect(flow.rows.isEmpty)
         #expect(flow.selectedIndex == nil)
         #expect(flow.handle(.enter) == .handled)
-        #expect(flow.handle(.space) == .handled)
+        #expect(flow.handle(.letter("d")) == .handled)
         #expect(flow.handle(.down) == .handled)
         #expect(flow.selectedIndex == nil)
     }
@@ -208,12 +208,12 @@ import Testing
 
     // MARK: completing
 
-    @Test func spaceCompletesTheSelectedRowAndKeepsThePosition() {
+    @Test func dCompletesTheSelectedRowAndKeepsThePosition() {
         let flow = make()
         flow.choose(.urgentImportant)
         flow.handle(.down)
         let middle = flow.rows[1].id
-        #expect(flow.handle(.space) == .complete(middle))
+        #expect(flow.handle(.letter("d")) == .complete(middle))
         #expect(titles(flow) == ["c", "a"])
         #expect(flow.selectedTodo?.title == "a", "the next row moves up under the selection")
         #expect(flow.count(in: .urgentImportant) == 2)
@@ -224,7 +224,7 @@ import Testing
         flow.choose(.urgentImportant)
         flow.handle(.down)
         flow.handle(.down)
-        flow.handle(.space)
+        flow.handle(.letter("d"))
         #expect(titles(flow) == ["c", "b"])
         #expect(flow.selectedIndex == 1)
     }
@@ -232,7 +232,7 @@ import Testing
     @Test func completingTheOnlyRowLeavesNoSelection() {
         let flow = make()
         flow.choose(.urgentUnimportant)
-        flow.handle(.space)
+        flow.handle(.letter("d"))
         #expect(flow.rows.isEmpty)
         #expect(flow.selectedIndex == nil)
         #expect(flow.count(in: .urgentUnimportant) == 0)

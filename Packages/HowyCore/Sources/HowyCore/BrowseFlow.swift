@@ -9,7 +9,7 @@ import Observation
 ///   grid and ↑ comes back; 1–4 open that quadrant's list; Enter/Tab open the highlighted one (or
 ///   the archive: `.openArchive`); `a` opens the archive; Esc closes (`.close`). Everything else
 ///   is swallowed.
-/// - List: ↑/↓ move the selection (clamped); Enter → `.open(id)`; Space completes the selected
+/// - List: ↑/↓ move the selection (clamped); Enter → `.open(id)`; `d` completes the selected
 ///   todo (the row is removed here, the caller writes it: `.complete(id)`); ⌫ archives it the
 ///   same way but without the celebration (`.archive(id)`); 1–4 switch quadrant;
 ///   `a` opens the archive; Esc / Shift+Tab go back to the picker; ⌘↑/⌘K and ⌘↓/⌘J move the
@@ -47,6 +47,8 @@ public final class BrowseFlow {
 
     /// The key that opens the archive.
     public static let archiveKey: Character = "a"
+    /// The key that marks the selected todo done (list only).
+    public static let doneKey: Character = "d"
 
     public private(set) var phase: Phase = .picking
     /// The highlighted (picker) or shown (list) quadrant.
@@ -100,7 +102,7 @@ public final class BrowseFlow {
             case .down: moveSelection(by: 1)
             case .enter:
                 if let todo = selectedTodo { return .open(todo.id) }
-            case .space:
+            case .letter(Self.doneKey):
                 if let todo = selectedTodo, complete(id: todo.id) { return .complete(todo.id) }
             case .backspace:
                 if let todo = selectedTodo, complete(id: todo.id) { return .archive(todo.id) }

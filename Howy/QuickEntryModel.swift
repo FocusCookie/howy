@@ -298,9 +298,9 @@ final class BrowseModel {
 
     /// Returns `true` when the key was consumed.
     func handle(_ key: QuickEntryKey) -> Bool {
-        // Space removes the selected row inside the flow; fire the burst first so the view can
+        // `d` removes the selected row inside the flow; fire the burst first so the view can
         // still measure that row.
-        if key == .space, flow.phase == .listing, let todo = flow.selectedTodo { celebrate(todo.id) }
+        if key == .letter(BrowseFlow.doneKey), flow.phase == .listing, let todo = flow.selectedTodo { celebrate(todo.id) }
         var outcome = BrowseFlow.Outcome.ignored
         withAnimation(.snappy(duration: 0.25)) { outcome = flow.handle(key) }
         return perform(outcome)

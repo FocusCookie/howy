@@ -13,7 +13,7 @@ public enum QuickEntryKey: Hashable, Sendable {
     /// ⌘⌫: ask to delete the edited todo (edit mode only).
     case commandDelete
     case escape
-    /// A plain Space. Text in the fields; "complete" in the browse list.
+    /// A plain Space. Text in the fields; "open" in the attachments.
     case space
     /// ⌘↑ or ⌘K: move the selected row up (browse list). Text fields keep their own meaning.
     case moveUp
@@ -24,7 +24,7 @@ public enum QuickEntryKey: Hashable, Sendable {
     /// A plain ⌫. Deletes text in the fields; removes the selected attachment.
     case backspace
     /// A plain letter key, lower-cased. Typing in the fields; a shortcut where there is nothing
-    /// to type into (Browse: `a` opens the archive).
+    /// to type into (Browse: `a` opens the archive, `d` marks the selected todo done).
     case letter(Character)
     /// Any other key that is plain typing (letters, shifted keys, backspace...). The text field
     /// handles it, except where the flow has nothing to type into (picker, delete prompt).

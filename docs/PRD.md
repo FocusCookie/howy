@@ -77,7 +77,7 @@ Howy is a small menu-bar app for macOS with desktop widgets:
 
 36a. As a user, I want to press ⌃⌥⇧⌘M (or choose Browse in the menu) to open a modal with the quadrant picker showing each quadrant's open-todo count, so that I can check a quadrant without looking at the desktop.
 36b. As a user, I want to choose a quadrant with 1–4 or arrows + Enter and see its open todos newest first, so that I can review it.
-36c. As a user, I want ↑/↓ to select a todo, Enter to open it in the edit modal and Space to mark it done, so that I can work through a quadrant from the keyboard.
+36c. As a user, I want ↑/↓ to select a todo, Enter to open it in the edit modal and `d` to mark it done, so that I can work through a quadrant from the keyboard.
 36d. As a user, I want 1–4 to switch quadrant in the list and Esc or ⇧⇥ to go back to the picker (Esc in the picker closes), so that navigation is quick.
 36e. As a user, I want to click a row to edit it and tick its checkbox to complete it, so that the mouse works too.
 36f. As a user, I want Esc in a todo I opened from Browse to bring me back to its list, Esc in the list to bring me back to the quadrants, and only Esc on the quadrants or clicking elsewhere to close the modal, so that I can work through several todos in one go.

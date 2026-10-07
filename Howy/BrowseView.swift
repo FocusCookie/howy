@@ -104,7 +104,7 @@ struct BrowseView: View {
                     .foregroundStyle(todo.quadrant.color)
             }
             .buttonStyle(.plain)
-            .help("Mark done (space)")
+            .help("Mark done (\(BrowseFlow.doneKey))")
             Text(todo.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -209,8 +209,8 @@ struct BrowseView: View {
             Spacer()
             if flow.phase == .listing {
                 KeyHints(
-                    "↑↓ select · ⌘J ⌘K move · ↩ edit · space done · ⌫ archive · 1–4 switch · esc back",
-                    short: "↑↓ select · ↩ edit · space done · ⌫ archive · esc back"
+                    "↑↓ select · ⌘J ⌘K move · ↩ edit · D done · ⌫ archive · 1–4 switch · esc back",
+                    short: "↑↓ select · ↩ edit · D done · ⌫ archive · esc back"
                 )
             } else {
                 KeyHints("←↑↓→ or 1–4 · ↩ open · esc close")
