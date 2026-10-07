@@ -117,13 +117,23 @@ struct QuickEntryView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            Text(hint).foregroundStyle(.tertiary)
-            if shownPhase != .pickingQuadrant {
+            KeyHints(hint)
+            // Real buttons for the mouse: the key hints alone were easy to miss.
+            if shownPhase != .pickingQuadrant, !flow.isConfirmingDelete {
+                if flow.isEditing {
+                    Button { model.requestDelete() } label: {
+                        Text("Delete").foregroundStyle(.red)
+                    }
+                    .help("Delete this todo (⌘⌫)")
+                }
                 Button("Save") { model.save() }
-                    .buttonStyle(.borderless)
+                    .buttonStyle(.borderedProminent)
                     .disabled(!flow.canSave)
+                    .help("Save (⌘↩)")
             }
         }
+        .buttonStyle(.bordered)
+        .controlSize(.small)
         .font(.caption)
         .lineLimit(1)
     }

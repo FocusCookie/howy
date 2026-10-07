@@ -264,7 +264,7 @@ final class AppController {
         do { try store.purgeArchive() } catch { log.error("Purge failed: \(error, privacy: .public)") }
         let model = ArchiveModel(store: store)
         let panel = present(.archive, activate: activate) {
-            ArchiveView(model: model, escapeHint: back == nil ? "esc to close" : "esc back")
+            ArchiveView(model: model, escapeHint: back == nil ? "esc close" : "esc back")
         }
         panel.keyHandler = { event in
             guard let key = QuickEntryKey(event: event) else { return false }

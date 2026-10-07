@@ -7,7 +7,7 @@ import SwiftUI
 struct ArchiveView: View {
     let model: ArchiveModel
     /// What Esc does here: closes the panel, or goes back to Browse when opened from there.
-    var escapeHint = "esc to close"
+    var escapeHint = "esc close"
     @Environment(\.colorScheme) private var colorScheme
     @State private var pointer = PointerTracker()
 
@@ -114,12 +114,9 @@ struct ArchiveView: View {
     private var footer: some View {
         HStack {
             Spacer()
-            Text(model.items.isEmpty
-                 ? escapeHint
-                 : "↑↓ select · \(ArchiveFlow.restoreKey) restore · ⌫ delete · \(escapeHint)")
-                .foregroundStyle(.tertiary)
+            KeyHints(model.items.isEmpty
+                     ? escapeHint
+                     : "↑↓ select · \(ArchiveFlow.restoreKey) restore · ⌫ delete · \(escapeHint)")
         }
-        .font(.caption)
-        .lineLimit(1)
     }
 }

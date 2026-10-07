@@ -37,6 +37,7 @@
 		EEAB1366DA3D0F5C45E6B3C3 /* AttachmentPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4EF81572FE839637F2370177 /* AttachmentPresenter.swift */; };
 		F06594C81CF5B817C94F2B71 /* ArchiveView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */; };
 		FF3F3E4AB4EB81E4BE20CD3B /* PanelEffects.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */; };
+		C3D4E5F60718293A4B5C6D7E /* KeyCaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F60718293A4B5C /* KeyCaps.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -79,6 +80,7 @@
 		592A97D5AAA1C221E9A3CB09 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
 		59A555489BCA3149A8A9B9C0 /* Howy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Howy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelEffects.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F60718293A4B5C /* KeyCaps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCaps.swift; sourceTree = "<group>"; };
 		5D8838F23A0C476077574AA5 /* HowyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowyApp.swift; sourceTree = "<group>"; };
 		63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
 		7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
@@ -173,6 +175,7 @@
 				1DFCC3BAAE7282D02BA9592F /* Info.plist */,
 				C36129D26F9300D8846BDBF0 /* LauncherView.swift */,
 				84290BBDBCD49A56EEA94F7B /* MarkdownNoteEditor.swift */,
+				A1B2C3D4E5F60718293A4B5C /* KeyCaps.swift */,
 				5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */,
 				9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */,
 				4C67371D1BD06CC98E9938C2 /* QuickEntryModel.swift */,
@@ -303,6 +306,7 @@
 				ED11D9CDEE5DAB429F3CE181 /* HowyApp.swift in Sources */,
 				EB8D902146CAB44DDD4BC4FC /* LauncherView.swift in Sources */,
 				B78F79856B67B0C7107B52B4 /* MarkdownNoteEditor.swift in Sources */,
+				C3D4E5F60718293A4B5C6D7E /* KeyCaps.swift in Sources */,
 				FF3F3E4AB4EB81E4BE20CD3B /* PanelEffects.swift in Sources */,
 				97DAF4E1F5C8FFDFDE99EF36 /* QuadrantGrid.swift in Sources */,
 				382DA95CE190BB17CDE95C7D /* QuickEntryModel.swift in Sources */,

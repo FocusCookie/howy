@@ -374,7 +374,7 @@ private struct PanelRoot: View {
 ///
 /// Raycast-style rather than Liquid Glass: Liquid Glass lets the desktop show through and refracts
 /// it, which washes out in light mode over busy windows. Here the backdrop is blurred heavily and
-/// mostly covered by a near-opaque fill, so only a hint of colour comes through in either mode.
+/// covered by a translucent fill (Raycast's level: a dark window behind shows as a grey wash).
 struct PanelCard<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -391,7 +391,7 @@ struct PanelCard<Content: View>: View {
     }
 }
 
-/// Blurred backdrop + near-opaque fill + hairline edge (a light inner highlight in dark mode).
+/// Blurred backdrop + translucent fill + hairline edge (a light inner highlight in dark mode).
 private struct PanelBackground: View {
     let shape: RoundedRectangle
     @Environment(\.colorScheme) private var colorScheme
@@ -406,7 +406,7 @@ private struct PanelBackground: View {
     }
 
     private var isDark: Bool { colorScheme == .dark }
-    private var fill: Color { isDark ? Color(white: 0.11).opacity(0.80) : Color(white: 0.985).opacity(0.84) }
+    private var fill: Color { isDark ? Color(white: 0.11).opacity(0.55) : Color(white: 0.985).opacity(0.50) }
     private var edge: Color { isDark ? .white.opacity(0.12) : .black.opacity(0.10) }
 }
 
@@ -414,7 +414,7 @@ private struct PanelBackground: View {
 private struct BackdropBlur: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .popover
+        view.material = .sidebar // the most see-through of the light materials; `.popover` was nearly opaque
         view.blendingMode = .behindWindow
         view.state = .active
         return view

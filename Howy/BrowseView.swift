@@ -207,10 +207,14 @@ struct BrowseView: View {
                     .foregroundStyle(.red)
             }
             Spacer()
-            Text(flow.phase == .listing
-                 ? "↑↓ select · ⌘J⌘K move · ↩ edit · space done · ⌫ archive · 1–4 · esc back"
-                 : "←↑↓→ or 1–4 · ↩ open · esc close")
-                .foregroundStyle(.tertiary)
+            if flow.phase == .listing {
+                KeyHints(
+                    "↑↓ select · ⌘J ⌘K move · ↩ edit · space done · ⌫ archive · 1–4 switch · esc back",
+                    short: "↑↓ select · ↩ edit · space done · ⌫ archive · esc back"
+                )
+            } else {
+                KeyHints("←↑↓→ or 1–4 · ↩ open · esc close")
+            }
         }
         .font(.caption)
         .lineLimit(1)
@@ -224,10 +228,7 @@ struct BrowseView: View {
             HStack(spacing: 6) {
                 Image(systemName: "archivebox")
                 Text("Archive")
-                Text(String(BrowseFlow.archiveKey).uppercased())
-                    .font(.caption2.weight(.semibold))
-                    .frame(width: 16, height: 16)
-                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+                KeyCap(text: String(BrowseFlow.archiveKey).uppercased())
             }
             .font(.caption.weight(.medium))
             .foregroundStyle(isHighlighted ? Color.accentColor : .secondary)

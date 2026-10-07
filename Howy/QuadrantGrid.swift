@@ -48,11 +48,7 @@ struct QuadrantGrid: View {
                     .font(.headline)
                     .foregroundStyle(.primary)
                 Spacer()
-                Text("\(quadrant.shortcutNumber)")
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(quadrant.color)
-                    .frame(width: 20, height: 20)
-                    .background(quadrant.color.opacity(0.15), in: Circle())
+                KeyCap(text: "\(quadrant.shortcutNumber)")
             }
             if let count {
                 let n = count(quadrant)

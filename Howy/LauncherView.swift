@@ -19,11 +19,8 @@ struct LauncherView: View {
             }
             HStack {
                 Spacer()
-                Text("←→ or 1–2 · ↩ open · esc close")
-                    .foregroundStyle(.tertiary)
+                KeyHints("←→ or 1–2 · ↩ open · esc close")
             }
-            .font(.caption)
-            .lineLimit(1)
         }
     }
 
@@ -42,11 +39,7 @@ struct LauncherView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
-            Text("\(choice.shortcutNumber)")
-                .font(.caption.monospacedDigit().weight(.semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 20, height: 20)
-                .background(Color.primary.opacity(0.08), in: Circle())
+            KeyCap(text: "\(choice.shortcutNumber)")
         }
         .padding(14)
         .frame(maxWidth: .infinity, minHeight: 72)

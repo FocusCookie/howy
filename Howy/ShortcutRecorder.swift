@@ -199,11 +199,11 @@ struct ShortcutField: View {
             if symbols.isEmpty {
                 Text("Type shortcut…").foregroundStyle(.secondary)
             } else {
-                ForEach(Array(symbols), id: \.self) { KeyCap(text: String($0)) }
+                ForEach(Array(symbols), id: \.self) { cap(String($0)) }
                 Text("…").foregroundStyle(.secondary)
             }
         } else if let shortcut = model.shortcut(for: name) {
-            ForEach(Array(Self.caps(for: shortcut).enumerated()), id: \.offset) { KeyCap(text: $0.element) }
+            ForEach(Array(Self.caps(for: shortcut).enumerated()), id: \.offset) { cap($0.element) }
         } else {
             Text("Record Shortcut").foregroundStyle(.secondary)
         }
@@ -215,16 +215,9 @@ struct ShortcutField: View {
         let key = String("\(shortcut)".drop { "⌃⌥⇧⌘🌐\u{FE0E}".contains($0) })
         return modifiers.map(String.init) + [key]
     }
-}
 
-private struct KeyCap: View {
-    let text: String
-
-    var body: some View {
-        Text(text)
-            .font(.system(size: 12, weight: .medium))
-            .frame(minWidth: 20, minHeight: 20)
-            .padding(.horizontal, text.count > 1 ? 5 : 0)
-            .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+    /// The panels' keycap, a size up for the settings window.
+    private func cap(_ text: String) -> some View {
+        KeyCap(text: text, font: .system(size: 12, weight: .medium), minSize: 20)
     }
 }
