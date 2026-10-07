@@ -10,6 +10,7 @@ struct ArchiveView: View {
     var escapeHint = "esc close"
     @Environment(\.colorScheme) private var colorScheme
     @State private var pointer = PointerTracker()
+    private let retention = ArchiveRetention.load()
 
     private var flow: ArchiveFlow { model.flow }
 
@@ -24,7 +25,7 @@ struct ArchiveView: View {
                 HStack {
                     Text("Archive").font(.headline)
                     Spacer()
-                    Text("Kept for 7 days")
+                    Text("Kept for \(retention.displayName)")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
                 }
@@ -32,7 +33,7 @@ struct ArchiveView: View {
                     ContentUnavailableView(
                         "Archive is empty",
                         systemImage: "archivebox",
-                        description: Text("Completed todos show up here for 7 days.")
+                        description: Text("Completed todos show up here for \(retention.displayName).")
                     )
                     .frame(maxWidth: .infinity) // the column is leading-aligned; centre it in the card
                     .frame(height: 160)

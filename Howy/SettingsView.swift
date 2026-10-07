@@ -5,7 +5,7 @@ import SwiftUI
 
 /// The things worth configuring: the global shortcuts (one launcher shortcut, or separate Quick Add
 /// and Browse shortcuts), the quadrant new todos start on, how attachments open, what plays when a
-/// todo is marked done, and launching at login.
+/// todo is marked done, how long the archive keeps done todos, and launching at login.
 struct SettingsView: View {
     let controller: AppController
     @State private var newTodoQuadrant = NewTodoQuadrant.load()
@@ -13,6 +13,7 @@ struct SettingsView: View {
     @State private var launcherDefault = LauncherChoice.loadDefault()
     @State private var openMode = AttachmentOpenMode.load()
     @State private var doneAnimation = DoneAnimation.load()
+    @State private var archiveRetention = ArchiveRetention.load()
 
     var body: some View {
         Form {
@@ -78,6 +79,20 @@ struct SettingsView: View {
                 Text("Celebration")
             } footer: {
                 Text("A random emoji rises out of the panel when you mark a todo done, with a small confetti burst. Reduce Motion skips the confetti.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Picker("Delete done todos after:", selection: $archiveRetention) {
+                    ForEach(ArchiveRetention.options) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+                .onChange(of: archiveRetention) { _, value in value.save() }
+            } header: {
+                Text("Archive")
+            } footer: {
+                Text("Done todos and their attachments are deleted from the archive once they're older than this.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

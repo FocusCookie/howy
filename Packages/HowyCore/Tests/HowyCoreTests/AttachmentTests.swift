@@ -177,7 +177,7 @@ import Testing
         let a = try files.stage(data: Data("A".utf8), as: "a.txt")
         try store.setAttachments([a], for: todo.id)
         try store.complete(id: todo.id)
-        clock.advance(by: TodoStore.archiveRetention + 1)
+        clock.advance(by: ArchiveRetention.default.interval + 1)
         try store.purgeArchive()
         #expect(files.url(for: a, todoID: todo.id) == nil)
     }

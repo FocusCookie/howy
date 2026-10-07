@@ -19,8 +19,6 @@ public enum TodoStoreError: Error, Equatable, Sendable {
 /// (by default, for the shared store, `TodoStore.reloadWidgetTimelines`).
 @MainActor
 public final class TodoStore {
-    /// Archived todos completed longer ago than this are purged.
-    public static let archiveRetention: TimeInterval = 7 * 24 * 60 * 60
     /// File name of the SQLite store inside the App Group container.
     public static let storeFileName = "Howy.store"
 
@@ -187,11 +185,12 @@ public final class TodoStore {
         if try attachments.commit(list, for: id) { didWrite?() }
     }
 
-    /// Deletes archived todos (and their files) completed more than 7 days before `now` (default:
-    /// the injected clock). A todo completed exactly 7 days ago is kept. Returns the number removed.
+    /// Deletes archived todos (and their files) completed longer than `retention` before `now`
+    /// (default: the injected clock). A todo completed exactly `retention` ago is kept. Returns the
+    /// number removed.
     @discardableResult
-    public func purgeArchive(now: Date? = nil) throws -> Int {
-        let cutoff = (now ?? self.now()).addingTimeInterval(-Self.archiveRetention)
+    public func purgeArchive(now: Date? = nil, retention: ArchiveRetention = .default) throws -> Int {
+        let cutoff = (now ?? self.now()).addingTimeInterval(-retention.interval)
         let expired = try context.fetch(FetchDescriptor<Todo>(predicate: #Predicate { todo in
             todo.completedAt.flatMap { $0 < cutoff } == true
         }))

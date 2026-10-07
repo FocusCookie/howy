@@ -267,7 +267,7 @@ final class AppController {
     /// With `back`, Esc runs it (returns to Browse) instead of closing; losing focus still closes.
     private func showArchive(returning back: (() -> Void)?, activate: Bool = false) {
         guard let store = freshStore(activate: activate) else { return }
-        do { try store.purgeArchive() } catch { log.error("Purge failed: \(error, privacy: .public)") }
+        do { try store.purgeArchive(retention: .load()) } catch { log.error("Purge failed: \(error, privacy: .public)") }
         let model = ArchiveModel(store: store)
         let panel = present(.archive, activate: activate) {
             ArchiveView(model: model, escapeHint: back == nil ? "esc close" : "esc back")
@@ -441,7 +441,7 @@ final class AppController {
     private func purgeArchive() {
         guard let store = quietStore() else { return }
         do {
-            let removed = try store.purgeArchive()
+            let removed = try store.purgeArchive(retention: .load())
             if removed > 0 { log.info("Purged \(removed) archived todos") }
         } catch {
             log.error("Purge failed: \(error, privacy: .public)")

@@ -268,6 +268,22 @@ final class FakeClock: @unchecked Sendable {
         #expect(try store.archivedTodos().isEmpty)
     }
 
+    @Test func purgeUsesTheGivenRetention() throws {
+        let day: TimeInterval = 24 * 60 * 60
+        let old = try store.add(title: "Old", note: "", quadrant: .urgentImportant)
+        try store.complete(id: old.id)             // completed at T
+        clock.advance(by: 2 * day)
+        let recent = try store.add(title: "Recent", note: "", quadrant: .urgentImportant)
+        try store.complete(id: recent.id)          // completed at T + 2 days
+        clock.advance(by: day + 1)                 // now = T + 3 days + 1s
+
+        #expect(try store.purgeArchive(retention: ArchiveRetention(days: 30)) == 0)
+        #expect(try store.purgeArchive(retention: ArchiveRetention(days: 3)) == 1)
+        #expect(try store.archivedTodos().map(\.id) == [recent.id])
+        #expect(try store.purgeArchive(retention: ArchiveRetention(days: 1)) == 1)
+        #expect(try store.archivedTodos().isEmpty)
+    }
+
     // MARK: didWrite hook
 
     @Test func didWriteFiresAfterEveryWrite() throws {
