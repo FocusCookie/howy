@@ -144,12 +144,14 @@ public final class TodoStore {
     }
 
     /// Brings an archived todo back into its original quadrant, on top: `sortDate` is bumped so
-    /// an undone tick doesn't vanish under "+N more". Restoring an open todo does nothing.
-    public func restore(id: UUID) throws {
+    /// an undone tick doesn't vanish under "+N more". With `onTop` false (Browse's ⌘Z, moments
+    /// after the tick) `sortDate` is left alone, so the todo returns to the position it had.
+    /// Restoring an open todo does nothing.
+    public func restore(id: UUID, onTop: Bool = true) throws {
         let todo = try require(id)
         guard todo.completedAt != nil else { return }
         todo.completedAt = nil
-        todo.sortDate = now()
+        if onTop { todo.sortDate = now() }
         try commit()
     }
 

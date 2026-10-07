@@ -46,8 +46,11 @@ final class FloatingPanel: NSPanel {
     /// How long a resign must persist before the panel closes.
     private static let resignRecheckDelay: TimeInterval = 0.15
     /// Transparent space around the card for its shadow, the opening scale, and the done emoji's
-    /// flight out past the right edge (`PanelEffects`).
-    static let margin: CGFloat = 96
+    /// flight up past the top edge (`PanelEffects`: it rises `DoneEmojiView.travel`, is `size` tall,
+    /// and its confetti fans out a little further).
+    static let margin: CGFloat = 128
+    /// The card's corner radius (`PanelCard.shape`; the effects layer cuts the card out with it).
+    static let cardCornerRadius: CGFloat = 20
     private static let fadeOutDuration: TimeInterval = 0.12
 
     private let presentation = PanelPresentation()
@@ -357,7 +360,7 @@ private struct PanelRoot: View {
             .opacity(presentation.state == .shown ? 1 : 0)
             .padding(FloatingPanel.margin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .overlay { PanelEffectsLayer(effects: presentation.effects) } // window space, unclipped
+            .overlay { PanelEffectsLayer(effects: presentation.effects, card: presentation.cardFrame) } // window space, unclipped
     }
 
     private var scale: CGFloat {
@@ -379,7 +382,7 @@ private struct PanelRoot: View {
 struct PanelCard<Content: View>: View {
     @ViewBuilder var content: Content
 
-    static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 20, style: .continuous) }
+    static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: FloatingPanel.cardCornerRadius, style: .continuous) }
 
     var body: some View {
         content

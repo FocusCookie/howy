@@ -4,13 +4,15 @@ import KeyboardShortcuts
 import SwiftUI
 
 /// The things worth configuring: the global shortcuts (one launcher shortcut, or separate Quick Add
-/// and Browse shortcuts), the quadrant new todos start on, and launching at login.
+/// and Browse shortcuts), the quadrant new todos start on, how attachments open, what plays when a
+/// todo is marked done, and launching at login.
 struct SettingsView: View {
     let controller: AppController
     @State private var newTodoQuadrant = NewTodoQuadrant.load()
     @State private var recorder = ShortcutRecorderModel()
     @State private var launcherDefault = LauncherChoice.loadDefault()
     @State private var openMode = AttachmentOpenMode.load()
+    @State private var doneAnimation = DoneAnimation.load()
 
     var body: some View {
         Form {
@@ -62,6 +64,20 @@ struct SettingsView: View {
                 Text("Attachments")
             } footer: {
                 Text("Click, Space or ↩ opens an attachment this way; ⌥-click or ⌥↩ opens it the other way.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section {
+                Picker("When a todo is done:", selection: $doneAnimation) {
+                    ForEach(DoneAnimation.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .onChange(of: doneAnimation) { _, value in value.save() }
+            } header: {
+                Text("Celebration")
+            } footer: {
+                Text("A random emoji rises out of the panel when you mark a todo done, with a small confetti burst. Reduce Motion skips the confetti.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

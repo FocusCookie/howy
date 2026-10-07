@@ -267,7 +267,7 @@ final class ArchiveModel {
 }
 
 /// Glue between the browse panel, `BrowseFlow` and `TodoStore`: performs the opens,
-/// completions and reorders the flow asks for.
+/// completions, undos (⌘Z) and reorders the flow asks for.
 @MainActor
 @Observable
 final class BrowseModel {
@@ -346,6 +346,7 @@ final class BrowseModel {
         case .handled: return true
         case .open(let id): openTodo(id)
         case .complete(let id), .archive(let id): persistCompletion(id)
+        case .restore(let id): persistRestore(id)
         case .reorder(let quadrant): persistOrder(of: quadrant)
         case .openArchive: openArchive()
         case .close: close()
@@ -373,6 +374,20 @@ final class BrowseModel {
         } catch {
             log.error("Complete failed: \(error, privacy: .public)")
             errorMessage = "Couldn't mark this todo done."
+            if let todos = try? store.openSnapshots() {
+                withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }
+            }
+        }
+    }
+
+    /// ⌘Z: clears the done mark the flow just took back, keeping the todo's old position.
+    private func persistRestore(_ id: UUID) {
+        do {
+            try store.restore(id: id, onTop: false)
+            errorMessage = nil
+        } catch {
+            log.error("Undo done failed: \(error, privacy: .public)")
+            errorMessage = "Couldn't bring this todo back."
             if let todos = try? store.openSnapshots() {
                 withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }
             }

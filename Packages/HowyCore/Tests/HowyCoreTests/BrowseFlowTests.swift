@@ -250,6 +250,103 @@ import Testing
         #expect(!flow.complete(id: UUID()), "unknown id")
     }
 
+    // MARK: undo
+
+    @Test func undoPutsTheCompletedRowBackWhereItWasAndSelectsIt() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        let middle = flow.rows[1].id
+        #expect(!flow.canUndo)
+        #expect(flow.handle(.letter("d")) == .complete(middle))
+        #expect(flow.canUndo)
+        flow.handle(.up)
+        #expect(flow.handle(.undo) == .restore(middle))
+        #expect(titles(flow) == ["c", "b", "a"])
+        #expect(flow.selectedTodo?.id == middle)
+        #expect(!flow.canUndo)
+        #expect(flow.handle(.undo) == .handled, "nothing left to undo")
+        #expect(titles(flow) == ["c", "b", "a"])
+    }
+
+    @Test func undoTakesBackSeveralInReverseOrder() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        let first = flow.rows[0].id
+        let second = flow.rows[1].id
+        flow.handle(.letter("d")) // c
+        flow.handle(.backspace) // b, archived without celebration
+        #expect(titles(flow) == ["a"])
+        #expect(flow.handle(.undo) == .restore(second))
+        #expect(titles(flow) == ["b", "a"])
+        #expect(flow.handle(.undo) == .restore(first))
+        #expect(titles(flow) == ["c", "b", "a"])
+        #expect(flow.selectedTodo?.id == first)
+    }
+
+    @Test func undoFromAnotherQuadrantShowsTheRestoredOne() {
+        let flow = make()
+        flow.choose(.urgentUnimportant)
+        let x = flow.rows[0].id
+        flow.handle(.letter("d"))
+        #expect(flow.selectedIndex == nil)
+        flow.handle(.digit(1))
+        #expect(flow.quadrant == .urgentImportant)
+        #expect(flow.handle(.undo) == .restore(x))
+        #expect(flow.phase == .listing)
+        #expect(flow.quadrant == .urgentUnimportant)
+        #expect(titles(flow) == ["x"])
+        #expect(flow.selectedIndex == 0)
+    }
+
+    @Test func undoInThePickerRestoresTheCountAndHighlightsTheQuadrant() {
+        let flow = make()
+        flow.choose(.urgentUnimportant)
+        let x = flow.rows[0].id
+        flow.handle(.letter("d"))
+        flow.handle(.escape)
+        flow.handle(.down) // onto the Archive button
+        #expect(flow.isArchiveHighlighted)
+        #expect(flow.count(in: .urgentUnimportant) == 0)
+        #expect(flow.handle(.undo) == .restore(x))
+        #expect(flow.phase == .picking)
+        #expect(flow.count(in: .urgentUnimportant) == 1)
+        #expect(flow.quadrant == .urgentUnimportant)
+        #expect(!flow.isArchiveHighlighted)
+    }
+
+    @Test func undoClampsTheOldPositionWhenTheListShrank() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        flow.handle(.down)
+        let last = flow.rows[2].id
+        flow.handle(.letter("d")) // a, at index 2
+        flow.reload([.urgentImportant: [flow.rows[0]]]) // b went elsewhere meanwhile
+        #expect(flow.handle(.undo) == .restore(last))
+        #expect(titles(flow) == ["c", "a"])
+        #expect(flow.selectedIndex == 1)
+    }
+
+    @Test func undoSkipsATodoAReloadAlreadyBroughtBack() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        let first = flow.rows[0]
+        flow.handle(.letter("d"))
+        flow.reload([.urgentImportant: [first, flow.rows[0], flow.rows[1]]]) // the write failed
+        #expect(flow.handle(.undo) == .restore(first.id))
+        #expect(titles(flow) == ["c", "b", "a"], "not inserted twice")
+    }
+
+    @Test func undoDoesNothingWhenClosed() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.letter("d"))
+        flow.close()
+        #expect(flow.handle(.undo) == .ignored)
+        #expect(flow.undoCompletion() == nil)
+    }
+
     @Test func reloadKeepsTheSelectedTodoWhenStillThere() {
         let flow = make()
         flow.choose(.urgentImportant)

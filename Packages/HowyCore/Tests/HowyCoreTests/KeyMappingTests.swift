@@ -27,6 +27,13 @@ import Testing
         #expect(key(48, .control) == nil)
     }
 
+    @Test func commandZIsUndoAndShiftCommandZIsNotOurs() {
+        #expect(key(6, .command, "z") == .undo)
+        #expect(key(6, .command, "Z") == .undo)
+        #expect(key(6, [.command, .shift], "z") == nil, "⇧⌘Z (redo) stays with the system")
+        #expect(key(6, [], "z") == .letter("z"))
+    }
+
     @Test func commandBackspaceOnly() {
         #expect(key(51, .command) == .commandDelete)
         #expect(key(51) == .backspace)

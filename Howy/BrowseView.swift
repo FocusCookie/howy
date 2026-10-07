@@ -10,7 +10,7 @@ struct BrowseView: View {
     /// The row being dragged by its handle: where it started and how far the pointer has moved.
     @State private var drag: RowDrag?
     @State private var pointer = PointerTracker()
-    /// Where each row currently is, in window coordinates (where the done emoji starts).
+    /// Where each row currently is, in window coordinates (where the done emoji rises).
     @State private var rowFrames: [UUID: CGRect] = [:]
     @Environment(\.panelEffects) private var panelEffects
 
@@ -76,7 +76,7 @@ struct BrowseView: View {
                                 .id(todo.id)
                                 .transition(.asymmetric(
                                     insertion: .opacity,
-                                    removal: .move(edge: .trailing).combined(with: .opacity)
+                                    removal: .move(edge: .top).combined(with: .opacity)
                                 ))
                         }
                     }
@@ -190,11 +190,11 @@ struct BrowseView: View {
 
     // MARK: Done emoji
 
-    /// Launches `event`'s emoji from the done circle of the row that was just marked done
-    /// (measured before it left); it flies out of the card to the right (`PanelEffects`).
+    /// Launches `event`'s emoji up out of the card's top edge, above the row that was just marked
+    /// done (measured before it left), while that row flies up and fades (`PanelEffects`).
     private func fire(_ event: BrowseModel.DoneEvent) {
         guard let frame = rowFrames.removeValue(forKey: event.id) else { return }
-        panelEffects?.launch(event.emoji, from: CGPoint(x: frame.minX + 18, y: frame.midY))
+        panelEffects?.launch(event.emoji, atX: frame.midX)
     }
 
     // MARK: Footer
@@ -207,13 +207,15 @@ struct BrowseView: View {
                     .foregroundStyle(.red)
             }
             Spacer()
+            // "⌘Z undo" is shown once there is something to undo, so a wrong D is caught right away.
+            let undo = flow.canUndo ? " · ⌘Z undo" : ""
             if flow.phase == .listing {
                 KeyHints(
-                    "↑↓ select · ⌘J ⌘K move · ↩ edit · D done · ⌫ archive · 1–4 switch · esc back",
-                    short: "↑↓ select · ↩ edit · D done · ⌫ archive · esc back"
+                    "↑↓ select · ⌘J ⌘K move · ↩ edit · D done · ⌫ archive\(undo) · 1–4 switch · esc back",
+                    short: "↑↓ select · ↩ edit · D done · ⌫ archive\(undo) · esc back"
                 )
             } else {
-                KeyHints("←↑↓→ or 1–4 · ↩ open · esc close")
+                KeyHints("←↑↓→ or 1–4 · ↩ open\(undo) · esc close")
             }
         }
         .font(.caption)

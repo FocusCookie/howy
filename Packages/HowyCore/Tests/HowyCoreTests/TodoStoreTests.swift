@@ -175,6 +175,19 @@ final class FakeClock: @unchecked Sendable {
         #expect(try store.todo(id: old.id)?.sortDate == clock.now)
     }
 
+    @Test func restoreNotOnTopKeepsTheOldPosition() throws {
+        let old = try store.add(title: "Old", note: "", quadrant: .urgentImportant)
+        clock.advance(by: 10)
+        let newer = try store.add(title: "Newer", note: "", quadrant: .urgentImportant)
+        let sortDate = try #require(try store.todo(id: old.id)?.sortDate)
+        try store.complete(id: old.id)
+        clock.advance(by: 10)
+        try store.restore(id: old.id, onTop: false)
+        #expect(try store.openTodos(in: .urgentImportant).map(\.id) == [newer.id, old.id])
+        #expect(try store.todo(id: old.id)?.sortDate == sortDate)
+        #expect(try store.todo(id: old.id)?.completedAt == nil)
+    }
+
     @Test func completeOnArchivedTodoKeepsCompletedAtAndDoesNotWrite() throws {
         let todo = try store.add(title: "A", note: "", quadrant: .urgentImportant)
         try store.complete(id: todo.id)

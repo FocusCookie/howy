@@ -19,6 +19,8 @@ public enum QuickEntryKey: Hashable, Sendable {
     case moveUp
     /// ⌘↓ or ⌘J: move the selected row down (browse list).
     case moveDown
+    /// ⌘Z: take back the last "done" (browse). Text fields keep their own undo.
+    case undo
     /// ⌥↩: into the attachments (title, note); open the other way (attachments).
     case optionEnter
     /// A plain ⌫. Deletes text in the fields; removes the selected attachment.
@@ -270,7 +272,7 @@ public final class QuickEntryFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .enter, .tab: phase = .editingTitle
             case .shiftTab, .moveUp, .moveDown: return false
-            case .other, .letter, .space, .optionEnter, .backspace: break // nothing to type into
+            case .other, .letter, .space, .optionEnter, .backspace, .undo: break // nothing to type into
             case .escape, .commandEnter, .commandDelete: break
             }
             return true

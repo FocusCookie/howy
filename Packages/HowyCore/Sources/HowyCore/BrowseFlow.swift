@@ -15,6 +15,8 @@ import Observation
 ///   `a` opens the archive; Esc / Shift+Tab go back to the picker; ⌘↑/⌘K and ⌘↓/⌘J move the
 ///   selected todo one row (`.reorder`, the caller writes the new order). Everything else is
 ///   swallowed.
+/// - Picker and list: ⌘Z takes back the last `d` / ⌫ of this panel (`.restore(id)`): the todo is
+///   put back where it was and the caller clears its done mark. Several in a row undo several.
 /// - Closed: every key is `.ignored`.
 ///
 /// An opened todo's edit modal comes back here (`resumeListing`) on Esc, save or delete.
@@ -37,6 +39,8 @@ public final class BrowseFlow {
         /// Put this todo in the archive without calling it done (already removed from the list).
         /// Same write as `complete`; the UI skips the celebration.
         case archive(UUID)
+        /// ⌘Z: this todo is back in its list (already re-inserted); clear its done mark.
+        case restore(UUID)
         /// The shown quadrant's rows were reordered; persist `rows`' order.
         case reorder(Quadrant)
         /// Show the archive.
@@ -58,6 +62,8 @@ public final class BrowseFlow {
     /// Index into `rows`; `nil` in the picker or when the list is empty.
     public private(set) var selectedIndex: Int?
     private var todos: [Quadrant: [TodoSnapshot]]
+    /// The todos completed in this panel that ⌘Z can bring back, oldest first.
+    private var undoable: [(todo: TodoSnapshot, index: Int)] = []
 
     public init(todos: [Quadrant: [TodoSnapshot]], quadrant: Quadrant = .urgentImportant) {
         self.todos = todos
@@ -70,6 +76,9 @@ public final class BrowseFlow {
     public var rows: [TodoSnapshot] { todos[quadrant] ?? [] }
 
     public var selectedTodo: TodoSnapshot? { selectedIndex.map { rows[$0] } }
+
+    /// Whether ⌘Z has a completion to take back.
+    public var canUndo: Bool { !undoable.isEmpty }
 
     // MARK: Keys
 
@@ -92,6 +101,8 @@ public final class BrowseFlow {
             case .enter, .tab:
                 if isArchiveHighlighted { return .openArchive }
                 choose(quadrant)
+            case .undo:
+                if let id = undoCompletion() { return .restore(id) }
             case .escape: return close()
             default: break
             }
@@ -109,6 +120,8 @@ public final class BrowseFlow {
             case .digit(let n):
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .letter(Self.archiveKey): return .openArchive
+            case .undo:
+                if let id = undoCompletion() { return .restore(id) }
             case .escape, .shiftTab: backToPicker()
             case .moveUp, .moveDown:
                 if let index = selectedIndex, move(from: index, to: index + (key == .moveUp ? -1 : 1)) {
@@ -182,14 +195,15 @@ public final class BrowseFlow {
         selectedIndex = index
     }
 
-    /// Removes a todo from the list (it was marked done). The selection stays on the same todo,
-    /// or, when that one was completed, on the row that moves up into its place (the new last
-    /// row at the end). Returns `false` for an unknown id.
+    /// Removes a todo from the list (it was marked done; `undoCompletion` brings it back). The
+    /// selection stays on the same todo, or, when that one was completed, on the row that moves
+    /// up into its place (the new last row at the end). Returns `false` for an unknown id.
     @discardableResult
     public func complete(id: UUID) -> Bool {
         for (q, list) in todos {
             guard let index = list.firstIndex(where: { $0.id == id }) else { continue }
             let selectedID = selectedTodo?.id
+            undoable.append((todo: list[index], index: index))
             todos[q]?.remove(at: index)
             if q == quadrant, phase == .listing {
                 if let selectedID, selectedID != id {
@@ -201,6 +215,28 @@ public final class BrowseFlow {
             return true
         }
         return false
+    }
+
+    /// Takes back the most recent `complete`: the todo goes back into its quadrant at its old
+    /// position (clamped). The list shows that quadrant with the todo selected; the picker moves
+    /// its highlight onto that quadrant. Returns the todo's id, or `nil` with nothing to undo.
+    @discardableResult
+    public func undoCompletion() -> UUID? {
+        guard phase != .closed, let last = undoable.popLast() else { return nil }
+        let todo = last.todo
+        var list = todos[todo.quadrant] ?? []
+        if !list.contains(where: { $0.id == todo.id }) {
+            list.insert(todo, at: min(last.index, list.count))
+            todos[todo.quadrant] = list
+        }
+        if phase == .listing {
+            choose(todo.quadrant)
+            select(id: todo.id)
+        } else {
+            quadrant = todo.quadrant
+            isArchiveHighlighted = false
+        }
+        return todo.id
     }
 
     /// Replaces the data (e.g. after a failed write), keeping the selected todo when it is still
