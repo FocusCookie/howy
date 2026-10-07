@@ -27,6 +27,27 @@ final class MemoryLastQuadrantStore: LastQuadrantStore {
         #expect(flow.savedDraft == nil)
     }
 
+    @Test func startingInTitleSkipsThePickerOnTheChosenQuadrant() {
+        let flow = QuickEntryFlow(
+            mode: .create(preselected: .urgentUnimportant, startingInTitle: true),
+            lastUsed: MemoryLastQuadrantStore()
+        )
+        #expect(flow.phase == .editingTitle)
+        #expect(flow.quadrant == .urgentUnimportant)
+    }
+
+    @Test func startingInTitleStillAllowsChangingTheQuadrant() {
+        let flow = QuickEntryFlow(
+            mode: .create(preselected: .urgentUnimportant, startingInTitle: true),
+            lastUsed: MemoryLastQuadrantStore()
+        )
+        flow.handle(.shiftTab)
+        #expect(flow.phase == .pickingQuadrant)
+        flow.handle(.digit(2))
+        #expect(flow.quadrant == .notUrgentImportant)
+        #expect(flow.phase == .editingTitle)
+    }
+
     @Test func rowMoveKeysAreLeftToTheTextFields() {
         let (flow, _) = makeCreate()
         #expect(!flow.handle(.moveUp))

@@ -104,9 +104,10 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 /// - Once saved, deleted or cancelled, every key is ignored.
 ///
 /// Modes: `.create` starts in the picker on the preselected / last-used quadrant and records the
-/// chosen quadrant as last-used on save. `.edit` starts in the title field with the todo's values;
-/// Shift+Tab from the title reaches the picker to change the quadrant. Editing does not change
-/// the last-used quadrant.
+/// chosen quadrant as last-used on save. With `startingInTitle` it starts in the title instead,
+/// for callers that picked the quadrant themselves. `.edit` starts in the title field with the
+/// todo's values; Shift+Tab from the title reaches the picker to change the quadrant. Editing
+/// does not change the last-used quadrant.
 ///
 /// Drafts (with a `DraftStore`): closing without saving keeps what was typed, like Spotlight.
 /// - Create mode: Esc and `abandon()` (focus loss, hotkey, replaced) stash quadrant, title, note
@@ -127,7 +128,9 @@ public final class QuickEntryFlow {
 
     public enum Mode: Hashable, Sendable {
         /// `preselected` overrides the last-used quadrant (e.g. a widget's quadrant label tap).
-        case create(preselected: Quadrant? = nil)
+        /// `startingInTitle` skips the picker for a caller that already chose the quadrant
+        /// (e.g. the menu bar's "Add to Quadrant"); ⇧⇥ from the title still reaches the picker.
+        case create(preselected: Quadrant? = nil, startingInTitle: Bool = false)
         case edit(QuickEntryDraft)
     }
 
@@ -180,7 +183,7 @@ public final class QuickEntryFlow {
         self.lastUsed = lastUsed
         self.drafts = drafts
         switch mode {
-        case .create(let preselected):
+        case .create(let preselected, let startingInTitle):
             if let stashed = drafts?.createDraft() {
                 phase = Self.phase(for: stashed.field)
                 quadrant = preselected ?? stashed.quadrant
@@ -195,6 +198,8 @@ public final class QuickEntryFlow {
                 note = ""
                 attachments = []
             }
+            // The quadrant came with the request, so the picker has nothing left to ask.
+            if startingInTitle, phase == .pickingQuadrant { phase = .editingTitle }
         case .edit(let draft):
             if let id = draft.todoID, let stashed = drafts?.editDraft(for: id) {
                 phase = Self.phase(for: stashed.field)

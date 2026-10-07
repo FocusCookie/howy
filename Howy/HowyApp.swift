@@ -31,6 +31,15 @@ private struct MenuContent: View {
         }
         Button("Archive") { controller.showArchive() }
         Divider()
+        // Straight into a quadrant: the modal opens on the title, with the picker already answered.
+        Menu("Add to Quadrant") {
+            ForEach(Quadrant.allCases) { quadrant in
+                Button(quadrant.displayName) {
+                    controller.showQuickEntry(preselected: quadrant, startingInTitle: true)
+                }
+            }
+        }
+        Divider()
         Button("Settings…") { controller.showSettings() }
             .keyboardShortcut(",")
         Divider()

@@ -208,10 +208,16 @@ final class AppController {
     }
 
     /// With `viaLauncher`, Esc returns to the launcher (keeping the draft) instead of closing.
-    func showQuickEntry(preselected: Quadrant? = nil, viaLauncher: Bool = false, activate: Bool = false) {
+    /// With `startingInTitle`, the modal opens on the title field instead of the picker — for the
+    /// menu bar's "Add to Quadrant", where the quadrant was already chosen.
+    func showQuickEntry(
+        preselected: Quadrant? = nil, startingInTitle: Bool = false,
+        viaLauncher: Bool = false, activate: Bool = false
+    ) {
         guard let store = freshStore(activate: activate) else { return }
         let flow = QuickEntryFlow(
-            mode: .create(preselected: preselected), lastUsed: lastUsed, drafts: drafts,
+            mode: .create(preselected: preselected, startingInTitle: startingInTitle),
+            lastUsed: lastUsed, drafts: drafts,
             startQuadrant: NewTodoQuadrant.load()
         )
         let model = QuickEntryModel(flow: flow, store: store)

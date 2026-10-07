@@ -34,6 +34,20 @@ import Testing
         #expect(next.phase == .editingNote, "back in the field it was in")
     }
 
+    @Test func startingInTitleKeepsTheDraftButSkipsTheStashedPicker() {
+        let flow = makeCreate()
+        flow.title = "Call landlord"
+        flow.abandon()
+
+        let next = QuickEntryFlow(
+            mode: .create(preselected: .urgentUnimportant, startingInTitle: true),
+            lastUsed: lastUsed, drafts: drafts
+        )
+        #expect(next.title == "Call landlord")
+        #expect(next.quadrant == .urgentUnimportant)
+        #expect(next.phase == .editingTitle)
+    }
+
     @Test(arguments: [QuickEntryFlow.Phase.pickingQuadrant, .editingTitle, .editingNote])
     func abandonStashesThePhase(phase: QuickEntryFlow.Phase) {
         let flow = makeCreate()
