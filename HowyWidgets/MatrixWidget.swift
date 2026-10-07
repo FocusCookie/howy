@@ -59,7 +59,7 @@ struct MatrixWidgetView: View {
     /// Gap between tiles; the wallpaper shows through it.
     private let spacing: CGFloat = 8
     /// Inset of the tiles from the widget's edge; their outer corners are concentric with the mask.
-    private let outerPadding: CGFloat = 4
+    private let outerPadding: CGFloat = 12
 
     var body: some View {
         Group {
