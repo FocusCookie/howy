@@ -98,13 +98,7 @@ struct BrowseView: View {
     private func row(_ todo: TodoSnapshot, index: Int, isSelected: Bool) -> some View {
         let isDragged = drag?.id == todo.id
         return HStack(spacing: 10) {
-            Button { model.complete(todo.id) } label: {
-                Image(systemName: "circle")
-                    .font(.system(size: 15))
-                    .foregroundStyle(todo.quadrant.color)
-            }
-            .buttonStyle(.plain)
-            .help("Mark done (\(BrowseFlow.doneKey))")
+            DoneButton(color: todo.quadrant.color) { model.complete(todo.id) }
             Text(todo.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -311,5 +305,26 @@ private struct DragHandleArea: NSViewRepresentable {
             window?.invalidateCursorRects(for: self)
             onEnded()
         }
+    }
+}
+
+/// Marks a row's todo done. Shows a checkmark from the start (the row leaves the list on click, so
+/// an empty circle would never get its tick) and fills in under the pointer.
+private struct DoneButton: View {
+    let color: Color
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: isHovered ? "checkmark.circle.fill" : "checkmark.circle")
+                .font(.system(size: 15))
+                .foregroundStyle(color)
+                .contentTransition(.symbolEffect(.replace))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help("Mark done (\(BrowseFlow.doneKey))")
+        .accessibilityLabel("Mark done")
     }
 }
