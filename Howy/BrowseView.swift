@@ -10,6 +10,9 @@ struct BrowseView: View {
     /// The row being dragged by its handle: where it started and how far the pointer has moved.
     @State private var drag: RowDrag?
     @State private var pointer = PointerTracker()
+    /// Where each row currently is, in window coordinates (where the done emoji starts).
+    @State private var rowFrames: [UUID: CGRect] = [:]
+    @Environment(\.panelEffects) private var panelEffects
 
     private var flow: BrowseFlow { model.flow }
 
@@ -30,7 +33,9 @@ struct BrowseView: View {
                 if flow.phase == .listing {
                     list
                 } else {
-                    QuadrantGrid(highlighted: flow.quadrant, count: { flow.count(in: $0) }) { model.choose($0) }
+                    QuadrantGrid(highlighted: flow.isArchiveHighlighted ? nil : flow.quadrant, count: { flow.count(in: $0) }) {
+                        model.choose($0)
+                    }
                 }
                 footer
             }
@@ -59,7 +64,8 @@ struct BrowseView: View {
                 systemImage: "checkmark.circle",
                 description: Text("No open todos in \(flow.quadrant.displayName).")
             )
-            .frame(height: 140)
+            .frame(maxWidth: .infinity) // the column is leading-aligned; centre it in the card
+            .frame(height: 160)
             .transition(.opacity)
         } else {
             ScrollViewReader { proxy in
@@ -79,6 +85,10 @@ struct BrowseView: View {
                 .frame(height: min(CGFloat(flow.rows.count) * Self.rowPitch, Self.maxListHeight))
                 .onChange(of: flow.selectedIndex) { _, _ in
                     if drag == nil, let id = flow.selectedTodo?.id { proxy.scrollTo(id) }
+                }
+                .onChange(of: model.lastDone) { _, event in
+                    guard let event else { return }
+                    fire(event)
                 }
                 .onAppear { pointer.reset() }
             }
@@ -117,6 +127,7 @@ struct BrowseView: View {
             }
         }
         .contentShape(Rectangle())
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrames[todo.id] = $0 }
         .onTapGesture { model.open(todo.id) }
         .onHover { inside in
             // Only a real pointer move selects: rows sliding under a resting pointer (keyboard
@@ -177,28 +188,68 @@ struct BrowseView: View {
         model.persistOrder()
     }
 
+    // MARK: Done emoji
+
+    /// Launches `event`'s emoji from the done circle of the row that was just marked done
+    /// (measured before it left); it flies out of the card to the right (`PanelEffects`).
+    private func fire(_ event: BrowseModel.DoneEvent) {
+        guard let frame = rowFrames.removeValue(forKey: event.id) else { return }
+        panelEffects?.launch(event.emoji, from: CGPoint(x: frame.minX + 18, y: frame.midY))
+    }
+
     // MARK: Footer
 
     private var footer: some View {
         HStack(spacing: 12) {
+            if flow.phase == .picking { archiveButton }
             if let error = model.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red)
             }
             Spacer()
             Text(flow.phase == .listing
-                 ? "↑↓ select · ⌘J⌘K move · ↩ edit · space done · 1–4 · esc back"
+                 ? "↑↓ select · ⌘J⌘K move · ↩ edit · space done · ⌫ archive · 1–4 · esc back"
                  : "←↑↓→ or 1–4 · ↩ open · esc close")
                 .foregroundStyle(.tertiary)
         }
         .font(.caption)
         .lineLimit(1)
     }
+
+    /// Tertiary entry to the archive at the bottom of the picker; ↓ from the bottom row or `a`
+    /// reach it from the keyboard.
+    private var archiveButton: some View {
+        let isHighlighted = flow.isArchiveHighlighted
+        return Button { model.openArchive() } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "archivebox")
+                Text("Archive")
+                Text(String(BrowseFlow.archiveKey).uppercased())
+                    .font(.caption2.weight(.semibold))
+                    .frame(width: 16, height: 16)
+                    .background(Color.primary.opacity(0.08), in: RoundedRectangle(cornerRadius: 4, style: .continuous))
+            }
+            .font(.caption.weight(.medium))
+            .foregroundStyle(isHighlighted ? Color.accentColor : .secondary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 4)
+            .background(
+                Color.accentColor.opacity(isHighlighted ? (colorScheme == .dark ? 0.22 : 0.12) : 0),
+                in: Capsule()
+            )
+            .overlay(Capsule().strokeBorder(Color.accentColor.opacity(isHighlighted ? 0.7 : 0), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .help("Archive (\(BrowseFlow.archiveKey))")
+        .animation(.snappy(duration: 0.22), value: isHighlighted)
+        .accessibilityAddTraits(isHighlighted ? .isSelected : [])
+    }
 }
 
 /// Remembers where the pointer was, to tell a real move from content sliding under it.
 @MainActor
-private final class PointerTracker {
+final class PointerTracker {
     private var last = NSEvent.mouseLocation
 
     func reset() { last = NSEvent.mouseLocation }

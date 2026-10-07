@@ -51,6 +51,8 @@ extension QuickEntryKey {
                 self = .moveDown
             } else if plain, let characters, characters.count == 1, let digit = Int(characters) {
                 self = .digit(digit)
+            } else if plain, let characters, characters.count == 1, let letter = characters.first, letter.isLetter {
+                self = .letter(Character(letter.lowercased()))
             } else if modifiers.isDisjoint(with: [.command, .option, .control]) {
                 self = .other // typing, possibly shifted
             } else {

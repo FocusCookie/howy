@@ -168,7 +168,10 @@ final class AppController {
     }
 
     /// With `viaLauncher`, Esc on the quadrants returns to the launcher instead of closing.
-    private func showBrowse(resuming back: BrowseReturn?, viaLauncher: Bool = false, activate: Bool = false) {
+    /// `fromArchive` reopens the picker with the Archive button highlighted (Esc in the archive).
+    private func showBrowse(
+        resuming back: BrowseReturn?, viaLauncher: Bool = false, fromArchive: Bool = false, activate: Bool = false
+    ) {
         let viaLauncher = back?.viaLauncher ?? viaLauncher
         guard let store = freshStore(activate: activate) else { return }
         let todos: [Quadrant: [TodoSnapshot]]
@@ -181,6 +184,7 @@ final class AppController {
         }
         let flow = BrowseFlow(todos: todos)
         if let back { flow.resumeListing(back.quadrant, selecting: back.todoID, fallbackIndex: back.index) }
+        if fromArchive { flow.highlightArchive() }
         let model = BrowseModel(flow: flow, store: store)
         let panel = present(.browse, activate: activate) { BrowseView(model: model) }
         panel.keyHandler = { event in
@@ -195,6 +199,11 @@ final class AppController {
                 BrowseReturn(quadrant: $0.quadrant, todoID: id, index: $0.selectedIndex, viaLauncher: viaLauncher)
             }
             self?.showEdit(id: id, returningTo: back)
+        }
+        model.openArchive = { [weak self] in
+            self?.showArchive(returning: { [weak self] in
+                self?.showBrowse(resuming: nil, viaLauncher: viaLauncher, fromArchive: true)
+            })
         }
     }
 
@@ -246,16 +255,24 @@ final class AppController {
     }
 
     func showArchive(activate: Bool = false) {
+        showArchive(returning: nil, activate: activate)
+    }
+
+    /// With `back`, Esc runs it (returns to Browse) instead of closing; losing focus still closes.
+    private func showArchive(returning back: (() -> Void)?, activate: Bool = false) {
         guard let store = freshStore(activate: activate) else { return }
         do { try store.purgeArchive() } catch { log.error("Purge failed: \(error, privacy: .public)") }
         let model = ArchiveModel(store: store)
-        let panel = present(.archive, activate: activate) { ArchiveView(model: model) }
-        panel.keyHandler = { event in
-            guard QuickEntryKey(event: event) == .escape else { return false }
-            model.close()
-            return true
+        let panel = present(.archive, activate: activate) {
+            ArchiveView(model: model, escapeHint: back == nil ? "esc to close" : "esc back")
         }
-        model.close = { [weak panel] in panel?.dismiss() }
+        panel.keyHandler = { event in
+            guard let key = QuickEntryKey(event: event) else { return false }
+            return model.handle(key)
+        }
+        model.close = { [weak panel] in
+            if let back { back() } else { panel?.dismiss() }
+        }
     }
 
     private func presentQuickEntry(_ model: QuickEntryModel, kind: PanelKind, activate: Bool) {

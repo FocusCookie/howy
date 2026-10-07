@@ -5,12 +5,16 @@ import Observation
 /// then one quadrant's open todos as a selectable list.
 ///
 /// Keys (`handle(_:)` returns what the caller should do):
-/// - Picker: arrows move and clamp; 1–4 open that quadrant's list; Enter/Tab open the highlighted
-///   one; Esc closes (`.close`). Everything else is swallowed.
+/// - Picker: arrows move and clamp; ↓ from the bottom row highlights the Archive button below the
+///   grid and ↑ comes back; 1–4 open that quadrant's list; Enter/Tab open the highlighted one (or
+///   the archive: `.openArchive`); `a` opens the archive; Esc closes (`.close`). Everything else
+///   is swallowed.
 /// - List: ↑/↓ move the selection (clamped); Enter → `.open(id)`; Space completes the selected
-///   todo (the row is removed here, the caller writes it: `.complete(id)`); 1–4 switch quadrant;
-///   Esc / Shift+Tab go back to the picker; ⌘↑/⌘K and ⌘↓/⌘J move the selected todo one row
-///   (`.reorder`, the caller writes the new order). Everything else is swallowed.
+///   todo (the row is removed here, the caller writes it: `.complete(id)`); ⌫ archives it the
+///   same way but without the celebration (`.archive(id)`); 1–4 switch quadrant;
+///   `a` opens the archive; Esc / Shift+Tab go back to the picker; ⌘↑/⌘K and ⌘↓/⌘J move the
+///   selected todo one row (`.reorder`, the caller writes the new order). Everything else is
+///   swallowed.
 /// - Closed: every key is `.ignored`.
 ///
 /// An opened todo's edit modal comes back here (`resumeListing`) on Esc, save or delete.
@@ -30,15 +34,25 @@ public final class BrowseFlow {
         case open(UUID)
         /// Mark this todo done (already removed from the list).
         case complete(UUID)
+        /// Put this todo in the archive without calling it done (already removed from the list).
+        /// Same write as `complete`; the UI skips the celebration.
+        case archive(UUID)
         /// The shown quadrant's rows were reordered; persist `rows`' order.
         case reorder(Quadrant)
+        /// Show the archive.
+        case openArchive
         /// Close the panel.
         case close
     }
 
+    /// The key that opens the archive.
+    public static let archiveKey: Character = "a"
+
     public private(set) var phase: Phase = .picking
     /// The highlighted (picker) or shown (list) quadrant.
     public private(set) var quadrant: Quadrant
+    /// Picker: the Archive button below the grid has the highlight instead of `quadrant`.
+    public private(set) var isArchiveHighlighted = false
     /// Index into `rows`; `nil` in the picker or when the list is empty.
     public private(set) var selectedIndex: Int?
     private var todos: [Quadrant: [TodoSnapshot]]
@@ -64,13 +78,18 @@ public final class BrowseFlow {
             return .ignored
         case .picking:
             switch key {
-            case .up: move(rows: -1, columns: 0)
-            case .down: move(rows: 1, columns: 0)
-            case .left: move(rows: 0, columns: -1)
-            case .right: move(rows: 0, columns: 1)
+            case .up:
+                if isArchiveHighlighted { isArchiveHighlighted = false } else { move(rows: -1, columns: 0) }
+            case .down:
+                if quadrant.gridPosition.row == 1 { isArchiveHighlighted = true } else { move(rows: 1, columns: 0) }
+            case .left where !isArchiveHighlighted: move(rows: 0, columns: -1)
+            case .right where !isArchiveHighlighted: move(rows: 0, columns: 1)
             case .digit(let n):
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
-            case .enter, .tab: choose(quadrant)
+            case .letter(Self.archiveKey): return .openArchive
+            case .enter, .tab:
+                if isArchiveHighlighted { return .openArchive }
+                choose(quadrant)
             case .escape: return close()
             default: break
             }
@@ -83,8 +102,11 @@ public final class BrowseFlow {
                 if let todo = selectedTodo { return .open(todo.id) }
             case .space:
                 if let todo = selectedTodo, complete(id: todo.id) { return .complete(todo.id) }
+            case .backspace:
+                if let todo = selectedTodo, complete(id: todo.id) { return .archive(todo.id) }
             case .digit(let n):
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
+            case .letter(Self.archiveKey): return .openArchive
             case .escape, .shiftTab: backToPicker()
             case .moveUp, .moveDown:
                 if let index = selectedIndex, move(from: index, to: index + (key == .moveUp ? -1 : 1)) {
@@ -102,8 +124,15 @@ public final class BrowseFlow {
     public func choose(_ quadrant: Quadrant) {
         guard phase != .closed else { return }
         self.quadrant = quadrant
+        isArchiveHighlighted = false
         phase = .listing
         selectedIndex = rows.isEmpty ? nil : 0
+    }
+
+    /// Picker: puts the highlight on the Archive button (e.g. coming back from the archive).
+    public func highlightArchive() {
+        guard phase == .picking else { return }
+        isArchiveHighlighted = true
     }
 
     /// Back from editing a todo: shows `quadrant`'s list with that todo selected, or, when it is

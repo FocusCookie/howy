@@ -75,6 +75,68 @@ import Testing
         #expect(flow.phase == .picking)
     }
 
+    @Test func downFromTheBottomRowHighlightsTheArchiveAndUpComesBack() {
+        let flow = make()
+        flow.handle(.down)
+        #expect(flow.quadrant == .urgentUnimportant)
+        #expect(!flow.isArchiveHighlighted)
+        #expect(flow.handle(.down) == .handled)
+        #expect(flow.isArchiveHighlighted)
+        #expect(flow.quadrant == .urgentUnimportant, "the quadrant is remembered")
+        flow.handle(.left)
+        flow.handle(.right)
+        #expect(flow.isArchiveHighlighted, "left/right stay on the archive")
+        #expect(flow.handle(.up) == .handled)
+        #expect(!flow.isArchiveHighlighted)
+        #expect(flow.quadrant == .urgentUnimportant)
+        #expect(flow.phase == .picking)
+    }
+
+    @Test(arguments: [QuickEntryKey.enter, .tab])
+    func enterOnTheHighlightedArchiveOpensIt(key: QuickEntryKey) {
+        let flow = make()
+        flow.handle(.down)
+        flow.handle(.down)
+        #expect(flow.handle(key) == .openArchive)
+        #expect(flow.phase == .picking, "the caller swaps the screen")
+    }
+
+    @Test func backspaceArchivesTheSelectedRowWithoutCallingItDone() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        let id = flow.selectedTodo!.id
+        #expect(flow.handle(.backspace) == .archive(id))
+        #expect(titles(flow) == ["c", "a"])
+        #expect(flow.selectedIndex == 1, "the row below moves up into the gap")
+        flow.choose(.notUrgentImportant)
+        #expect(flow.handle(.backspace) == .handled, "nothing selected in an empty list")
+    }
+
+    @Test func archiveKeyOpensTheArchiveFromPickerAndList() {
+        let flow = make()
+        #expect(flow.handle(.letter("a")) == .openArchive)
+        #expect(flow.handle(.letter("b")) == .handled)
+        flow.choose(.urgentImportant)
+        #expect(flow.handle(.letter("a")) == .openArchive)
+        #expect(flow.phase == .listing)
+    }
+
+    @Test func choosingAQuadrantDropsTheArchiveHighlight() {
+        let flow = make()
+        flow.highlightArchive()
+        #expect(flow.isArchiveHighlighted)
+        flow.handle(.digit(1))
+        #expect(flow.phase == .listing)
+        #expect(!flow.isArchiveHighlighted)
+        flow.backToPicker()
+        #expect(!flow.isArchiveHighlighted)
+        flow.highlightArchive()
+        flow.choose(.urgentImportant)
+        flow.highlightArchive()
+        #expect(!flow.isArchiveHighlighted, "only in the picker")
+    }
+
     @Test func escapeInPickerCloses() {
         let flow = make()
         #expect(flow.handle(.escape) == .close)

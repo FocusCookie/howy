@@ -23,6 +23,9 @@ public enum QuickEntryKey: Hashable, Sendable {
     case optionEnter
     /// A plain ⌫. Deletes text in the fields; removes the selected attachment.
     case backspace
+    /// A plain letter key, lower-cased. Typing in the fields; a shortcut where there is nothing
+    /// to type into (Browse: `a` opens the archive).
+    case letter(Character)
     /// Any other key that is plain typing (letters, shifted keys, backspace...). The text field
     /// handles it, except where the flow has nothing to type into (picker, delete prompt).
     case other
@@ -262,7 +265,7 @@ public final class QuickEntryFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .enter, .tab: phase = .editingTitle
             case .shiftTab, .moveUp, .moveDown: return false
-            case .other, .space, .optionEnter, .backspace: break // nothing to type into
+            case .other, .letter, .space, .optionEnter, .backspace: break // nothing to type into
             case .escape, .commandEnter, .commandDelete: break
             }
             return true

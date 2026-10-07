@@ -13,7 +13,8 @@ import SwiftUI
 /// card's top edge down to the bottom of the screen. The card sits at the top (`PanelRoot`) and
 /// only *it* changes height when a screen is swapped or grows. Letting the SwiftUI content size
 /// the window instead made the window's frame animation and the card's own animation run out of
-/// step, which re-centred the card in the window every frame and made its top edge jump.
+/// step, which re-centred the card in the window every frame and made its top edge jump; see
+/// `init` for why the hosting view sits behind a container view to keep SwiftUI from doing that.
 /// Clicks on the transparent part fall through to whatever is beneath, as on any clear window.
 ///
 /// Losing key status is not always the user clicking away: activating the app, a menu closing or
@@ -44,15 +45,17 @@ final class FloatingPanel: NSPanel {
     private static let graceInterval: TimeInterval = 0.6
     /// How long a resign must persist before the panel closes.
     private static let resignRecheckDelay: TimeInterval = 0.15
-    /// Transparent space around the card for its shadow and the opening scale.
-    static let margin: CGFloat = 56
+    /// Transparent space around the card for its shadow, the opening scale, and the done emoji's
+    /// flight out past the right edge (`PanelEffects`).
+    static let margin: CGFloat = 96
     private static let fadeOutDuration: TimeInterval = 0.12
 
     private let presentation = PanelPresentation()
 
+    /// `width` is the card's width; the window is that plus the margin on both sides.
     init<Content: View>(width: CGFloat, @ViewBuilder content: () -> Content) {
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: width, height: 200),
+            contentRect: NSRect(x: 0, y: 0, width: width + 2 * Self.margin, height: 200),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -71,7 +74,19 @@ final class FloatingPanel: NSPanel {
         presentation.content = AnyView(content())
         let host = NSHostingView(rootView: PanelRoot(presentation: presentation, width: width))
         host.sizingOptions = [] // the window keeps its frame; the card inside changes height
-        contentView = host
+        // The hosting view must not be the window's content view. In an app that runs the SwiftUI
+        // `App` lifecycle, an `NSHostingView` that *is* the content view animates the window's
+        // frame along with its root view's size, whatever `sizingOptions` says (SwiftUI's
+        // `animatesWindowRootSize`). Every card height change then resized the window from inside
+        // AppKit's layout pass, and on macOS 26+ that feedback loop ends in an uncaught
+        // "needs another Update Constraints pass" exception. Behind a plain container view the
+        // hosting view sizes nothing but itself.
+        let container = NSView(frame: NSRect(origin: .zero, size: frame.size))
+        container.autoresizesSubviews = true
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+        contentView = container
     }
 
     override var canBecomeKey: Bool { true }
@@ -304,6 +319,8 @@ final class PanelPresentation {
     var contentID = 0
     /// Where the card is inside the window (SwiftUI's window space), kept up to date by `PanelRoot`.
     var cardFrame = CGRect.zero
+    /// Decorations drawn over the window, outside the card (the done emoji).
+    let effects = PanelEffects()
 }
 
 extension EnvironmentValues {
@@ -334,11 +351,13 @@ private struct PanelRoot: View {
         }
             .frame(width: width)
             .environment(\.panelState, presentation.state)
+            .environment(\.panelEffects, presentation.effects)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { presentation.cardFrame = $0 }
             .scaleEffect(scale)
             .opacity(presentation.state == .shown ? 1 : 0)
             .padding(FloatingPanel.margin)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            .overlay { PanelEffectsLayer(effects: presentation.effects) } // window space, unclipped
     }
 
     private var scale: CGFloat {

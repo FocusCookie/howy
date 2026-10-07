@@ -191,7 +191,8 @@ final class QuickEntryModel {
     }
 }
 
-/// Archived todos for the archive panel, reloaded after every action.
+/// Archived todos for the archive panel, reloaded after every action. Keys arrive via
+/// `FloatingPanel.keyHandler` and go through `ArchiveFlow` (selection, `r`, ⌫, Esc).
 @MainActor
 @Observable
 final class ArchiveModel {
@@ -204,22 +205,49 @@ final class ArchiveModel {
     }
 
     private(set) var items: [Item] = []
+    let flow: ArchiveFlow
     @ObservationIgnored private let store: TodoStore
     @ObservationIgnored var close: () -> Void = {}
 
     init(store: TodoStore) {
         self.store = store
+        flow = ArchiveFlow(ids: [])
         reload()
+    }
+
+    var selectedItem: Item? { flow.selectedID.flatMap { id in items.first { $0.id == id } } }
+
+    /// Returns `true` when the key was consumed (every key, bar the ones that are not ours).
+    func handle(_ key: QuickEntryKey) -> Bool {
+        var outcome = ArchiveFlow.Outcome.handled
+        withAnimation(.snappy(duration: 0.25)) { outcome = flow.handle(key) }
+        switch outcome {
+        case .handled: break
+        case .restore(let id): write { try store.restore(id: id) }
+        case .delete(let id): write { try store.delete(id: id) }
+        case .close: close()
+        }
+        return true
+    }
+
+    func select(_ id: UUID) {
+        flow.select(id: id)
     }
 
     func restore(_ item: Item) {
-        do { try store.restore(id: item.id) } catch { log.error("Restore failed: \(error, privacy: .public)") }
-        reload()
+        withAnimation(.snappy(duration: 0.25)) { flow.remove(id: item.id) }
+        write { try store.restore(id: item.id) }
     }
 
     func delete(_ item: Item) {
-        do { try store.delete(id: item.id) } catch { log.error("Delete failed: \(error, privacy: .public)") }
-        reload()
+        withAnimation(.snappy(duration: 0.25)) { flow.remove(id: item.id) }
+        write { try store.delete(id: item.id) }
+    }
+
+    /// Runs a store write and reloads the list (which also brings a row back after a failure).
+    private func write(_ action: () throws -> Void) {
+        do { try action() } catch { log.error("Archive write failed: \(error, privacy: .public)") }
+        withAnimation(.snappy(duration: 0.25)) { reload() }
     }
 
     private func reload() {
@@ -234,6 +262,7 @@ final class ArchiveModel {
             log.error("Archive fetch failed: \(error, privacy: .public)")
             items = []
         }
+        flow.reload(ids: items.map(\.id))
     }
 }
 
@@ -247,8 +276,20 @@ final class BrowseModel {
     @ObservationIgnored var close: () -> Void = {}
     /// Opens a todo in the edit modal (replaces this panel).
     @ObservationIgnored var openTodo: (UUID) -> Void = { _ in }
+    /// Shows the archive (replaces this panel).
+    @ObservationIgnored var openArchive: () -> Void = {}
 
     private(set) var errorMessage: String?
+
+    /// A todo marked done, for the view's emoji burst. `sequence` makes two in a row observable.
+    struct DoneEvent: Hashable {
+        let id: UUID
+        let emoji: String
+        let sequence: Int
+    }
+
+    private(set) var lastDone: DoneEvent?
+    @ObservationIgnored private var doneEmoji = DoneEmoji()
 
     init(flow: BrowseFlow, store: TodoStore) {
         self.flow = flow
@@ -257,9 +298,16 @@ final class BrowseModel {
 
     /// Returns `true` when the key was consumed.
     func handle(_ key: QuickEntryKey) -> Bool {
+        // Space removes the selected row inside the flow; fire the burst first so the view can
+        // still measure that row.
+        if key == .space, flow.phase == .listing, let todo = flow.selectedTodo { celebrate(todo.id) }
         var outcome = BrowseFlow.Outcome.ignored
         withAnimation(.snappy(duration: 0.25)) { outcome = flow.handle(key) }
         return perform(outcome)
+    }
+
+    private func celebrate(_ id: UUID) {
+        lastDone = DoneEvent(id: id, emoji: doneEmoji.next(), sequence: (lastDone?.sequence ?? 0) + 1)
     }
 
     func choose(_ quadrant: Quadrant) {
@@ -272,6 +320,7 @@ final class BrowseModel {
     }
 
     func complete(_ id: UUID) {
+        celebrate(id) // before the row goes, so the view can still find it
         var removed = false
         withAnimation(.snappy(duration: 0.25)) { removed = flow.complete(id: id) }
         if removed { persistCompletion(id) }
@@ -296,8 +345,9 @@ final class BrowseModel {
         case .ignored: return false
         case .handled: return true
         case .open(let id): openTodo(id)
-        case .complete(let id): persistCompletion(id)
+        case .complete(let id), .archive(let id): persistCompletion(id)
         case .reorder(let quadrant): persistOrder(of: quadrant)
+        case .openArchive: openArchive()
         case .close: close()
         }
         return true

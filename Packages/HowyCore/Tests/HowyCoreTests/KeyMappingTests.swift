@@ -51,9 +51,10 @@ import Testing
         #expect(key(18, .option, "1") == nil)
     }
 
-    @Test func lettersAreOtherWhenTyping() {
-        #expect(key(0, [], "a") == .other)
-        #expect(key(0, .shift, "A") == .other)
+    @Test func plainLettersAreLetters() {
+        #expect(key(0, [], "a") == .letter("a"))
+        #expect(key(0, [], "Z") == .letter("z"), "caps lock: still the plain key")
+        #expect(key(0, .shift, "A") == .other, "shifted: typing only")
         #expect(key(0, .command, "a") == nil, "⌘A etc. belong to the focused control")
         #expect(key(0, .control, "a") == nil)
         #expect(key(0, [], nil) == .other)
@@ -77,7 +78,7 @@ import Testing
         #expect(key(40, .command, "k") == .moveUp)
         #expect(key(38, .command, "j") == .moveDown)
         #expect(key(40, [.command, .shift], "K") == nil)
-        #expect(key(40, [], "k") == .other)
+        #expect(key(40, [], "k") == .letter("k"), "plain K types")
         #expect(key(126, [.command, .option]) == nil)
     }
 }

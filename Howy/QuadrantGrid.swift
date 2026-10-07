@@ -5,7 +5,8 @@ import SwiftUI
 /// quadrant colour; on panel open the tiles slide in from slightly outside their corners.
 /// With `count`, each tile shows its open-todo count prominently (browse).
 struct QuadrantGrid: View {
-    let highlighted: Quadrant
+    /// `nil` when something outside the grid has the highlight (Browse's Archive button).
+    let highlighted: Quadrant?
     var count: ((Quadrant) -> Int)?
     let onChoose: (Quadrant) -> Void
 
