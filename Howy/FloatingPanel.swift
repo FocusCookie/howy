@@ -374,7 +374,8 @@ private struct PanelRoot: View {
 ///
 /// Raycast-style rather than Liquid Glass: Liquid Glass lets the desktop show through and refracts
 /// it, which washes out in light mode over busy windows. Here the backdrop is blurred heavily and
-/// covered by a translucent fill (Raycast's level: a dark window behind shows as a grey wash).
+/// veiled by a tint, milk-glass fashion: the card stays a pale surface, but whatever is behind the
+/// panel still shows through it as colour and shading.
 struct PanelCard<Content: View>: View {
     @ViewBuilder var content: Content
 
@@ -406,15 +407,23 @@ private struct PanelBackground: View {
     }
 
     private var isDark: Bool { colorScheme == .dark }
-    private var fill: Color { isDark ? Color(white: 0.11).opacity(0.55) : Color(white: 0.985).opacity(0.50) }
-    private var edge: Color { isDark ? .white.opacity(0.12) : .black.opacity(0.10) }
+    /// A veil over the blur, at Raycast's level: light enough that the card still reads as a pale
+    /// surface over a dark window behind it, thin enough that the blurred backdrop keeps its colour
+    /// and shading. Push it much higher and the card goes flat — nothing behind shows at all.
+    private var fill: Color { isDark ? Color(white: 0.06).opacity(0.25) : .white.opacity(0.48) }
+    private var edge: Color { isDark ? .white.opacity(0.14) : .black.opacity(0.10) }
 }
 
 /// Behind-window blur of whatever is under the panel.
 private struct BackdropBlur: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
         let view = NSVisualEffectView()
-        view.material = .sidebar // the most see-through of the light materials; `.popover` was nearly opaque
+        // Measured side by side over one backdrop, the materials differ mostly in how much colour
+        // they keep. `.fullScreenUI` keeps the most, so a veil can sit on top of it and the card
+        // still shows what is behind. `.sidebar` (used here before) and `.popover` desaturate so
+        // hard that a dark window behind the panel left no trace at all; `.windowBackground` and
+        // `.contentBackground` are not translucent in the first place.
+        view.material = .fullScreenUI
         view.blendingMode = .behindWindow
         view.state = .active
         return view
