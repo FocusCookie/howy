@@ -374,8 +374,8 @@ private struct DragHandleArea: NSViewRepresentable {
 /// The selected row's mouse path to another quadrant: four small dots in quadrant order 1–4,
 /// rings in the quadrant colours, the todo's own one filled (and not clickable). A click on
 /// another dot moves the todo. Always laid out, so titles don't jump, but only shown (and only
-/// clickable) on the selected row. Each dot sits in a 20 pt AppKit click area, so a click never
-/// opens the row and a drag never moves the panel. Hidden from VoiceOver: the row has "Move to …"
+/// clickable) on the selected row. Each dot is a plain Button with a 20 pt hit area, so a click
+/// never opens the row. Hidden from VoiceOver: the row has "Move to …"
 /// actions instead.
 private struct QuadrantDots: View {
     let current: Quadrant
@@ -407,88 +407,30 @@ private struct QuadrantDot: View {
     private var isClickable: Bool { isActive && !isCurrent }
 
     var body: some View {
-        ZStack {
-            if isCurrent {
-                Circle().fill(quadrant.color)
-            } else {
-                Circle().strokeBorder(quadrant.color, lineWidth: 1.5)
+        // A SwiftUI Button (like DoneButton), so the click is the button's and never reaches the
+        // row's tap gesture, which would open the todo.
+        Button(action: action) {
+            ZStack {
+                if isCurrent {
+                    Circle().fill(quadrant.color)
+                } else {
+                    Circle().strokeBorder(quadrant.color, lineWidth: 1.5)
+                }
             }
+            .frame(width: QuadrantDots.dotSize, height: QuadrantDots.dotSize)
+            .scaleEffect(isHovered && isClickable ? 1.3 : 1)
+            .animation(.snappy(duration: 0.12), value: isHovered)
+            .frame(width: QuadrantDots.hitSize, height: QuadrantDots.hitSize)
+            .contentShape(Rectangle())
         }
-        .frame(width: QuadrantDots.dotSize, height: QuadrantDots.dotSize)
-        .scaleEffect(isHovered && isClickable ? 1.3 : 1)
-        .animation(.snappy(duration: 0.12), value: isHovered)
-        .frame(width: QuadrantDots.hitSize, height: QuadrantDots.hitSize)
-        .overlay {
-            ClickArea(
-                isEnabled: isClickable,
-                toolTip: isCurrent ? nil : "Move to \(quadrant.displayName) (⌘\(quadrant.shortcutNumber))",
-                onHover: { isHovered = $0 },
-                onClick: action
-            )
-        }
+        .buttonStyle(.plain)
+        .disabled(!isClickable)
+        // Hidden or current dots let clicks through to the row.
+        .allowsHitTesting(isClickable)
+        .pointerStyle(isClickable ? .link : nil)
+        .onHover { isHovered = $0 }
+        .help(isClickable ? "Move to \(quadrant.displayName) (⌘\(quadrant.shortcutNumber))" : "")
         .onChange(of: isClickable) { _, clickable in if !clickable { isHovered = false } }
-    }
-}
-
-/// A transparent AppKit click target: reports hover and a click (mouse up inside), shows a
-/// tooltip and a pointing-hand cursor while enabled, and lets clicks through when disabled.
-/// Being an NSView that can't move the window, a click with a little drag never moves the panel,
-/// and the row underneath never sees the click.
-private struct ClickArea: NSViewRepresentable {
-    let isEnabled: Bool
-    let toolTip: String?
-    let onHover: (Bool) -> Void
-    let onClick: () -> Void
-
-    func makeNSView(context: Context) -> AreaView { AreaView() }
-
-    func updateNSView(_ view: AreaView, context: Context) {
-        view.onHover = onHover
-        view.onClick = onClick
-        view.toolTip = isEnabled ? toolTip : nil
-        if view.isEnabled != isEnabled {
-            view.isEnabled = isEnabled
-            view.window?.invalidateCursorRects(for: view)
-        }
-    }
-
-    final class AreaView: NSView {
-        var isEnabled = false
-        var onHover: (Bool) -> Void = { _ in }
-        var onClick: () -> Void = {}
-        private var pressed = false
-
-        override var mouseDownCanMoveWindow: Bool { false }
-        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
-
-        override func hitTest(_ point: NSPoint) -> NSView? {
-            isEnabled ? super.hitTest(point) : nil
-        }
-
-        override func updateTrackingAreas() {
-            super.updateTrackingAreas()
-            trackingAreas.forEach(removeTrackingArea)
-            addTrackingArea(NSTrackingArea(
-                rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self
-            ))
-        }
-
-        override func resetCursorRects() {
-            if isEnabled { addCursorRect(bounds, cursor: .pointingHand) }
-        }
-
-        override func mouseEntered(with event: NSEvent) { if isEnabled { onHover(true) } }
-        override func mouseExited(with event: NSEvent) { onHover(false) }
-
-        override func mouseDown(with event: NSEvent) {
-            pressed = isEnabled
-        }
-
-        override func mouseUp(with event: NSEvent) {
-            defer { pressed = false }
-            guard pressed, isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
-            onClick()
-        }
     }
 }
 
