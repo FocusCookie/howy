@@ -343,16 +343,11 @@ final class BrowseModel {
         flow.select(id: id)
     }
 
-    /// The row's move button: opens the "Move to…" picker for that todo.
-    func openMovePicker(_ id: UUID) {
-        withAnimation(.snappy(duration: 0.18)) { flow.openMovePicker(id: id) }
-    }
-
     func closeMovePicker() {
         withAnimation(.snappy(duration: 0.18)) { flow.closeMovePicker() }
     }
 
-    /// A click on a move-picker tile (or a VoiceOver "Move to" action).
+    /// A click on a move-picker tile or a row's quadrant dot, or a VoiceOver "Move to" action.
     func move(_ id: UUID, to quadrant: Quadrant) {
         guard let from = flow.rows.first(where: { $0.id == id })?.quadrant else { return }
         var moved = false

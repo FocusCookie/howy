@@ -27,8 +27,7 @@ struct BrowseView: View {
     private static var rowPitch: CGFloat { rowHeight + rowSpacing }
     private static let maxListHeight: CGFloat = 380
     private nonisolated static let listSpace = "browseList"
-    /// How far the move picker sits in from the trailing edge, leaving the row's move button and
-    /// grip in view.
+    /// How far the move picker sits in from the trailing edge, leaving the row's grip in view.
     private static let movePickerTrailing: CGFloat = 60
 
     private struct RowDrag {
@@ -158,7 +157,7 @@ struct BrowseView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             AttachmentBadge(count: todo.attachmentCount)
-            moveButton(todo, isActive: isSelected && !isDragged)
+            QuadrantDots(current: todo.quadrant, isActive: isSelected && !isDragged) { model.move(todo.id, to: $0) }
             dragHandle(todo, index: index, isActive: isSelected || isDragged)
         }
         .padding(.leading, 10)
@@ -198,23 +197,6 @@ struct BrowseView: View {
                 Button("Move to \(quadrant.displayName)") { model.move(todo.id, to: quadrant) }
             }
         }
-    }
-
-    /// Opens the "Move to…" picker for the row; shown on the selected (hovered) row only.
-    /// VoiceOver gets a "Move to …" action per quadrant on the row instead.
-    private func moveButton(_ todo: TodoSnapshot, isActive: Bool) -> some View {
-        Button { model.openMovePicker(todo.id) } label: {
-            Image(systemName: "arrow.left.arrow.right")
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(.secondary)
-                .frame(width: 22, height: Self.rowHeight)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .opacity(isActive ? 1 : 0)
-        .allowsHitTesting(isActive)
-        .help("Move to another quadrant (\(String(BrowseFlow.moveKey)) or ⌘1–4)")
-        .accessibilityHidden(true)
     }
 
     /// The grip on the right: drag it to move the row (an AppKit view, so the drag never moves the panel).
@@ -385,6 +367,127 @@ private struct DragHandleArea: NSViewRepresentable {
             startY = nil
             window?.invalidateCursorRects(for: self)
             onEnded()
+        }
+    }
+}
+
+/// The selected row's mouse path to another quadrant: four small dots in quadrant order 1–4,
+/// rings in the quadrant colours, the todo's own one filled (and not clickable). A click on
+/// another dot moves the todo. Always laid out, so titles don't jump, but only shown (and only
+/// clickable) on the selected row. Each dot sits in a 20 pt AppKit click area, so a click never
+/// opens the row and a drag never moves the panel. Hidden from VoiceOver: the row has "Move to …"
+/// actions instead.
+private struct QuadrantDots: View {
+    let current: Quadrant
+    let isActive: Bool
+    let onMove: (Quadrant) -> Void
+
+    static let hitSize: CGFloat = 20
+    static let dotSize: CGFloat = 11
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(Quadrant.allCases) { quadrant in
+                QuadrantDot(quadrant: quadrant, isCurrent: quadrant == current, isActive: isActive) { onMove(quadrant) }
+            }
+        }
+        .opacity(isActive ? 1 : 0)
+        .animation(.easeOut(duration: 0.12), value: isActive)
+        .accessibilityHidden(true)
+    }
+}
+
+private struct QuadrantDot: View {
+    let quadrant: Quadrant
+    let isCurrent: Bool
+    let isActive: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    private var isClickable: Bool { isActive && !isCurrent }
+
+    var body: some View {
+        ZStack {
+            if isCurrent {
+                Circle().fill(quadrant.color)
+            } else {
+                Circle().strokeBorder(quadrant.color, lineWidth: 1.5)
+            }
+        }
+        .frame(width: QuadrantDots.dotSize, height: QuadrantDots.dotSize)
+        .scaleEffect(isHovered && isClickable ? 1.3 : 1)
+        .animation(.snappy(duration: 0.12), value: isHovered)
+        .frame(width: QuadrantDots.hitSize, height: QuadrantDots.hitSize)
+        .overlay {
+            ClickArea(
+                isEnabled: isClickable,
+                toolTip: isCurrent ? nil : "Move to \(quadrant.displayName) (⌘\(quadrant.shortcutNumber))",
+                onHover: { isHovered = $0 },
+                onClick: action
+            )
+        }
+        .onChange(of: isClickable) { _, clickable in if !clickable { isHovered = false } }
+    }
+}
+
+/// A transparent AppKit click target: reports hover and a click (mouse up inside), shows a
+/// tooltip and a pointing-hand cursor while enabled, and lets clicks through when disabled.
+/// Being an NSView that can't move the window, a click with a little drag never moves the panel,
+/// and the row underneath never sees the click.
+private struct ClickArea: NSViewRepresentable {
+    let isEnabled: Bool
+    let toolTip: String?
+    let onHover: (Bool) -> Void
+    let onClick: () -> Void
+
+    func makeNSView(context: Context) -> AreaView { AreaView() }
+
+    func updateNSView(_ view: AreaView, context: Context) {
+        view.onHover = onHover
+        view.onClick = onClick
+        view.toolTip = isEnabled ? toolTip : nil
+        if view.isEnabled != isEnabled {
+            view.isEnabled = isEnabled
+            view.window?.invalidateCursorRects(for: view)
+        }
+    }
+
+    final class AreaView: NSView {
+        var isEnabled = false
+        var onHover: (Bool) -> Void = { _ in }
+        var onClick: () -> Void = {}
+        private var pressed = false
+
+        override var mouseDownCanMoveWindow: Bool { false }
+        override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+        override func hitTest(_ point: NSPoint) -> NSView? {
+            isEnabled ? super.hitTest(point) : nil
+        }
+
+        override func updateTrackingAreas() {
+            super.updateTrackingAreas()
+            trackingAreas.forEach(removeTrackingArea)
+            addTrackingArea(NSTrackingArea(
+                rect: .zero, options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self
+            ))
+        }
+
+        override func resetCursorRects() {
+            if isEnabled { addCursorRect(bounds, cursor: .pointingHand) }
+        }
+
+        override func mouseEntered(with event: NSEvent) { if isEnabled { onHover(true) } }
+        override func mouseExited(with event: NSEvent) { onHover(false) }
+
+        override func mouseDown(with event: NSEvent) {
+            pressed = isEnabled
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            defer { pressed = false }
+            guard pressed, isEnabled, bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
+            onClick()
         }
     }
 }
