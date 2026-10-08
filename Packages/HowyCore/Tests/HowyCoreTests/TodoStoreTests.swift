@@ -104,6 +104,60 @@ final class FakeClock: @unchecked Sendable {
         #expect(todo.createdAt < clock.now)
     }
 
+    // MARK: move (Browse)
+
+    @Test func moveLandsOnTopOfTheNewQuadrantAndReturnsTheOldSortDate() throws {
+        let moved = try store.add(title: "Moved", note: "n", quadrant: .urgentImportant)
+        let oldSortDate = moved.sortDate
+        clock.advance(by: 10)
+        let existing = try store.add(title: "Existing", note: "", quadrant: .notUrgentImportant)
+        clock.advance(by: 10)
+        let writesBefore = writes.count
+
+        let returned = try store.move(id: moved.id, to: .notUrgentImportant)
+
+        #expect(returned == oldSortDate)
+        #expect(try store.openTodos(in: .urgentImportant).isEmpty)
+        #expect(try store.openTodos(in: .notUrgentImportant).map(\.id) == [moved.id, existing.id])
+        let todo = try #require(try store.todo(id: moved.id))
+        #expect(todo.sortDate == clock.now)
+        #expect(todo.title == "Moved")
+        #expect(todo.note == "n")
+        #expect(writes.count == writesBefore + 1)
+    }
+
+    @Test func moveToTheSameQuadrantDoesNotWrite() throws {
+        let todo = try store.add(title: "A", note: "", quadrant: .urgentImportant)
+        clock.advance(by: 10)
+        let writesBefore = writes.count
+        #expect(try store.move(id: todo.id, to: .urgentImportant) == todo.sortDate)
+        #expect(try store.todo(id: todo.id)?.sortDate == todo.sortDate)
+        #expect(writes.count == writesBefore)
+    }
+
+    @Test func moveBackRestoresTheOldQuadrantAndPosition() throws {
+        let top = try store.add(title: "Top", note: "", quadrant: .urgentImportant)
+        clock.advance(by: 10)
+        let middle = try store.add(title: "Middle", note: "", quadrant: .urgentImportant)
+        clock.advance(by: 10)
+        let newest = try store.add(title: "Newest", note: "", quadrant: .urgentImportant)
+        clock.advance(by: 10)
+        let oldSortDate = try store.move(id: middle.id, to: .urgentUnimportant)
+        clock.advance(by: 10)
+
+        try store.moveBack(id: middle.id, to: .urgentImportant, sortDate: oldSortDate)
+
+        #expect(try store.openTodos(in: .urgentUnimportant).isEmpty)
+        #expect(try store.openTodos(in: .urgentImportant).map(\.id) == [newest.id, middle.id, top.id])
+        #expect(try store.todo(id: middle.id)?.sortDate == oldSortDate)
+    }
+
+    @Test func moveOnUnknownIDThrowsNotFound() {
+        let id = UUID()
+        #expect(throws: TodoStoreError.notFound(id)) { try store.move(id: id, to: .urgentImportant) }
+        #expect(throws: TodoStoreError.notFound(id)) { try store.moveBack(id: id, to: .urgentImportant, sortDate: .now) }
+    }
+
     @Test func updateRejectsEmptyTitleAndKeepsOldValues() throws {
         let todo = try store.add(title: "Keep", note: "n", quadrant: .urgentImportant)
         let writesBefore = writes.count

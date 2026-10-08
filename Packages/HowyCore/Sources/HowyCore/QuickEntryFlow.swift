@@ -6,6 +6,8 @@ public enum QuickEntryKey: Hashable, Sendable {
     case up, down, left, right
     /// A digit key (0–9). Only 1–4 mean something, and only in the picker.
     case digit(Int)
+    /// ⌘ + a digit key (0–9): move the selected todo to that quadrant (Browse list, 1–4 only).
+    case commandDigit(Int)
     case enter
     case tab
     case shiftTab
@@ -271,7 +273,7 @@ public final class QuickEntryFlow {
             case .digit(let n):
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .enter, .tab: phase = .editingTitle
-            case .shiftTab, .moveUp, .moveDown: return false
+            case .shiftTab, .moveUp, .moveDown, .commandDigit: return false
             case .other, .letter, .space, .optionEnter, .backspace, .undo: break // nothing to type into
             case .escape, .commandEnter, .commandDelete: break
             }

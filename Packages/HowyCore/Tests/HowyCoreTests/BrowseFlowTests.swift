@@ -344,7 +344,7 @@ import Testing
         flow.handle(.letter("d"))
         flow.close()
         #expect(flow.handle(.undo) == .ignored)
-        #expect(flow.undoCompletion() == nil)
+        #expect(flow.undo() == nil)
     }
 
     @Test func reloadKeepsTheSelectedTodoWhenStillThere() {
@@ -436,5 +436,259 @@ import Testing
         #expect(flow.selectedTodo?.title == "c")
         #expect(!flow.move(id: a.id, to: 0))
         #expect(flow.count(in: .urgentImportant) == 3)
+    }
+
+    // MARK: moving to another quadrant (⌘1–4)
+
+    @Test func commandDigitMovesTheSelectedTodoAndStaysInTheList() throws {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        let b = try #require(flow.selectedTodo)
+        #expect(flow.handle(.commandDigit(3)) == .move(b.id, from: .urgentImportant, to: .urgentUnimportant))
+        #expect(flow.phase == .listing)
+        #expect(flow.quadrant == .urgentImportant, "stays in the current list")
+        #expect(titles(flow) == ["c", "a"])
+        #expect(flow.selectedTodo?.title == "a", "the row that moves up into its place")
+        #expect(flow.count(in: .urgentUnimportant) == 2)
+        flow.choose(.urgentUnimportant)
+        #expect(titles(flow) == ["b", "x"], "on top of the new quadrant")
+        #expect(flow.rows[0].quadrant == .urgentUnimportant)
+        #expect(flow.canUndo)
+    }
+
+    @Test func movingTheLastRowSelectsTheNewLastAndTheOnlyRowNothing() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        flow.handle(.down)
+        flow.handle(.commandDigit(2))
+        #expect(titles(flow) == ["c", "b"])
+        #expect(flow.selectedIndex == 1)
+        flow.choose(.urgentUnimportant)
+        flow.handle(.commandDigit(4))
+        #expect(flow.rows.isEmpty)
+        #expect(flow.selectedIndex == nil)
+    }
+
+    @Test(arguments: [1, 0, 5, 9])
+    func commandDigitToTheOwnOrNoQuadrantDoesNothing(n: Int) {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        #expect(flow.handle(.commandDigit(n)) == .handled)
+        #expect(titles(flow) == ["c", "b", "a"])
+        #expect(!flow.canUndo)
+    }
+
+    @Test func commandDigitDoesNothingInThePickerOrAnEmptyList() {
+        let flow = make()
+        #expect(flow.handle(.commandDigit(2)) == .handled)
+        #expect(flow.phase == .picking)
+        #expect(flow.count(in: .urgentImportant) == 3)
+        flow.choose(.notUrgentImportant)
+        #expect(flow.handle(.commandDigit(1)) == .handled)
+        #expect(flow.count(in: .urgentImportant) == 3)
+    }
+
+    @Test func plainDigitStillSwitchesTheList() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        #expect(flow.handle(.digit(3)) == .handled)
+        #expect(flow.quadrant == .urgentUnimportant)
+        #expect(flow.count(in: .urgentImportant) == 3)
+    }
+
+    @Test func undoPutsAMovedTodoBackInItsOldQuadrantAndPosition() throws {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        let b = try #require(flow.selectedTodo)
+        flow.handle(.commandDigit(3))
+        flow.handle(.up)
+        #expect(flow.handle(.undo) == .moveBack(b.id, to: .urgentImportant))
+        #expect(titles(flow) == ["c", "b", "a"])
+        #expect(flow.selectedTodo == b, "with its old quadrant")
+        #expect(flow.count(in: .urgentUnimportant) == 1)
+        #expect(!flow.canUndo)
+    }
+
+    @Test func undoOfAMoveFromAnotherListShowsTheOldQuadrant() throws {
+        let flow = make()
+        flow.choose(.urgentUnimportant)
+        let x = try #require(flow.selectedTodo)
+        flow.handle(.commandDigit(1))
+        flow.handle(.digit(1))
+        #expect(titles(flow) == ["x", "c", "b", "a"])
+        #expect(flow.handle(.undo) == .moveBack(x.id, to: .urgentUnimportant))
+        #expect(flow.quadrant == .urgentUnimportant)
+        #expect(titles(flow) == ["x"])
+        #expect(flow.count(in: .urgentImportant) == 3)
+    }
+
+    @Test func undoTakesBackMovesAndCompletionsInReverseOrder() throws {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        let c = try #require(flow.selectedTodo)
+        flow.handle(.letter("d")) // c done
+        let b = try #require(flow.selectedTodo)
+        flow.handle(.commandDigit(4)) // b moved
+        #expect(titles(flow) == ["a"])
+        #expect(flow.handle(.undo) == .moveBack(b.id, to: .urgentImportant))
+        #expect(titles(flow) == ["b", "a"])
+        #expect(flow.handle(.undo) == .restore(c.id))
+        #expect(titles(flow) == ["c", "b", "a"])
+        #expect(flow.count(in: .notUrgentUnimportant) == 0)
+    }
+
+    @Test func undoOfAMoveInThePickerHighlightsTheOldQuadrant() throws {
+        let flow = make()
+        flow.choose(.urgentUnimportant)
+        let x = try #require(flow.selectedTodo)
+        flow.handle(.commandDigit(2))
+        flow.backToPicker()
+        #expect(flow.count(in: .notUrgentImportant) == 1)
+        #expect(flow.handle(.undo) == .moveBack(x.id, to: .urgentUnimportant))
+        #expect(flow.phase == .picking)
+        #expect(flow.quadrant == .urgentUnimportant)
+        #expect(flow.count(in: .notUrgentImportant) == 0)
+        #expect(flow.count(in: .urgentUnimportant) == 1)
+    }
+
+    // MARK: move picker (m)
+
+    @Test func mOpensTheMovePickerOnTheFirstOtherQuadrant() throws {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.down)
+        let b = try #require(flow.selectedTodo)
+        #expect(flow.handle(.letter("m")) == .handled)
+        #expect(flow.movePicker == BrowseFlow.MovePicker(todo: b, highlighted: .notUrgentImportant))
+        flow.closeMovePicker()
+        flow.choose(.notUrgentUnimportant)
+        flow.reload([.notUrgentUnimportant: [TodoSnapshot(id: UUID(), title: "z", quadrant: .notUrgentUnimportant)]])
+        flow.handle(.letter("m"))
+        #expect(flow.movePicker?.highlighted == .urgentImportant)
+    }
+
+    @Test func mDoesNothingWithoutASelectedTodo() {
+        let flow = make()
+        flow.handle(.letter("m"))
+        #expect(flow.movePicker == nil, "picker")
+        flow.choose(.notUrgentImportant)
+        flow.handle(.letter("m"))
+        #expect(flow.movePicker == nil, "empty list")
+    }
+
+    @Test func movePickerDigitMovesStraightAwayAndCloses() throws {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        let c = try #require(flow.selectedTodo)
+        flow.handle(.letter("m"))
+        #expect(flow.handle(.digit(4)) == .move(c.id, from: .urgentImportant, to: .notUrgentUnimportant))
+        #expect(flow.movePicker == nil)
+        #expect(flow.quadrant == .urgentImportant)
+        #expect(titles(flow) == ["b", "a"])
+    }
+
+    @Test func movePickerOwnDigitDoesNothingAndStaysOpen() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.letter("m"))
+        #expect(flow.handle(.digit(1)) == .handled)
+        #expect(flow.movePicker != nil)
+        #expect(titles(flow) == ["c", "b", "a"])
+    }
+
+    @Test func movePickerArrowsMoveTheHighlightAndEnterConfirms() throws {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        let c = try #require(flow.selectedTodo)
+        flow.handle(.letter("m")) // on 2
+        flow.handle(.right)
+        #expect(flow.movePicker?.highlighted == .notUrgentImportant, "clamped")
+        flow.handle(.down)
+        #expect(flow.movePicker?.highlighted == .notUrgentUnimportant)
+        flow.handle(.left)
+        #expect(flow.movePicker?.highlighted == .urgentUnimportant)
+        flow.handle(.up)
+        #expect(flow.movePicker?.highlighted == .urgentImportant)
+        #expect(flow.handle(.enter) == .handled, "the current quadrant: nothing to do")
+        #expect(flow.movePicker != nil)
+        flow.handle(.down)
+        #expect(flow.handle(.enter) == .move(c.id, from: .urgentImportant, to: .urgentUnimportant))
+        #expect(flow.movePicker == nil)
+    }
+
+    @Test func movePickerEscapeClosesOnlyThePicker() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.letter("m"))
+        #expect(flow.handle(.escape) == .handled)
+        #expect(flow.movePicker == nil)
+        #expect(flow.phase == .listing)
+        #expect(titles(flow) == ["c", "b", "a"])
+    }
+
+    @Test(arguments: [
+        QuickEntryKey.letter("d"), .backspace, .undo, .letter("a"), .letter("m"), .tab, .shiftTab,
+        .moveUp, .moveDown, .other, .space, .digit(7),
+    ])
+    func movePickerSwallowsOtherListKeys(key: QuickEntryKey) {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.letter("d")) // something to undo
+        flow.handle(.letter("m"))
+        let picker = flow.movePicker
+        #expect(flow.handle(key) == .handled)
+        #expect(flow.movePicker == picker)
+        #expect(flow.phase == .listing)
+        #expect(titles(flow) == ["b", "a"])
+        #expect(flow.selectedIndex == 0)
+    }
+
+    @Test func movePickerCommandDigitMovesToo() throws {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        let c = try #require(flow.selectedTodo)
+        flow.handle(.letter("m"))
+        #expect(flow.handle(.commandDigit(3)) == .move(c.id, from: .urgentImportant, to: .urgentUnimportant))
+        #expect(flow.movePicker == nil)
+    }
+
+    @Test func pointerOpensThePickerOnARowAndMoves() throws {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        let a = try #require(flow.rows.last)
+        flow.openMovePicker(id: a.id)
+        #expect(flow.selectedTodo == a)
+        #expect(flow.movePicker?.todo == a)
+        #expect(flow.moveTodo(id: a.id, to: .notUrgentImportant))
+        #expect(flow.movePicker == nil)
+        #expect(flow.count(in: .notUrgentImportant) == 1)
+        #expect(!flow.moveTodo(id: UUID(), to: .notUrgentImportant), "unknown id")
+        #expect(!flow.moveTodo(id: flow.rows[0].id, to: .urgentImportant), "own quadrant")
+    }
+
+    @Test func leavingTheListClosesTheMovePicker() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.letter("m"))
+        flow.choose(.urgentUnimportant)
+        #expect(flow.movePicker == nil)
+        flow.handle(.letter("m"))
+        flow.backToPicker()
+        #expect(flow.movePicker == nil)
+        flow.choose(.urgentImportant)
+        flow.handle(.letter("m"))
+        flow.close()
+        #expect(flow.movePicker == nil)
+    }
+
+    @Test func reloadWithoutThePickersTodoClosesIt() {
+        let flow = make()
+        flow.choose(.urgentImportant)
+        flow.handle(.letter("m"))
+        flow.reload([.urgentImportant: Array(flow.rows.dropFirst())])
+        #expect(flow.movePicker == nil)
     }
 }

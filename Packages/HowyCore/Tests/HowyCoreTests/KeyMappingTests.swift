@@ -54,8 +54,18 @@ import Testing
         #expect(key(18, [], "1") == .digit(1))
         #expect(key(29, [], "0") == .digit(0))
         #expect(key(18, .shift, "!") == .other)
-        #expect(key(18, .command, "1") == nil)
         #expect(key(18, .option, "1") == nil)
+    }
+
+    @Test func commandDigitIsItsOwnKey() {
+        #expect(key(18, .command, "1") == .commandDigit(1), "⌘1–4 moves a todo in Browse")
+        #expect(key(21, .command, "4") == .commandDigit(4))
+        #expect(key(18, [.command, .shift], "1") == nil)
+        #expect(key(18, [.command, .option], "1") == nil)
+    }
+
+    @Test func mIsALetter() {
+        #expect(key(46, [], "m") == .letter("m"), "m opens Browse's move picker")
     }
 
     @Test func plainLettersAreLetters() {

@@ -126,10 +126,30 @@ public final class TodoStore {
         guard todo.title != title || todo.note != note || todo.quadrant != quadrant else { return }
         todo.title = title
         todo.note = note
-        if todo.quadrant != quadrant {
-            todo.quadrant = quadrant
-            todo.sortDate = now()
-        }
+        moveOnTop(todo, to: quadrant)
+        try commit()
+    }
+
+    /// Moves a todo to another quadrant (Browse's ⌘1–4 / move picker): like an edit-modal move
+    /// in `update`, `sortDate` is bumped so it lands on top there. Returns the `sortDate` it had
+    /// before, for `moveBack`. Moving to its own quadrant writes nothing.
+    @discardableResult
+    public func move(id: UUID, to quadrant: Quadrant) throws -> Date {
+        let todo = try require(id)
+        let previous = todo.sortDate
+        guard todo.quadrant != quadrant else { return previous }
+        moveOnTop(todo, to: quadrant)
+        try commit()
+        return previous
+    }
+
+    /// Takes back a `move` (Browse's ⌘Z): the todo returns to `quadrant` with the `sortDate`
+    /// `move` returned, so it is back at the position it had there.
+    public func moveBack(id: UUID, to quadrant: Quadrant, sortDate: Date) throws {
+        let todo = try require(id)
+        guard todo.quadrant != quadrant || todo.sortDate != sortDate else { return }
+        todo.quadrant = quadrant
+        todo.sortDate = sortDate
         try commit()
     }
 
@@ -254,6 +274,13 @@ public final class TodoStore {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw TodoStoreError.emptyTitle }
         return trimmed
+    }
+
+    /// The one quadrant change (edit modal and Browse): on top of the new quadrant.
+    private func moveOnTop(_ todo: Todo, to quadrant: Quadrant) {
+        guard todo.quadrant != quadrant else { return }
+        todo.quadrant = quadrant
+        todo.sortDate = now()
     }
 
     private func require(_ id: UUID) throws -> Todo {
