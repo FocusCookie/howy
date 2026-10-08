@@ -12,7 +12,13 @@ struct BrowseView: View {
     @State private var pointer = PointerTracker()
     /// Where each row currently is, in window coordinates (where the done emoji rises).
     @State private var rowFrames: [UUID: CGRect] = [:]
+    /// Where each row is in the list section (`listSpace`), to put the move picker next to it.
+    @State private var rowListFrames: [UUID: CGRect] = [:]
+    /// The list section's and the move picker's sizes, to keep the picker inside the card.
+    @State private var listSize = CGSize.zero
+    @State private var movePickerSize = CGSize(width: MoveQuadrantPicker.width, height: 150)
     @Environment(\.panelEffects) private var panelEffects
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private var flow: BrowseFlow { model.flow }
 
@@ -20,6 +26,10 @@ struct BrowseView: View {
     private static let rowSpacing: CGFloat = 2
     private static var rowPitch: CGFloat { rowHeight + rowSpacing }
     private static let maxListHeight: CGFloat = 380
+    private nonisolated static let listSpace = "browseList"
+    /// How far the move picker sits in from the trailing edge, leaving the row's move button and
+    /// grip in view.
+    private static let movePickerTrailing: CGFloat = 60
 
     private struct RowDrag {
         let id: UUID
@@ -39,12 +49,54 @@ struct BrowseView: View {
                 }
                 footer
             }
+            .onChange(of: model.lastMove) { _, event in
+                guard let event else { return }
+                panelEffects?.launchBadge(event.isUndo ? "Back to" : "Moved to", quadrant: event.quadrant)
+            }
         }
     }
 
     // MARK: List
 
-    @ViewBuilder private var list: some View {
+    private var list: some View {
+        let placement = movePickerPlacement
+        return VStack(alignment: .leading, spacing: 12) {
+            listContent
+        }
+        .coordinateSpace(.named(Self.listSpace))
+        // Measured before the picker's extra room is added, so that room doesn't feed back.
+        .onGeometryChange(for: CGSize.self) { $0.size } action: { listSize = $0 }
+        .frame(minHeight: placement?.minHeight, alignment: .top)
+        .overlay(alignment: .topTrailing) {
+            if let picker = flow.movePicker, let placement {
+                // A click anywhere else in the list closes the picker (and does nothing else).
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.closeMovePicker() }
+                    .accessibilityHidden(true)
+                MoveQuadrantPicker(picker: picker) { model.move(picker.todo.id, to: $0) }
+                    .onGeometryChange(for: CGSize.self) { $0.size } action: { movePickerSize = $0 }
+                    .padding(.trailing, Self.movePickerTrailing)
+                    .offset(y: placement.y)
+                    .transition(reduceMotion ? .opacity : .scale(scale: 0.96, anchor: .top).combined(with: .opacity))
+            }
+        }
+    }
+
+    /// Where the move picker goes: just below its row, or above it when there is no room below;
+    /// `minHeight` grows the list section (and the card) when it fits neither way. `listSize` is
+    /// the list's own height, without that extra room.
+    private var movePickerPlacement: (y: CGFloat, minHeight: CGFloat?)? {
+        guard let picker = flow.movePicker, let row = rowListFrames[picker.todo.id] else { return nil }
+        let height = movePickerSize.height
+        let below = row.maxY + 4
+        let above = row.minY - 4 - height
+        if below + height <= listSize.height { return (below, nil) }
+        if above >= 0 { return (above, nil) }
+        return (below, below + height)
+    }
+
+    @ViewBuilder private var listContent: some View {
         HStack(spacing: 8) {
             Button { withAnimation(.snappy(duration: 0.25)) { flow.backToPicker() } } label: {
                 QuadrantChip(quadrant: flow.quadrant)
@@ -90,6 +142,9 @@ struct BrowseView: View {
                     guard let event else { return }
                     fire(event)
                 }
+                .onChange(of: flow.movePicker?.todo.id) { _, id in
+                    if let id { withAnimation(.snappy(duration: 0.2)) { proxy.scrollTo(id) } }
+                }
                 .onAppear { pointer.reset() }
             }
         }
@@ -103,6 +158,7 @@ struct BrowseView: View {
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
             AttachmentBadge(count: todo.attachmentCount)
+            moveButton(todo, isActive: isSelected && !isDragged)
             dragHandle(todo, index: index, isActive: isSelected || isDragged)
         }
         .padding(.leading, 10)
@@ -122,11 +178,12 @@ struct BrowseView: View {
         }
         .contentShape(Rectangle())
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { rowFrames[todo.id] = $0 }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.listSpace)) } action: { rowListFrames[todo.id] = $0 }
         .onTapGesture { model.open(todo.id) }
         .onHover { inside in
             // Only a real pointer move selects: rows sliding under a resting pointer (keyboard
             // moves, scrolling, the panel opening) must not steal the selection.
-            if inside, drag == nil, pointer.moved() { model.select(todo.id) }
+            if inside, drag == nil, flow.movePicker == nil, pointer.moved() { model.select(todo.id) }
         }
         .offset(y: isDragged ? draggedOffset(index: index) : 0)
         .zIndex(isDragged ? 1 : 0)
@@ -136,6 +193,28 @@ struct BrowseView: View {
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(named: "Move Up") { reorder(todo.id, to: index - 1) }
         .accessibilityAction(named: "Move Down") { reorder(todo.id, to: index + 1) }
+        .accessibilityActions {
+            ForEach(Quadrant.allCases.filter { $0 != todo.quadrant }) { quadrant in
+                Button("Move to \(quadrant.displayName)") { model.move(todo.id, to: quadrant) }
+            }
+        }
+    }
+
+    /// Opens the "Move to…" picker for the row; shown on the selected (hovered) row only.
+    /// VoiceOver gets a "Move to …" action per quadrant on the row instead.
+    private func moveButton(_ todo: TodoSnapshot, isActive: Bool) -> some View {
+        Button { model.openMovePicker(todo.id) } label: {
+            Image(systemName: "arrow.left.arrow.right")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 22, height: Self.rowHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(isActive ? 1 : 0)
+        .allowsHitTesting(isActive)
+        .help("Move to another quadrant (\(String(BrowseFlow.moveKey)) or ⌘1–4)")
+        .accessibilityHidden(true)
     }
 
     /// The grip on the right: drag it to move the row (an AppKit view, so the drag never moves the panel).
@@ -203,10 +282,12 @@ struct BrowseView: View {
             Spacer()
             // "⌘Z undo" is shown once there is something to undo, so a wrong D is caught right away.
             let undo = flow.canUndo ? " · ⌘Z undo" : ""
-            if flow.phase == .listing {
+            if flow.movePicker != nil {
+                KeyHints("1–4 move · ←↑↓→ select · ↩ move · esc cancel")
+            } else if flow.phase == .listing {
                 KeyHints(
-                    "↑↓ select · ⌘J ⌘K move · ↩ edit · D done · ⌫ archive\(undo) · 1–4 switch · esc back",
-                    short: "↑↓ select · ↩ edit · D done · ⌫ archive\(undo) · esc back"
+                    "↑↓ select · ⌘J ⌘K reorder · ↩ edit · D done · ⌫ archive · M ⌘1–4 move\(undo) · 1–4 switch · esc back",
+                    short: "↑↓ select · ↩ edit · D done · M ⌘1–4 move\(undo) · esc back"
                 )
             } else {
                 KeyHints("←↑↓→ or 1–4 · ↩ open\(undo) · esc close")

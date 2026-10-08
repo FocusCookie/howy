@@ -267,7 +267,7 @@ final class ArchiveModel {
 }
 
 /// Glue between the browse panel, `BrowseFlow` and `TodoStore`: performs the opens,
-/// completions, undos (⌘Z) and reorders the flow asks for.
+/// completions, moves to another quadrant, undos (⌘Z) and reorders the flow asks for.
 @MainActor
 @Observable
 final class BrowseModel {
@@ -290,6 +290,19 @@ final class BrowseModel {
 
     private(set) var lastDone: DoneEvent?
     @ObservationIgnored private var doneEmoji = DoneEmoji()
+
+    /// A todo moved to another quadrant (or back, on ⌘Z), for the view's badge.
+    struct MoveEvent: Hashable {
+        let quadrant: Quadrant
+        /// ⌘Z took a move back ("Back to" instead of "Moved to").
+        let isUndo: Bool
+        let sequence: Int
+    }
+
+    private(set) var lastMove: MoveEvent?
+    /// Each moved todo's `sortDate`s from before its moves, newest last, so ⌘Z can put it back
+    /// where it was (`TodoStore.moveBack`).
+    @ObservationIgnored private var sortDatesBeforeMove: [UUID: [Date]] = [:]
 
     init(flow: BrowseFlow, store: TodoStore) {
         self.flow = flow
@@ -330,6 +343,23 @@ final class BrowseModel {
         flow.select(id: id)
     }
 
+    /// The row's move button: opens the "Move to…" picker for that todo.
+    func openMovePicker(_ id: UUID) {
+        withAnimation(.snappy(duration: 0.18)) { flow.openMovePicker(id: id) }
+    }
+
+    func closeMovePicker() {
+        withAnimation(.snappy(duration: 0.18)) { flow.closeMovePicker() }
+    }
+
+    /// A click on a move-picker tile (or a VoiceOver "Move to" action).
+    func move(_ id: UUID, to quadrant: Quadrant) {
+        guard let from = flow.rows.first(where: { $0.id == id })?.quadrant else { return }
+        var moved = false
+        withAnimation(.snappy(duration: 0.25)) { moved = flow.moveTodo(id: id, to: quadrant) }
+        if moved { _ = perform(.move(id, from: from, to: quadrant)) }
+    }
+
     /// Moves a row while it is dragged; the order is written once the drag ends (`persistOrder`).
     func drag(_ id: UUID, to index: Int) {
         withAnimation(.snappy(duration: 0.2)) { _ = flow.move(id: id, to: index) }
@@ -347,6 +377,8 @@ final class BrowseModel {
         case .open(let id): openTodo(id)
         case .complete(let id), .archive(let id): persistCompletion(id)
         case .restore(let id): persistRestore(id)
+        case .move(let id, _, let to): persistMove(id, to: to)
+        case .moveBack(let id, let to): persistMoveBack(id, to: to)
         case .reorder(let quadrant): persistOrder(of: quadrant)
         case .openArchive: openArchive()
         case .close: close()
@@ -378,6 +410,46 @@ final class BrowseModel {
                 withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }
             }
         }
+    }
+
+    private func persistMove(_ id: UUID, to quadrant: Quadrant) {
+        do {
+            let previous = try store.move(id: id, to: quadrant)
+            sortDatesBeforeMove[id, default: []].append(previous)
+            errorMessage = nil
+            announceMove(to: quadrant, isUndo: false)
+        } catch {
+            log.error("Move failed: \(error, privacy: .public)")
+            errorMessage = "Couldn't move this todo."
+            if let todos = try? store.openSnapshots() {
+                withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }
+            }
+        }
+    }
+
+    /// ⌘Z of a move: back to the old quadrant with its old `sortDate`, so at its old position.
+    private func persistMoveBack(_ id: UUID, to quadrant: Quadrant) {
+        do {
+            // No saved date: that move's write failed, so the store never moved it.
+            if let sortDate = sortDatesBeforeMove[id]?.popLast() {
+                try store.moveBack(id: id, to: quadrant, sortDate: sortDate)
+            }
+            errorMessage = nil
+            announceMove(to: quadrant, isUndo: true)
+        } catch {
+            log.error("Undo move failed: \(error, privacy: .public)")
+            errorMessage = "Couldn't move this todo back."
+            if let todos = try? store.openSnapshots() {
+                withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }
+            }
+        }
+    }
+
+    /// The badge over the card, and the same news for VoiceOver.
+    private func announceMove(to quadrant: Quadrant, isUndo: Bool) {
+        lastMove = MoveEvent(quadrant: quadrant, isUndo: isUndo, sequence: (lastMove?.sequence ?? 0) + 1)
+        let verb = isUndo ? "Back to" : "Moved to"
+        AccessibilityNotification.Announcement("\(verb) \(quadrant.displayName)").post()
     }
 
     /// ⌘Z: clears the done mark the flow just took back, keeping the todo's old position.
