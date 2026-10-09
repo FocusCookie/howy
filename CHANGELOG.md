@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-09
+
 ### Added
 
 - **Links in notes.** Paste a web address into the note and a small dialog
