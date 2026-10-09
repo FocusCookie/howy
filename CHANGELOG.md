@@ -11,10 +11,10 @@ All notable changes to Howy are documented here. The format follows
 - **Move a todo to another quadrant from Browse.** In the list, ⌘1–4 sends the
   selected todo to that quadrant, and `M` opens a small "Move to…" picker (1–4,
   or arrows and ↩; esc closes it). With the mouse, click one of the four colour
-  dots on the selected row (its own quadrant is the filled one). The
-  todo lands on top of its new quadrant and you stay in the list. ⌘Z puts it
-  back where it was. A small glass badge rises out of the panel ("↗ Moved to
-  ● Urgent & Important"), and VoiceOver gets "Move to …" actions on each row.
+  dots on the selected row (its own quadrant is the filled one). The todo lands
+  on top of its new quadrant and you stay in the list. ⌘Z puts it back where it
+  was. A small glass badge rises out of the panel ("↗ Moved to ● Urgent &
+  Important"), and VoiceOver gets "Move to …" actions on each row.
 
 ### Changed
 
