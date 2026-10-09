@@ -29,6 +29,7 @@ final class AppController {
     @ObservationIgnored private let lastUsed = UserDefaultsLastQuadrantStore()
     @ObservationIgnored private let drafts = UserDefaultsDraftStore()
     @ObservationIgnored private let settingsWindow = SettingsWindowController()
+    @ObservationIgnored private let transferWindow = TransferWindowController()
 
     private static let didRegisterLoginItemKey = "didRegisterLoginItem"
     private static let didMigrateBrowseShortcutKey = "didMigrateBrowseShortcutToM"
@@ -446,6 +447,22 @@ final class AppController {
         } catch {
             log.error("Purge failed: \(error, privacy: .public)")
         }
+    }
+
+    // MARK: Import and export
+
+    /// Export… in the menu: every todo and attachment into a folder the user picks.
+    func exportAll() {
+        closePanel()
+        guard let store = freshStore(activate: true) else { return }
+        transferWindow.export(store: store)
+    }
+
+    /// Import… in the menu: an export folder, merged in by id after a preview.
+    func importFolder() {
+        closePanel()
+        guard let store = freshStore(activate: true) else { return }
+        transferWindow.importFolder(store: store)
     }
 
     // MARK: Settings

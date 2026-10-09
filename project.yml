@@ -59,7 +59,7 @@ targets:
       path: Howy/Howy.entitlements
       properties:
         com.apple.security.app-sandbox: true
-        com.apple.security.files.user-selected.read-only: true
+        com.apple.security.files.user-selected.read-write: true
         com.apple.security.application-groups:
           - $(TeamIdentifierPrefix)io.lichtwart.howy
   HowyWidgets:

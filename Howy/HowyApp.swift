@@ -40,6 +40,9 @@ private struct MenuContent: View {
             }
         }
         Divider()
+        Button("Import…") { controller.importFolder() }
+        Button("Export…") { controller.exportAll() }
+        Divider()
         Button("Settings…") { controller.showSettings() }
             .keyboardShortcut(",")
         Divider()

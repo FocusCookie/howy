@@ -118,6 +118,36 @@ public final class TodoStore {
         return todo
     }
 
+    /// Inserts todos exactly as given, timestamps and `completedAt` included (import). Ids that
+    /// already exist, or repeat within `records`, are skipped; existing todos are never changed.
+    /// All of it is one write, so widgets reload once; nothing new writes nothing. Returns the
+    /// ids inserted, in order.
+    @discardableResult
+    public func insert(_ records: [TodoRecord]) throws -> [UUID] {
+        let validated = try records.map { record in
+            var record = record
+            record.title = try Self.validated(record.title)
+            return record
+        }
+        var taken = try allIDs()
+        var inserted: [UUID] = []
+        for record in validated where taken.insert(record.id).inserted {
+            context.insert(Todo(
+                id: record.id, title: record.title, note: record.note, quadrant: record.quadrant,
+                createdAt: record.createdAt, sortDate: record.sortDate, completedAt: record.completedAt
+            ))
+            inserted.append(record.id)
+        }
+        guard !inserted.isEmpty else { return [] }
+        do {
+            try commit()
+        } catch {
+            context.rollback()
+            throw error
+        }
+        return inserted
+    }
+
     /// Changes a todo. Moving it to another quadrant bumps `sortDate` so it shows on top there.
     public func update(id: UUID, title: String, note: String, quadrant: Quadrant) throws {
         let title = try Self.validated(title)
@@ -229,6 +259,21 @@ public final class TodoStore {
         descriptor.fetchLimit = 1
         return try context.fetch(descriptor).first
     }
+
+    /// Every todo, open and archived, oldest `createdAt` first (export).
+    public func allTodos() throws -> [Todo] {
+        try context.fetch(FetchDescriptor<Todo>(sortBy: [SortDescriptor(\.createdAt)]))
+    }
+
+    /// The ids of all todos.
+    func allIDs() throws -> Set<UUID> {
+        var descriptor = FetchDescriptor<Todo>()
+        descriptor.propertiesToFetch = [\.id]
+        return Set(try context.fetch(descriptor).map(\.id))
+    }
+
+    /// The injected clock's time.
+    var currentDate: Date { now() }
 
     /// Open todos in a quadrant, newest `sortDate` first.
     public func openTodos(in quadrant: Quadrant) throws -> [Todo] {

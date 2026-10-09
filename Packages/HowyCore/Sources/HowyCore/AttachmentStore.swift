@@ -6,6 +6,7 @@ import Foundation
 /// - `<root>/<todo id>/attachments.json`: the todo's attachments, in the order they were added.
 /// - `<root>/<todo id>/<attachment id>/<name>`: a committed file.
 /// - `<root>/staging/<attachment id>/<name>`: a file added during an unsaved edit or draft.
+/// - `<root>/import-<uuid>/<attachment id>/<name>`: a file on its way in from an import.
 ///
 /// An edit only changes a todo's files on `commit`; until then new files wait in staging, so
 /// Esc can throw them away and drafts can carry them. `collectStaging(keeping:)` deletes staged
@@ -129,6 +130,39 @@ public final class AttachmentStore: Sendable {
             try JSONEncoder().encode(kept).write(to: directory.appending(path: Self.manifestName), options: .atomic)
         }
         return kept != old
+    }
+
+    // MARK: Importing
+
+    /// A fresh folder for files on their way in from an import: `<root>/import-<uuid>/`, laid
+    /// out like staging (`<attachment id>/<name>`). It sits outside staging so
+    /// `collectStaging` can't delete files while an import copies them.
+    func makeImportArea() throws -> URL {
+        let area = root.appending(path: "import-\(UUID().uuidString)", directoryHint: .isDirectory)
+        try fileManager.createDirectory(at: area, withIntermediateDirectories: true)
+        return area
+    }
+
+    /// Copies `source` into the import area under the attachment's id and name.
+    func copyForImport(_ source: URL, as attachment: TodoAttachment, into area: URL) throws {
+        let target = area.appending(path: attachment.id.uuidString, directoryHint: .isDirectory).appending(path: attachment.name)
+        try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.copyItem(at: source, to: target)
+    }
+
+    /// Makes `attachments` (copied into `area` by `copyForImport`) the attachments of a todo that
+    /// has none yet. Throws instead of touching a todo that already has attachments.
+    func commitImport(_ attachments: [TodoAttachment], for todoID: UUID, from area: URL) throws {
+        guard !attachments.isEmpty else { return }
+        guard self.attachments(for: todoID).isEmpty else { throw CocoaError(.fileWriteFileExists) }
+        for attachment in attachments {
+            let source = area.appending(path: attachment.id.uuidString, directoryHint: .isDirectory).appending(path: attachment.name)
+            let target = committedURL(attachment, todoID: todoID)
+            try? fileManager.removeItem(at: target.deletingLastPathComponent()) // a leftover from an earlier, failed write
+            try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try fileManager.moveItem(at: source, to: target)
+        }
+        try JSONEncoder().encode(attachments).write(to: todoDirectory(todoID).appending(path: Self.manifestName), options: .atomic)
     }
 
     /// Deletes all of a todo's files (the todo was deleted or purged).

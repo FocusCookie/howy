@@ -63,3 +63,43 @@ public struct TodoSnapshot: Identifiable, Hashable, Codable, Sendable {
         self.attachmentCount = attachmentCount
     }
 }
+
+/// A todo's stored values as plain data, timestamps included (import and export).
+public struct TodoRecord: Hashable, Sendable {
+    public var id: UUID
+    public var title: String
+    public var note: String
+    public var quadrant: Quadrant
+    public var createdAt: Date
+    public var sortDate: Date
+    /// `nil` while open; set means done and archived.
+    public var completedAt: Date?
+
+    public init(
+        id: UUID,
+        title: String,
+        note: String = "",
+        quadrant: Quadrant,
+        createdAt: Date,
+        sortDate: Date? = nil,
+        completedAt: Date? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.note = note
+        self.quadrant = quadrant
+        self.createdAt = createdAt
+        self.sortDate = sortDate ?? createdAt
+        self.completedAt = completedAt
+    }
+}
+
+extension Todo {
+    /// The todo's values as plain data.
+    public var record: TodoRecord {
+        TodoRecord(
+            id: id, title: title, note: note, quadrant: quadrant,
+            createdAt: createdAt, sortDate: sortDate, completedAt: completedAt
+        )
+    }
+}
