@@ -357,8 +357,10 @@ final class BrowseModel {
     func handle(_ key: QuickEntryKey) -> Bool {
         // `d` removes the selected row inside the flow; fire the burst first so the view can
         // still measure that row.
-        // A tile editor's link dialog takes every key first (Esc closes only the dialog).
-        if let tileEditor, tileEditor.flow.linkDialog != nil { return tileEditor.handle(key) }
+        // A tile editor's link or due-date dialog takes every key first (Esc closes only the dialog).
+        if let tileEditor, tileEditor.flow.linkDialog != nil || tileEditor.flow.dueDialog != nil {
+            return tileEditor.handle(key)
+        }
         if key == .letter(BrowseFlow.doneKey), flow.dueDialog == nil,
            flow.phase == .listing || flow.phase == .overview && flow.tileEditor == nil,
            let todo = flow.selectedTodo { celebrate(todo.id) }

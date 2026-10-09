@@ -571,6 +571,7 @@ final class FloatingPanel: NSPanel {
             QLPreviewPanel.shared()?.orderOut(nil)
         }
         ignoresMouseEvents = true
+        childWindows?.forEach { $0.orderOut(nil) } // the due-date examples beside the card
         willClose?()
         willClose = nil
         onClose?()

@@ -284,6 +284,9 @@ struct OverviewView: View {
             Text(todo.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            TimelineView(.everyMinute) { _ in
+                DueBadge(due: todo.due, now: flow.now, isSelected: isSelected) { model.beginDueDate(todo.id) }
+            }
             AttachmentBadge(count: todo.attachmentCount)
             QuadrantDots(current: todo.quadrant, isActive: isSelected && drag == nil) { model.move(todo.id, to: $0) }
             dragHandle(todo, in: quadrant, isActive: isSelected || isDragged)

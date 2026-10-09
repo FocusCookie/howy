@@ -40,7 +40,12 @@ struct QuickEntryView: View {
             }
         }
         .overlay { linkDialog }
+        .overlay { dueDialog }
         .background(WindowReader { panel.window = $0 as? FloatingPanel })
+        .onChange(of: flow.dueDialog == nil) { _, closed in
+            // Back from the due-date dialog: the field under it gets the keyboard again.
+            if closed, !flow.isFinished { DispatchQueue.main.async { focusField(for: flow.phase) } }
+        }
         .onChange(of: flow.phase) { _, phase in
             if !flow.isFinished { activePhase = phase }
             // Defer: the target field may only be inserted by this very phase change.
@@ -112,11 +117,17 @@ struct QuickEntryView: View {
     @ViewBuilder private func fields(fillsHeight: Bool = false, showsAttachments: Bool = true) -> some View {
         @Bindable var bindable = flow
         VStack(alignment: .leading, spacing: gap) {
-            Button { flow.focus(.pickingQuadrant) } label: {
-                QuadrantChip(quadrant: flow.quadrant)
+            HStack(spacing: gap) {
+                Button { flow.focus(.pickingQuadrant) } label: {
+                    QuadrantChip(quadrant: flow.quadrant)
+                }
+                .buttonStyle(.plain)
+                .help("Change quadrant (⇧⇥)")
+                Spacer(minLength: 0)
+                TimelineView(.everyMinute) { _ in
+                    DuePill(due: flow.due, now: flow.now) { flow.beginDueDate() }
+                }
             }
-            .buttonStyle(.plain)
-            .help("Change quadrant (⇧⇥)")
 
             TextField("Title", text: $bindable.title)
                 .textFieldStyle(.plain)
@@ -129,7 +140,7 @@ struct QuickEntryView: View {
 
         MarkdownNoteEditor(
             text: flow.note,
-            isFocused: flow.phase == .editingNote && flow.linkDialog == nil,
+            isFocused: flow.phase == .editingNote && flow.linkDialog == nil && flow.dueDialog == nil,
             onChange: { flow.note = $0 },
             onFocus: { flow.focus(.editingNote) },
             attachmentNames: Set(flow.attachmentNames),
@@ -182,6 +193,28 @@ struct QuickEntryView: View {
 
     /// The width kept free for the popover at the editor's right edge, at 100 %.
     private static let popoverRoom: CGFloat = 330
+
+    /// The due-date dialog over the whole card, the rest dimmed; a click beside it cancels.
+    @ViewBuilder private var dueDialog: some View {
+        if let dialog = flow.dueDialog {
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.12)
+                    .contentShape(Rectangle())
+                    .onTapGesture { flow.cancelDue() }
+                DueDateDialogView(dialog: dialog, now: flow.now, actions: DueDateDialogActions(
+                    setText: { flow.setDueText($0) },
+                    confirm: { flow.confirmDue() },
+                    cancel: { flow.cancelDue() },
+                    remove: { flow.removeDue() },
+                    toggleExamples: { flow.toggleDueExamples() },
+                    pickExample: { flow.pickDueExample($0) }
+                ))
+                .padding(.top, 40 * scale)
+                .padding(.horizontal, 16 * scale)
+            }
+            .transition(.opacity)
+        }
+    }
 
     /// The link dialog over the whole card, the rest dimmed; a click beside it cancels.
     @ViewBuilder private var linkDialog: some View {
@@ -258,11 +291,11 @@ struct QuickEntryView: View {
     private var baseHint: String {
         switch shownPhase {
         case .pickingQuadrant: "←↑↓→ or 1–4 · ↩ choose · esc " + (flow.isEditing ? "cancel" : closeWord)
-        case .editingTitle: "↩ note · ⌥↩ files · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)
+        case .editingTitle: "↩ note · ⌥↩ files · ⌘T due · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)
         case .browsingAttachments where flow.attachments.isEmpty: "↩ add files · ⇧⇥ note · ⌘↩ save · esc " + (flow.isEditing ? "cancel" : closeWord)
         case .browsingAttachments where flow.isAddSelected: "↩ add files · ← select · ⇧⇥ note · ⌘↩ save"
         case .browsingAttachments: "←→ select · space open · ⌥↩ other way · ⌫ remove · ⇧⇥ note"
-        default: "⌘↩ save · ⌥↩ files · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)
+        default: "⌘↩ save · ⌥↩ files · ⌘T due · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)
         }
     }
 
