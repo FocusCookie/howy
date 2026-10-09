@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-10-09
+
 ### Added
 
 - **⌘W closes the Howy panel from any screen.** Esc still steps back (for
