@@ -105,11 +105,12 @@ import Testing
         let receipt = try files.stage(data: Data("PNG".utf8), as: "receipt.png")
         let plan = try files.stage(data: Data("PDF".utf8), as: "Q4 plan (draft).pdf")
         try store.setAttachments([receipt, plan], for: open.id)
+        try store.setDue(id: open.id, to: clock.now.addingTimeInterval(86_400.5))
         clock.advance(by: 60.25)
         let moved = try store.add(title: "Call mum", quadrant: .urgentUnimportant)
         clock.advance(by: 3.5)
         try store.move(id: moved.id, to: .notUrgentImportant)
-        let done = try store.add(title: "Old thing", note: "**done**", quadrant: .notUrgentUnimportant)
+        let done = try store.add(title: "Old thing", note: "**done**", quadrant: .notUrgentUnimportant, due: clock.now.addingTimeInterval(50))
         clock.advance(by: 100)
         try store.complete(id: done.id)
         return store
@@ -132,6 +133,8 @@ import Testing
         #expect(json.contains(#""appVersion" : "1.4.0""#))
         #expect(json.contains(#""quadrant" : "urgent-important""#))
         #expect(json.contains(#""completedAt" : null"#))
+        #expect(json.contains(#""due" : null"#), "the moved todo has none")
+        #expect(json.contains(#""due" : "20"#))
     }
 
     @Test func exportReportsUnreadableAttachmentsButKeepsThemListed() async throws {
@@ -277,7 +280,24 @@ import Testing
         #expect(todo.note == "")
         #expect(todo.sortDate == todo.createdAt)
         #expect(todo.completedAt == nil)
+        #expect(todo.due == nil)
         #expect(store.attachmentList(for: id).isEmpty)
+    }
+
+    @Test func aDueDateIsImported() async throws {
+        let (store, _) = try makeStore("target")
+        let id = UUID()
+        let folder = try importFolder(json: json(todoJSON(id: id, extra: #", "due": "2026-10-15T07:00:00Z""#)))
+        let importer = HowyImporter(store: store)
+        _ = try await importer.apply(try importer.analyze(folder: folder))
+        #expect(try store.todo(id: id)?.due == HowyFormat.date(from: "2026-10-15T07:00:00Z"))
+    }
+
+    @Test func anInvalidDueDateSkipsTheEntry() throws {
+        let (store, _) = try makeStore("target")
+        let folder = try importFolder(json: json(todoJSON(extra: #", "due": "soon""#)))
+        let plan = try HowyImporter(store: store).analyze(folder: folder)
+        #expect(plan.report.importCount == 0)
     }
 
     // MARK: Attachments

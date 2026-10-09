@@ -16,6 +16,9 @@ public final class Todo {
     /// Drives newest-first ordering. Set on creation and when the todo moves quadrant.
     public var sortDate: Date
     public var completedAt: Date?
+    /// When the todo is due (schema v2); `nil` for none. Completing, archiving and restoring
+    /// keep it; the notification fires at this moment.
+    public var due: Date?
 
     public init(
         id: UUID = UUID(),
@@ -24,7 +27,8 @@ public final class Todo {
         quadrant: Quadrant,
         createdAt: Date,
         sortDate: Date? = nil,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        due: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -33,6 +37,7 @@ public final class Todo {
         self.createdAt = createdAt
         self.sortDate = sortDate ?? createdAt
         self.completedAt = completedAt
+        self.due = due
     }
 
     public var quadrant: Quadrant {
@@ -44,7 +49,7 @@ public final class Todo {
 
     /// A lightweight value copy for widgets.
     public var snapshot: TodoSnapshot {
-        TodoSnapshot(id: id, title: title, quadrant: quadrant)
+        TodoSnapshot(id: id, title: title, quadrant: quadrant, due: due)
     }
 }
 
@@ -55,12 +60,20 @@ public struct TodoSnapshot: Identifiable, Hashable, Codable, Sendable {
     public var quadrant: Quadrant
     /// How many files are attached (for the paperclip); filled in by `TodoStore`.
     public var attachmentCount: Int
+    /// When it is due, if ever (the list's clock or bell, the widget's clock).
+    public var due: Date?
 
-    public init(id: UUID, title: String, quadrant: Quadrant, attachmentCount: Int = 0) {
+    public init(id: UUID, title: String, quadrant: Quadrant, attachmentCount: Int = 0, due: Date? = nil) {
         self.id = id
         self.title = title
         self.quadrant = quadrant
         self.attachmentCount = attachmentCount
+        self.due = due
+    }
+
+    /// Whether the due date has passed at `now`.
+    public func dueState(at now: Date) -> DueState {
+        DueState(due: due, now: now)
     }
 }
 
@@ -74,6 +87,8 @@ public struct TodoRecord: Hashable, Sendable {
     public var sortDate: Date
     /// `nil` while open; set means done and archived.
     public var completedAt: Date?
+    /// `nil` without a due date.
+    public var due: Date?
 
     public init(
         id: UUID,
@@ -82,7 +97,8 @@ public struct TodoRecord: Hashable, Sendable {
         quadrant: Quadrant,
         createdAt: Date,
         sortDate: Date? = nil,
-        completedAt: Date? = nil
+        completedAt: Date? = nil,
+        due: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -91,6 +107,7 @@ public struct TodoRecord: Hashable, Sendable {
         self.createdAt = createdAt
         self.sortDate = sortDate ?? createdAt
         self.completedAt = completedAt
+        self.due = due
     }
 }
 
@@ -99,7 +116,7 @@ extension Todo {
     public var record: TodoRecord {
         TodoRecord(
             id: id, title: title, note: note, quadrant: quadrant,
-            createdAt: createdAt, sortDate: sortDate, completedAt: completedAt
+            createdAt: createdAt, sortDate: sortDate, completedAt: completedAt, due: due
         )
     }
 }

@@ -77,12 +77,12 @@ public final class TodoStore {
 
     private static func makeContainer(url: URL) throws -> ModelContainer {
         let configuration = ModelConfiguration(
-            schema: Schema(versionedSchema: HowySchemaV1.self),
+            schema: Schema(versionedSchema: HowySchemaV2.self),
             url: url,
             cloudKitDatabase: .none
         )
         return try ModelContainer(
-            for: Schema(versionedSchema: HowySchemaV1.self),
+            for: Schema(versionedSchema: HowySchemaV2.self),
             migrationPlan: HowyMigrationPlan.self,
             configurations: configuration
         )
@@ -94,7 +94,7 @@ public final class TodoStore {
         now: @escaping @Sendable () -> Date = { Date() },
         didWrite: (@MainActor () -> Void)? = nil
     ) throws -> TodoStore {
-        let schema = Schema(versionedSchema: HowySchemaV1.self)
+        let schema = Schema(versionedSchema: HowySchemaV2.self)
         let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
         let container = try ModelContainer(for: schema, migrationPlan: HowyMigrationPlan.self, configurations: configuration)
         return TodoStore(modelContainer: container, attachments: attachments, now: now, didWrite: didWrite)
@@ -110,9 +110,9 @@ public final class TodoStore {
     // MARK: Writes
 
     @discardableResult
-    public func add(id: UUID = UUID(), title: String, note: String = "", quadrant: Quadrant) throws -> Todo {
+    public func add(id: UUID = UUID(), title: String, note: String = "", quadrant: Quadrant, due: Date? = nil) throws -> Todo {
         let title = try Self.validated(title)
-        let todo = Todo(id: id, title: title, note: note, quadrant: quadrant, createdAt: now())
+        let todo = Todo(id: id, title: title, note: note, quadrant: quadrant, createdAt: now(), due: due)
         context.insert(todo)
         try commit()
         return todo
@@ -134,7 +134,8 @@ public final class TodoStore {
         for record in validated where taken.insert(record.id).inserted {
             context.insert(Todo(
                 id: record.id, title: record.title, note: record.note, quadrant: record.quadrant,
-                createdAt: record.createdAt, sortDate: record.sortDate, completedAt: record.completedAt
+                createdAt: record.createdAt, sortDate: record.sortDate, completedAt: record.completedAt,
+                due: record.due
             ))
             inserted.append(record.id)
         }
@@ -148,16 +149,48 @@ public final class TodoStore {
         return inserted
     }
 
-    /// Changes a todo. Moving it to another quadrant bumps `sortDate` so it shows on top there.
+    /// Changes a todo, keeping its due date. Moving it to another quadrant bumps `sortDate` so it
+    /// shows on top there.
     public func update(id: UUID, title: String, note: String, quadrant: Quadrant) throws {
+        try update(id: id, title: title, note: note, quadrant: quadrant, due: try require(id).due)
+    }
+
+    /// Changes a todo, its due date included (`nil` removes it). Moving it to another quadrant
+    /// bumps `sortDate` so it shows on top there.
+    public func update(id: UUID, title: String, note: String, quadrant: Quadrant, due: Date?) throws {
         let title = try Self.validated(title)
         let todo = try require(id)
         // An untouched edit is a no-op: don't write or reload widgets.
-        guard todo.title != title || todo.note != note || todo.quadrant != quadrant else { return }
+        guard todo.title != title || todo.note != note || todo.quadrant != quadrant || todo.due != due else { return }
         todo.title = title
         todo.note = note
+        todo.due = due
         moveOnTop(todo, to: quadrant)
         try commit()
+    }
+
+    /// Sets (or with `nil` removes) a todo's due date. The same date again writes nothing.
+    /// Due dates never change the quadrant or the order.
+    public func setDue(id: UUID, to due: Date?) throws {
+        let todo = try require(id)
+        guard todo.due != due else { return }
+        todo.due = due
+        try commit()
+    }
+
+    /// Removes a todo's due date.
+    public func clearDue(id: UUID) throws {
+        try setDue(id: id, to: nil)
+    }
+
+    /// Moves the due date to `interval` from now (the notification's "Snooze 1 h").
+    public func snooze(id: UUID, by interval: TimeInterval) throws {
+        try setDue(id: id, to: now().addingTimeInterval(interval))
+    }
+
+    /// Moves the due date to `date` (the notification's "Tomorrow 9:00").
+    public func snooze(id: UUID, until date: Date) throws {
+        try setDue(id: id, to: date)
     }
 
     /// Moves a todo to another quadrant (Browse's ⌘1–4 / move picker): like an edit-modal move
@@ -206,6 +239,7 @@ public final class TodoStore {
     }
 
     /// Archives the todo. Completing an already archived todo keeps its original `completedAt`.
+    /// The due date stays (its notification is cancelled by the next notification sync).
     public func complete(id: UUID) throws {
         let todo = try require(id)
         guard todo.completedAt == nil else { return } // no-op: don't write or reload widgets
@@ -216,7 +250,7 @@ public final class TodoStore {
     /// Brings an archived todo back into its original quadrant, on top: `sortDate` is bumped so
     /// an undone tick doesn't vanish under "+N more". With `onTop` false (Browse's ⌘Z, moments
     /// after the tick) `sortDate` is left alone, so the todo returns to the position it had.
-    /// Restoring an open todo does nothing.
+    /// Restoring an open todo does nothing. The due date is kept.
     public func restore(id: UUID, onTop: Bool = true) throws {
         let todo = try require(id)
         guard todo.completedAt != nil else { return }
@@ -321,6 +355,16 @@ public final class TodoStore {
             result[quadrant] = try openTodos(in: quadrant).map(snapshot(of:))
         }
         return result
+    }
+
+    /// Open todos that have a due date, earliest due first (input for `NotificationPlan`).
+    public func openDueSnapshots() throws -> [TodoSnapshot] {
+        try context.fetch(FetchDescriptor<Todo>(
+            predicate: #Predicate { $0.completedAt == nil && $0.due != nil },
+            sortBy: [SortDescriptor(\.createdAt)]
+        ))
+        .map(snapshot(of:))
+        .sorted { ($0.due ?? .distantFuture) < ($1.due ?? .distantFuture) }
     }
 
     /// A todo as a value, with its attachment count.
