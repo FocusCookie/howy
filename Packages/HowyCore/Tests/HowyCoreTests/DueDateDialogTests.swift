@@ -300,3 +300,126 @@ extension DueDateContext {
         #expect(flow.dueDialog == nil)
     }
 }
+
+/// The examples panel from the keyboard: ⇥ / ⇧⇥ toggle it, ↑↓ go through the examples, ↩ picks.
+@MainActor
+@Suite struct DueDateExamplesKeyTests {
+    let tomorrowNine = DueFixture.date("2026-10-08 09:00")
+    var all: [String] { DueDateExamples.all.map(\.phrase) }
+
+    func makeEditor() -> QuickEntryFlow {
+        let flow = QuickEntryFlow(mode: .create(startingInTitle: true), lastUsed: MemoryLastQuadrantStore(), dueDates: .fixture)
+        flow.title = "Pay"
+        flow.handle(.dueDate)
+        return flow
+    }
+
+    func makeBrowse() -> BrowseFlow {
+        let flow = BrowseFlow(
+            todos: [.urgentImportant: [TodoSnapshot(id: UUID(), title: "a", quadrant: .urgentImportant)]],
+            dueDates: .fixture
+        )
+        flow.choose(.urgentImportant)
+        flow.handle(.letter("t"))
+        return flow
+    }
+
+    @Test func tabAndShiftTabToggleTheExamplesInTheEditor() {
+        let flow = makeEditor()
+        #expect(flow.handle(.tab))
+        #expect(flow.dueDialog?.showsExamples == true)
+        #expect(flow.handle(.tab))
+        #expect(flow.dueDialog?.showsExamples == false)
+        #expect(flow.handle(.shiftTab))
+        #expect(flow.dueDialog?.showsExamples == true)
+        #expect(flow.phase == .editingTitle, "⇧⇥ didn't reach the editor")
+    }
+
+    @Test func tabAndShiftTabToggleTheExamplesInBrowse() {
+        let flow = makeBrowse()
+        #expect(flow.handle(.tab) == .handled)
+        #expect(flow.dueDialog?.showsExamples == true)
+        #expect(flow.handle(.shiftTab) == .handled)
+        #expect(flow.dueDialog?.showsExamples == false)
+        #expect(flow.phase == .listing, "⇧⇥ didn't go back to the picker")
+    }
+
+    @Test func escapeStillClosesTheExamplesFirst() {
+        let flow = makeEditor()
+        flow.handle(.tab)
+        flow.handle(.escape)
+        #expect(flow.dueDialog != nil)
+        #expect(flow.dueDialog?.showsExamples == false)
+        flow.handle(.escape)
+        #expect(flow.dueDialog == nil)
+    }
+
+    @Test func arrowsGoThroughTheExamplesAndEnterPicksOne() {
+        let flow = makeEditor()
+        flow.handle(.tab)
+        #expect(flow.dueDialog?.highlightedExample == nil)
+        #expect(flow.handle(.down))
+        #expect(flow.dueDialog?.highlightedExample == 0)
+        flow.handle(.down)
+        #expect(flow.dueDialog?.highlightedExample == 1)
+        flow.handle(.up)
+        flow.handle(.up)
+        #expect(flow.dueDialog?.highlightedExample == 0, "clamped at the top")
+        #expect(flow.handle(.enter))
+        #expect(flow.dueDialog?.text == all[0])
+        #expect(flow.dueDialog != nil, "picking doesn't set the date yet")
+        #expect(flow.dueDialog?.highlightedExample == nil)
+        #expect(flow.due == nil)
+        flow.handle(.enter)
+        #expect(flow.dueDialog == nil)
+        #expect(flow.due != nil, "the next ↩ sets it")
+    }
+
+    @Test func upFromNothingGoesToTheLastAndDownClamps() {
+        let flow = makeBrowse()
+        flow.handle(.tab)
+        flow.handle(.up)
+        #expect(flow.dueDialog?.highlightedExample == all.count - 1)
+        flow.handle(.down)
+        #expect(flow.dueDialog?.highlightedExample == all.count - 1)
+        #expect(flow.handle(.enter) == .handled)
+        #expect(flow.dueDialog?.text == all[all.count - 1])
+    }
+
+    @Test func enterSetsWhenTheExamplesAreClosed() {
+        let flow = makeEditor()
+        flow.setDueText("tomorrow")
+        flow.handle(.tab)
+        flow.handle(.down)
+        flow.handle(.tab) // closes them, and the highlight with them
+        #expect(flow.dueDialog?.highlightedExample == nil)
+        flow.handle(.enter)
+        #expect(flow.due == tomorrowNine)
+    }
+
+    @Test func enterSetsWithTheExamplesOpenAndNothingHighlighted() {
+        let flow = makeBrowse()
+        flow.setDueText("tomorrow")
+        flow.handle(.tab)
+        #expect(flow.handle(.enter) == .setDue(flow.rows[0].id, tomorrowNine))
+    }
+
+    @Test func arrowsAreTheFieldsWhileTheExamplesAreClosed() {
+        let flow = makeEditor()
+        #expect(!flow.handle(.down))
+        #expect(!flow.handle(.up))
+        #expect(flow.dueDialog?.highlightedExample == nil)
+    }
+
+    @Test func typingClearsTheHighlight() {
+        let flow = makeEditor()
+        flow.handle(.tab)
+        flow.handle(.down)
+        flow.setDueText("fri")
+        #expect(flow.dueDialog?.highlightedExample == nil)
+    }
+
+    @Test func theExampleListIsTheGroupsInOrder() {
+        #expect(DueDateExamples.all == DueDateExamples.groups.flatMap(\.examples))
+    }
+}

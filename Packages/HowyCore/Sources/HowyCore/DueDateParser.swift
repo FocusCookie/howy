@@ -424,6 +424,9 @@ public enum DueDateExamples {
         public var id: String { title }
     }
 
+    /// Every example in panel order (what ↑/↓ go through).
+    public static var all: [Example] { groups.flatMap(\.examples) }
+
     public static let groups: [Group] = [
         Group(title: "Relative", examples: [
             Example(phrase: "in 30 min", hint: ""),

@@ -143,11 +143,12 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 /// `LinkTitleLookup` the page's own title replaces it when it arrives, unless the user typed first.
 ///
 /// Due date (`dueDialog`): ⌘T anywhere (or `beginDueDate()`, the clock in the header) opens the
-/// due-date dialog over the panel (`DueDateDialog`). While it is open its keys come first: typing
-/// re-parses the phrase, ↩ (or ⌘↩) sets the date (only a valid one; an empty field keeps the date
-/// already set), Esc closes the examples panel first and then the dialog, ⌘⌫ removes a set date
-/// (without one it is the field's). ⌘D, ⌥↩ and ⇥ are swallowed. The date goes into `due` and is
-/// saved with the todo (`savedDraft.due`) and kept in a stashed draft.
+/// due-date dialog over the panel (`DueDateDialog`). While it is open its keys come first (the
+/// dialog's rules): typing re-parses the phrase, ↩ (or ⌘↩) sets the date (only a valid one; an
+/// empty field keeps the date already set), ⇥ / ⇧⇥ open or close the examples (↑↓ and ↩ pick
+/// one there), Esc closes the examples first and then the dialog, ⌘⌫ removes a set date (without
+/// one it is the field's). ⌘D and ⌥↩ are swallowed. The date goes into `due` and is saved with the
+/// todo (`savedDraft.due`) and kept in a stashed draft.
 ///
 /// Modes: `.create` starts in the picker on the preselected / last-used quadrant and records the
 /// chosen quadrant as last-used on save. With `startingInTitle` it starts in the title instead,
@@ -591,16 +592,12 @@ public final class QuickEntryFlow {
 
     /// Esc: closes the examples panel if open, else the dialog (nothing changes).
     public func cancelDue() {
-        if dueDialog?.showsExamples == true {
-            dueDialog?.showsExamples = false
-        } else {
-            dueDialog = nil
-        }
+        if dueDialog?.closeExamples() != true { dueDialog = nil }
     }
 
-    /// The **?** button.
+    /// The **?** button (and ⇥ / ⇧⇥).
     public func toggleDueExamples() {
-        dueDialog?.showsExamples.toggle()
+        dueDialog?.toggleExamples()
     }
 
     /// A click on an example: it goes into the field.
@@ -612,14 +609,12 @@ public final class QuickEntryFlow {
     public var now: Date { dueContext.now() }
 
     private func handleDueDialogKey(_ key: QuickEntryKey) -> Bool {
-        switch key {
-        case .escape: cancelDue()
-        case .enter, .commandEnter: confirmDue()
-        case .commandDelete:
-            guard dueDialog?.canRemove == true else { return false } // the field deletes to the line start
-            removeDue()
-        case .commandDone, .optionEnter, .tab, .shiftTab, .dueDate: break
-        default: return false
+        switch dueDialog?.handle(key, context: dueContext) {
+        case .handled: return true
+        case .confirm: confirmDue()
+        case .remove: removeDue()
+        case .close: dueDialog = nil
+        case .notOurs, nil: return false
         }
         return true
     }

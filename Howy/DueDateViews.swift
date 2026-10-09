@@ -48,7 +48,7 @@ struct DueDateDialogView: View {
                         .contentShape(Circle())
                 }
                 .buttonStyle(.plain)
-                .help("Examples of what you can type")
+                .help("Examples of what you can type (⇥)")
                 .accessibilityLabel("Examples")
             }
 
@@ -66,7 +66,7 @@ struct DueDateDialogView: View {
                 .truncationMode(.tail)
 
             HStack(spacing: 8 * scale) {
-                KeyHints(dialog.canRemove ? "↩ set · esc cancel · ⌘⌫ remove" : "↩ set · esc cancel")
+                KeyHints(hint)
                 Spacer(minLength: 8 * scale)
                 if dialog.canRemove {
                     Button("Remove", action: actions.remove)
@@ -95,8 +95,17 @@ struct DueDateDialogView: View {
             syncExamples()
         }
         .onChange(of: dialog.showsExamples) { _, _ in syncExamples() }
+        .onChange(of: dialog.highlightedExample) { _, _ in syncExamples() }
         .onChange(of: scale) { _, _ in syncExamples() }
         .onDisappear { examples.hide() }
+    }
+
+    /// With the examples open: how to pick one; otherwise the dialog's own keys.
+    private var hint: String {
+        if dialog.showsExamples {
+            return dialog.highlightedExample == nil ? "↑↓ examples · ↩ set · ⇥ hide · esc hide" : "↑↓ examples · ↩ pick · ⇥ hide · esc hide"
+        }
+        return dialog.canRemove ? "↩ set · ⇥ examples · esc cancel · ⌘⌫ remove" : "↩ set · ⇥ examples · esc cancel"
     }
 
     @ViewBuilder private var preview: some View {
@@ -119,7 +128,7 @@ struct DueDateDialogView: View {
                 return
             }
             examples.show(beside: parent, scale: scale) {
-                DueExamplesView(now: now, pick: actions.pickExample)
+                DueExamplesView(now: now, highlighted: dialog.highlightedExample, pick: actions.pickExample)
             }
         }
     }
@@ -129,6 +138,8 @@ struct DueDateDialogView: View {
 /// puts the phrase in the dialog's field.
 struct DueExamplesView: View {
     let now: Date
+    /// The example ↑/↓ moved to (an index into `DueDateExamples.all`).
+    var highlighted: Int?
     let pick: (String) -> Void
     @Environment(\.panelScale) private var scale
 
@@ -138,7 +149,7 @@ struct DueExamplesView: View {
         VStack(alignment: .leading, spacing: 6 * scale) {
             Text("What you can type")
                 .panelFont(.headline)
-            Text("Click an example to try it. A day without a time means \(defaultTime.text).")
+            Text("Click an example (or ↑↓ and ↩) to try it. A day without a time means \(defaultTime.text).")
                 .panelFont(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -152,7 +163,8 @@ struct DueExamplesView: View {
                     let meaning = [outcome.date.map { "→ " + format.short($0, now: now) }, example.hint.isEmpty ? nil : example.hint]
                         .compactMap { $0 }
                         .joined(separator: " · ")
-                    ExampleRow(phrase: example.phrase, meaning: meaning) { pick(example.phrase) }
+                    let isHighlighted = highlighted.map { DueDateExamples.all.indices.contains($0) && DueDateExamples.all[$0] == example } ?? false
+                    ExampleRow(phrase: example.phrase, meaning: meaning, isHighlighted: isHighlighted) { pick(example.phrase) }
                 }
             }
         }
@@ -167,6 +179,7 @@ struct DueExamplesView: View {
     private struct ExampleRow: View {
         let phrase: String
         let meaning: String
+        let isHighlighted: Bool
         let action: () -> Void
         @State private var isHovered = false
         @Environment(\.panelScale) private var scale
@@ -186,7 +199,7 @@ struct DueExamplesView: View {
                 .padding(.horizontal, 6 * scale)
                 .padding(.vertical, 3 * scale)
                 .background(
-                    Color.primary.opacity(isHovered ? 0.08 : 0),
+                    isHighlighted ? Color.accentColor.opacity(0.22) : Color.primary.opacity(isHovered ? 0.08 : 0),
                     in: RoundedRectangle(cornerRadius: 6 * scale, style: .continuous)
                 )
                 .contentShape(Rectangle())

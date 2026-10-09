@@ -46,7 +46,8 @@ import Observation
 ///   it is open its keys come first: typing goes to its field (`.ignored`), ↩ sets a valid date
 ///   (`.setDue(id, date)`, the row shows it at once; an empty field keeps the date), Esc closes
 ///   the examples first and then the dialog, ⌘⌫ removes a set date (`.setDue(id, nil)`; without
-///   one it is the field's). Other keys are swallowed. The caller writes `.setDue` to the store.
+///   one it is the field's), ⇥ / ⇧⇥ open or close the examples (↑↓ and ↩ pick one there; see
+///   `DueDateDialog`). Other keys are swallowed. The caller writes `.setDue` to the store.
 ///   Due dates never change the order or the quadrant.
 /// - Closed: every key is `.ignored`.
 ///
@@ -396,15 +397,12 @@ public final class BrowseFlow {
 
     /// Esc: closes the examples panel if open, else the dialog.
     public func cancelDue() {
-        if dueDialog?.showsExamples == true {
-            dueDialog?.showsExamples = false
-        } else {
-            closeDueDialog()
-        }
+        if dueDialog?.closeExamples() != true { closeDueDialog() }
     }
 
+    /// The **?** button (and ⇥ / ⇧⇥).
     public func toggleDueExamples() {
-        dueDialog?.showsExamples.toggle()
+        dueDialog?.toggleExamples()
     }
 
     public func pickDueExample(_ phrase: String) {
@@ -424,19 +422,20 @@ public final class BrowseFlow {
     }
 
     private func handleDueDialogKey(_ key: QuickEntryKey) -> Outcome {
-        switch key {
-        case .escape:
-            cancelDue()
+        switch dueDialog?.handle(key, context: dueContext) {
+        case .handled: return .handled
+        case .confirm: return confirmDue()
+        case .remove: return removeDue()
+        case .close:
+            closeDueDialog()
             return .handled
-        case .enter, .commandEnter:
-            return confirmDue()
-        case .commandDelete:
-            guard dueDialog?.canRemove == true else { return .ignored } // the field deletes to the line start
-            return removeDue()
-        case .letter, .digit, .space, .backspace, .left, .right, .other, .undo:
-            return .ignored // typing in the field
-        default:
-            return .handled
+        case .notOurs, nil:
+            switch key {
+            case .letter, .digit, .space, .backspace, .left, .right, .up, .down, .other, .undo, .commandDelete:
+                return .ignored // typing (and caret moves) in the field
+            default:
+                return .handled
+            }
         }
     }
 

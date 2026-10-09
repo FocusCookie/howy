@@ -31,6 +31,11 @@ public struct DueDateContext: Sendable {
 ///   set (or does nothing without one); anything else does nothing.
 /// - Esc closes the examples first, the dialog second.
 /// - ⌘⌫ / Remove clears a set date (without one, ⌘⌫ is the field's).
+/// - ⇥ and ⇧⇥ open or close the examples (the **?** button). While they're open ↑/↓ go through
+///   them (clamped; ↑ from none starts at the last) and ↩ on a highlighted one puts it in the
+///   field instead of setting; with none highlighted ↩ sets as always. Typing clears the highlight.
+///
+/// The flows run their keys through `handle(_:context:)` and do what it returns.
 public struct DueDateDialog: Hashable, Sendable {
     /// What ↩ does.
     public enum Confirmation: Hashable, Sendable {
@@ -45,16 +50,79 @@ public struct DueDateDialog: Hashable, Sendable {
     public private(set) var text = ""
     public private(set) var outcome: DueDateParser.Outcome = .empty
     /// The **?** examples panel beside the panel is open.
-    public internal(set) var showsExamples = false
+    public private(set) var showsExamples = false
+    /// The example ↑/↓ moved to (an index into `DueDateExamples.all`), while the examples are open.
+    public private(set) var highlightedExample: Int?
+
+    /// What a key in the dialog asks the flow to do.
+    public enum KeyAction: Hashable, Sendable {
+        /// Consumed; nothing else to do.
+        case handled
+        /// ↩: set the date (`confirmation`), as the Set button does.
+        case confirm
+        /// ⌘⌫: remove the set date.
+        case remove
+        /// Esc with the examples closed: close the dialog.
+        case close
+        /// Not the dialog's: typing (and caret keys) for its field.
+        case notOurs
+    }
 
     public init(current: Date?) {
         self.current = current
     }
 
     mutating func setText(_ text: String, context: DueDateContext) {
+        highlightedExample = nil
         guard text != self.text else { return }
         self.text = text
         outcome = context.parse(text)
+    }
+
+    /// Opens or closes the examples (⇥, ⇧⇥, the **?** button).
+    mutating func toggleExamples() {
+        showsExamples.toggle()
+        highlightedExample = nil
+    }
+
+    /// Closes the examples, if open. Returns whether they were.
+    mutating func closeExamples() -> Bool {
+        guard showsExamples else { return false }
+        showsExamples = false
+        highlightedExample = nil
+        return true
+    }
+
+    /// The dialog's keys (see the type's rules).
+    mutating func handle(_ key: QuickEntryKey, context: DueDateContext) -> KeyAction {
+        switch key {
+        case .escape:
+            return closeExamples() ? .handled : .close
+        case .enter, .commandEnter:
+            if key == .enter, showsExamples, let index = highlightedExample {
+                setText(DueDateExamples.all[index].phrase, context: context)
+                return .handled
+            }
+            return .confirm
+        case .commandDelete:
+            return canRemove ? .remove : .notOurs // without a date the field deletes to the line start
+        case .tab, .shiftTab:
+            toggleExamples()
+            return .handled
+        case .up, .down:
+            guard showsExamples else { return .notOurs }
+            let last = DueDateExamples.all.count - 1
+            if let index = highlightedExample {
+                highlightedExample = min(max(index + (key == .down ? 1 : -1), 0), last)
+            } else {
+                highlightedExample = key == .down ? 0 : last
+            }
+            return .handled
+        case .commandDone, .optionEnter, .dueDate:
+            return .handled
+        default:
+            return .notOurs
+        }
     }
 
     /// ↩: what to do, or `nil` while the text isn't a date (or is empty with no date set).
