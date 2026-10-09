@@ -29,6 +29,8 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
     /// The due dates handed to the notification center so far (JSON `[DueKey]`), so a due date
     /// whose request is gone once its moment passed counts as shown (`NotificationPlan.shown`).
     private static let scheduledKey = "scheduledDueNotifications"
+    /// How long a scheduled due date is remembered (the archive's longest retention).
+    private static let recordDays = 90
 
     private override init() {}
 
@@ -148,9 +150,11 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
                 log.error("Scheduling a notification failed: \(error, privacy: .public)")
             }
         }
-        // Keep only the due dates todos still have, so the record can't grow forever.
+        // Archived todos keep their entries, so restoring one that already notified doesn't notify
+        // again; entries older than the longest archive retention go, so the record stays small.
+        let cutoff = now.addingTimeInterval(-Double(Self.recordDays) * 24 * 60 * 60)
+        Self.saveScheduled(scheduled.union(added).filter { $0.due > cutoff })
         let current = Set(todos.compactMap { todo in todo.due.map { DueKey(id: todo.id, due: $0) } })
-        Self.saveScheduled(scheduled.union(added).intersection(current))
         await removeStaleDelivered(current: current)
         if !diff.add.isEmpty || !diff.remove.isEmpty {
             log.info("Notifications: \(diff.add.count, privacy: .public) added, \(diff.remove.count, privacy: .public) removed")

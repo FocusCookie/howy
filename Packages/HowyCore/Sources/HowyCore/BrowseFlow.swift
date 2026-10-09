@@ -12,6 +12,7 @@ import Observation
 /// - List: ↑/↓ move the selection (clamped); Enter → `.open(id)`; `d` completes the selected
 ///   todo (the row is removed here, the caller writes it: `.complete(id)`); ⌫ archives it the
 ///   same way but without the celebration (`.archive(id)`); 1–4 switch quadrant;
+///   `t` opens the due-date dialog for the selected todo (see "Due date" below);
 ///   `n` asks for a new todo in the shown quadrant (`.newTodo`, also on an empty one; the list
 ///   stays as it is for coming back); `a` opens the archive; Esc / Shift+Tab go back to the picker; ⌘↑/⌘K and ⌘↓/⌘J move the
 ///   selected todo one row (`.reorder`, the caller writes the new order); ⌘1–4 move the selected

@@ -61,7 +61,7 @@ There is no separate spec. The behaviour is described in `README.md`,
   events. SwiftUI and AppKit only render state and forward keys. Key-code
   mapping (`KeyMapping`) is in core too.
 - **`TodoStore`** is the only way to read or write todos. It uses a versioned
-  SwiftData schema (`Schema.swift`, currently v1, with a migration plan) inside
+  SwiftData schema (`Schema.swift`, currently v2 with an optional due date, and a migration plan from a frozen v1) inside
   the App Group container, shared by the app and the widget. Every write that
   changes something reloads the widget timelines. Time comes from an injected
   clock.

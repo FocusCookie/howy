@@ -52,6 +52,47 @@ Everything happens from a shortcut.
 - A small emoji and confetti burst when you finish something. You can turn it
   off.
 
+### Due dates and reminders
+
+- **Set a due date** with **⌘T** in the editor (or click the clock pill in its
+  header), or with **T** on the selected todo in Browse (or click the row's
+  clock). A small dialog opens over the panel with one field: type when it's
+  due and a live preview shows what Howy understood, for example
+  _→ Fri 16 Oct 2026, 10:00 · in 7 days · no time → 9:00_.
+  **↩** sets it (only a valid date; on an empty field it keeps the date that's
+  set), **Esc** cancels, **⌘⌫** (or _Remove_) removes the date. In the editor
+  the date is saved with the todo.
+- **What you can type** (English, 24-hour or am/pm times; the **?** button
+  shows clickable examples in a small panel beside Howy's):
+  - Relative: `in 30 min`, `in 12h`, `in an hour`, `in 3 days`, `in a week`,
+    `in 2 months`. Days, weeks and months keep the current time of day.
+  - Days: `today`, `tomorrow` (typos like `tomorow` work), `day after tomorrow`,
+    `tonight` / `this evening` (18:00), `tomorrow morning` (9:00), `afternoon`
+    (14:00), `evening` (18:00), `noon`.
+  - Weekdays: `fri`, `friday`, `this friday`, `wednes` mean the coming one (a
+    week later on that same weekday); `next friday` is the one after that.
+    `next week` is Monday, `weekend` is Saturday.
+  - Dates, day first: `10.10.2026`, `10.10.26`, `24.12.`, `24.12`, `3 nov`,
+    `nov 3`, `3rd november 2027`. Without a year it's the next time that date
+    comes.
+  - Times: `10am`, `10 am`, `2pm`, `10:30pm`, `14:30`, `at 10`. A time on its
+    own that has already passed today means tomorrow.
+  - `at`, `on`, `by`, `the` and `of` are ignored, so `10.10.2026 at 10am`
+    works. A date without a time is due at 9:00 (change it in Settings). Dates
+    in the past, impossible times (`25:00`) and words Howy doesn't know are
+    refused with a message.
+- **In Browse** a dated todo shows a grey clock and a short time (_in 25 min_,
+  _16:00_, _Tomorrow 10:00_, _Fri 10:00_, _21 Oct_); an overdue one a red bell
+  and _Overdue · 2 h_. The bell wiggles once when the list opens. Hover a label
+  for the full date. Due dates never change the order or the quadrant.
+- **Notifications** at the due time show the title and quadrant, with **Done**,
+  **Snooze 1 h** and **Tomorrow 9:00**. Clicking one opens the todo. Howy asks
+  for permission the first time you set a due date. Due dates passed while the
+  Mac was asleep or off notify once when it wakes. Completing, archiving or
+  deleting a todo cancels its notification (the date is kept), and restoring
+  it schedules it again. Without permission everything else still works, and
+  Settings shows a link to turn notifications on.
+
 ### Desktop widgets
 
 - **Matrix widget** (large and extra-large): all four quadrants as separate
@@ -60,6 +101,8 @@ Everything happens from a shortcut.
   Place four of them side by side.
 - Tick a checkbox to complete a todo straight from the desktop. Click a title to
   edit it, or click a quadrant label to add a todo to that quadrant.
+- A small clock marks todos with a due date; it turns red the moment one is
+  overdue.
 - Works in light and dark mode and with tinted widget styles.
 
 ### Archive
@@ -75,7 +118,8 @@ Everything happens from a shortcut.
 - In Settings you can set the panel size, record your own shortcuts, choose which quadrant new todos
   start on, choose how attachments open, set the done animation, size the
   Overview, set how long
-  the archive keeps todos, and turn on start at login.
+  the archive keeps todos, set the time used for due dates typed without one,
+  and turn on start at login.
 
 All data stays on your Mac (SwiftData in a sandboxed App Group container). Howy
 has no sync and no account.
