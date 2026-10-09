@@ -112,3 +112,54 @@ import Testing
         }
     }
 }
+
+@Suite struct MarkdownTaskBoxTests {
+    func covered(_ text: String, _ style: MarkdownStyleSpan.Style) -> [String] {
+        let ns = text as NSString
+        return MarkdownHighlighter.spans(in: text)
+            .filter { $0.style == style }
+            .sorted { $0.range.location < $1.range.location }
+            .map { ns.substring(with: $0.range) }
+    }
+
+    func boxes(_ text: String) -> [String] {
+        let ns = text as NSString
+        return MarkdownHighlighter.taskBoxes(in: text).map { "\(ns.substring(with: $0.range))\($0.isChecked ? "+" : "-")" }
+    }
+
+    @Test func boxesAreDimmedAndTheCheckIsColoured() {
+        let text = "- [ ] open\n- [x] done\n- [X] also"
+        #expect(covered(text, .taskBox) == ["[ ]", "[x]", "[X]"])
+        #expect(covered(text, .taskCheck) == ["x", "X"])
+        #expect(covered(text, .listMarker) == ["-", "-", "-"], "the marker span stays separate from the box")
+    }
+
+    @Test func tickedItemTextIsMarkedDone() {
+        let text = "- [ ] open\n- [x] done *now*\n- [x]   "
+        #expect(covered(text, .taskDone) == ["done *now*"], "nothing to strike on an empty item")
+        #expect(covered(text, .italic) == ["*now*"], "inline styles still apply")
+    }
+
+    @Test func anyMarkerAndIndent() {
+        let text = "* [ ] a\n  + [x] b\n1. [ ] c\n\t12) [x] d"
+        #expect(boxes(text) == ["[ ]-", "[x]+", "[ ]-", "[x]+"])
+        #expect(covered(text, .listMarker) == ["*", "+", "1.", "12)"])
+    }
+
+    @Test func boxRangesPointAtTheBracketsInUTF16() {
+        let text = "😀\n- [x] done"
+        let box = MarkdownHighlighter.taskBoxes(in: text)
+        #expect(box == [MarkdownHighlighter.TaskBox(range: NSRange(location: 5, length: 3), isChecked: true)])
+    }
+
+    @Test func notABox() {
+        #expect(boxes("[ ] no marker\n- [x]glued\n- [y] wrong\n-[ ] no space").isEmpty)
+        #expect(boxes("- [x]") == ["[x]+"], "a box may end the line")
+    }
+
+    @Test func boxesInFencedCodeAreIgnored() {
+        let text = "```\n- [ ] code\n```\n- [ ] real"
+        #expect(boxes(text) == ["[ ]-"])
+        #expect(covered(text, .taskBox) == ["[ ]"])
+    }
+}

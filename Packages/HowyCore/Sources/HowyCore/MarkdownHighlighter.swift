@@ -19,6 +19,12 @@ public struct MarkdownStyleSpan: Hashable, Sendable {
         case quoteMarker
         /// A list bullet or number ("-", "1.").
         case listMarker
+        /// A task box, brackets included ("[ ]", "[x]"); dimmed like a list marker.
+        case taskBox
+        /// The "x" inside a ticked task box.
+        case taskCheck
+        /// The text of a ticked task item, after its box (struck through and greyed).
+        case taskDone
         /// Link text, or a bare URL.
         case link
         /// Markup characters that stay in the text but should be dimmed (`**`, `#`, `](url)` ...).
@@ -35,44 +41,98 @@ public struct MarkdownStyleSpan: Hashable, Sendable {
 }
 
 /// Finds Markdown styling in source text, keeping every character in place (Bear/Typora-style
-/// editing): blocks per line (headings, quotes, list markers, fenced code), then inline styles
-/// (code, bold, italic, strikethrough, links, bare URLs) outside code.
+/// editing): blocks per line (headings, quotes, list markers, task boxes, fenced code), then inline
+/// styles (code, bold, italic, strikethrough, links, bare URLs) outside code.
 ///
 /// Spans may overlap (e.g. italic inside bold inside a heading); apply them in order.
 public enum MarkdownHighlighter {
+    /// A task box ("[ ]" or "[x]") in a list item, for hit-testing clicks.
+    public struct TaskBox: Equatable, Sendable {
+        /// The three box characters, brackets included.
+        public let range: NSRange
+        /// Ticked with "x" or "X".
+        public let isChecked: Bool
+
+        public init(range: NSRange, isChecked: Bool) {
+            self.range = range
+            self.isChecked = isChecked
+        }
+    }
+
     public static func spans(in text: String) -> [MarkdownStyleSpan] {
-        guard !text.isEmpty else { return [] }
-        let ns = text as NSString
         var spans: [MarkdownStyleSpan] = []
         var fenceStart: Int?
+        for line in lines(of: text) {
+            if let fence = line.fence {
+                if let start = fenceStart {
+                    spans.append(.init(.codeBlock, NSRange(location: start, length: NSMaxRange(line.range) - start)))
+                    spans.append(.init(.syntax, fence))
+                    fenceStart = nil
+                } else {
+                    fenceStart = line.range.location
+                    spans.append(.init(.syntax, fence))
+                }
+            } else if !line.isCode {
+                spans += lineSpans(line.text, at: line.range.location)
+            }
+        }
+        if let start = fenceStart { // unclosed fence runs to the end
+            spans.append(.init(.codeBlock, NSRange(location: start, length: (text as NSString).length - start)))
+        }
+        return spans
+    }
 
+    /// Every task box in list items outside fenced code, in text order.
+    public static func taskBoxes(in text: String) -> [TaskBox] {
+        lines(of: text).compactMap { line in
+            guard !line.isCode, let task = taskItem(in: line.text) else { return nil }
+            return TaskBox(range: NSRange(location: task.box.location + line.range.location, length: 3), isChecked: task.isChecked)
+        }
+    }
+
+    // MARK: Source lines
+
+    /// A line of source, without its line break.
+    struct Line {
+        let range: NSRange
+        let text: String
+        /// The fence ("```swift") when this line opens or closes a code block.
+        let fence: NSRange?
+        /// A fence line, or a line inside a fenced code block.
+        let isCode: Bool
+    }
+
+    /// The text split into lines, with fenced code blocks marked (shared with `MarkdownTaskToggle`).
+    static func lines(of text: String) -> [Line] {
+        let ns = text as NSString
+        var lines: [Line] = []
+        var inFence = false
         var lineStart = 0
         while lineStart < ns.length {
             var lineEnd = 0
             var contentsEnd = 0
             ns.getLineStart(nil, end: &lineEnd, contentsEnd: &contentsEnd, for: NSRange(location: lineStart, length: 0))
-            let line = NSRange(location: lineStart, length: contentsEnd - lineStart)
-            let lineText = ns.substring(with: line)
-
+            let range = NSRange(location: lineStart, length: contentsEnd - lineStart)
+            let lineText = ns.substring(with: range)
             if let fence = match(Pattern.fence, in: lineText) {
-                let fenceText = NSRange(location: line.location + fence.range.location, length: fence.range.length)
-                if let start = fenceStart {
-                    spans.append(.init(.codeBlock, NSRange(location: start, length: NSMaxRange(line) - start)))
-                    spans.append(.init(.syntax, fenceText))
-                    fenceStart = nil
-                } else {
-                    fenceStart = line.location
-                    spans.append(.init(.syntax, fenceText))
-                }
-            } else if fenceStart == nil {
-                spans += lineSpans(lineText, at: line.location)
+                lines.append(Line(range: range, text: lineText,
+                                  fence: NSRange(location: range.location + fence.range.location, length: fence.range.length),
+                                  isCode: true))
+                inFence.toggle()
+            } else {
+                lines.append(Line(range: range, text: lineText, fence: nil, isCode: inFence))
             }
             lineStart = lineEnd
         }
-        if let start = fenceStart { // unclosed fence runs to the end
-            spans.append(.init(.codeBlock, NSRange(location: start, length: ns.length - start)))
-        }
-        return spans
+        return lines
+    }
+
+    /// A list item with a task box: where the box sits in the line, whether it's ticked,
+    /// and where the item text starts (after the box and its spacing).
+    private static func taskItem(in line: String) -> (box: NSRange, isChecked: Bool, contentStart: Int)? {
+        guard let task = match(Pattern.taskItem, in: line) else { return nil }
+        let check = (line as NSString).substring(with: task.range(at: 3))
+        return (task.range(at: 2), check != " ", task.range.length)
     }
 
     // MARK: Lines
@@ -96,6 +156,16 @@ public enum MarkdownHighlighter {
         } else if let list = match(Pattern.listItem, in: line) {
             spans.append(.init(.listMarker, shifted(list.range(at: 1))))
             contentStart = list.range.length
+            if let task = taskItem(in: line) {
+                spans.append(.init(.taskBox, shifted(task.box)))
+                if task.isChecked {
+                    spans.append(.init(.taskCheck, shifted(NSRange(location: task.box.location + 1, length: 1))))
+                    if task.contentStart < ns.length {
+                        spans.append(.init(.taskDone, shifted(NSRange(location: task.contentStart, length: ns.length - task.contentStart))))
+                    }
+                }
+                contentStart = task.contentStart
+            }
         }
 
         let content = NSRange(location: contentStart, length: ns.length - contentStart)
@@ -173,6 +243,8 @@ public enum MarkdownHighlighter {
         static let heading = regex(#"^ {0,3}(#{1,6})(?:[ \t]+|$)"#)
         static let quote = regex(#"^ {0,3}(>+) ?"#)
         static let listItem = regex(#"^[ \t]*([-*+]|\d{1,9}[.)])[ \t]+"#)
+        // marker, box, box character; the box is followed by spacing or the line's end
+        static let taskItem = regex(#"^[ \t]*([-*+]|\d{1,9}[.)])[ \t]+(\[([ xX])\])(?:[ \t]+|$)"#)
         static let inlineCode = regex(#"`[^`\n]+`"#)
         static let image = regex(#"!\[([^\]\n]*)\]\(([^)\s]+)\)"#)
         static let link = regex(#"\[([^\]\n]+)\]\(([^)\s]+)\)"#)
