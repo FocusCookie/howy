@@ -173,14 +173,14 @@ final class QuickEntryModel {
         guard let draft = flow.savedDraft else { return true }
         do {
             if let id = draft.todoID {
-                try store.update(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant)
+                try store.update(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant, due: draft.due)
                 try store.setAttachments(draft.attachments, for: id) // a retry after a failure redoes only this
             } else {
                 // Files first: if they fail, no todo exists yet that a retry would duplicate.
                 let id = UUID()
                 try store.setAttachments(draft.attachments, for: id)
                 do {
-                    try store.add(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant)
+                    try store.add(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant, due: draft.due)
                     createdTodoID = id
                 } catch {
                     store.attachments?.removeAll(for: id)
@@ -188,6 +188,8 @@ final class QuickEntryModel {
                 }
             }
             errorMessage = nil
+            // The first due date ever set asks for notification permission.
+            if draft.due != nil { NotificationCoordinator.shared.dueDateWasSet() }
             return true
         } catch {
             log.error("Save failed: \(error, privacy: .public)")
@@ -357,7 +359,8 @@ final class BrowseModel {
         // still measure that row.
         // A tile editor's link dialog takes every key first (Esc closes only the dialog).
         if let tileEditor, tileEditor.flow.linkDialog != nil { return tileEditor.handle(key) }
-        if key == .letter(BrowseFlow.doneKey), flow.phase == .listing || flow.phase == .overview && flow.tileEditor == nil,
+        if key == .letter(BrowseFlow.doneKey), flow.dueDialog == nil,
+           flow.phase == .listing || flow.phase == .overview && flow.tileEditor == nil,
            let todo = flow.selectedTodo { celebrate(todo.id) }
         var outcome = BrowseFlow.Outcome.ignored
         withAnimation(.snappy(duration: 0.25)) { outcome = flow.handle(key) }
@@ -586,10 +589,50 @@ final class BrowseModel {
         case .editInTile(let id): openTileEditor(.edit(id))
         case .createInTile(let quadrant): openTileEditor(.create(quadrant))
         case .dismissEditor(_, let stash): dismissTileEditor(stash: stash)
+        case .setDue(let id, let due): persistDue(id, due)
         case .openArchive: openArchive()
         case .close: close()
         }
         return true
+    }
+
+    // MARK: Due date
+
+    /// A row's clock: opens the due-date dialog for that todo.
+    func beginDueDate(_ id: UUID) {
+        withAnimation(.snappy(duration: 0.2)) { flow.beginDueDate(id: id) }
+    }
+
+    /// Set (↩ or the button) in the dialog.
+    func confirmDue() {
+        var outcome = BrowseFlow.Outcome.handled
+        withAnimation(.snappy(duration: 0.2)) { outcome = flow.confirmDue() }
+        _ = perform(outcome)
+    }
+
+    /// Remove (⌘⌫ or the button) in the dialog.
+    func removeDue() {
+        var outcome = BrowseFlow.Outcome.handled
+        withAnimation(.snappy(duration: 0.2)) { outcome = flow.removeDue() }
+        _ = perform(outcome)
+    }
+
+    func cancelDue() {
+        withAnimation(.snappy(duration: 0.2)) { flow.cancelDue() }
+    }
+
+    private func persistDue(_ id: UUID, _ due: Date?) {
+        do {
+            try store.setDue(id: id, to: due)
+            errorMessage = nil
+            if due != nil { NotificationCoordinator.shared.dueDateWasSet() }
+        } catch {
+            log.error("Setting the due date failed: \(error, privacy: .public)")
+            errorMessage = "Couldn't save the due date."
+            if let todos = try? store.openSnapshots() {
+                withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }
+            }
+        }
     }
 
     private func persistOrder(of quadrant: Quadrant) {

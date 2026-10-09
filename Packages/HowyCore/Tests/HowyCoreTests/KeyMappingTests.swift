@@ -43,6 +43,14 @@ import Testing
         #expect(key(6, [], "z") == .letter("z"))
     }
 
+    @Test func commandTIsTheDueDateAndPlainTIsALetter() {
+        #expect(key(17, .command, "t") == .dueDate)
+        #expect(key(17, .command, "T") == .dueDate)
+        #expect(key(17, [], "t") == .letter("t"))
+        #expect(key(17, [.command, .shift], "t") == nil)
+        #expect(key(17, .option, "†") == nil, "no Option-only shortcut")
+    }
+
     @Test func shiftCommandLIsLeftToTheNoteEditor() {
         #expect(key(37, [.command, .shift], "L") == nil, "⇧⌘L toggles a checklist item in the note")
         #expect(key(37, [.command, .shift], "l") == nil)

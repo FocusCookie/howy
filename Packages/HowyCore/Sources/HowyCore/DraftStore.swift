@@ -14,18 +14,24 @@ public struct StashedDraft: Codable, Hashable, Sendable {
     public var field: Field
     /// The draft's attachments (staged or, for an edit, already committed).
     public var attachments: [TodoAttachment]
+    /// The draft's due date, if one was set.
+    public var due: Date?
 
-    public init(quadrant: Quadrant, title: String, note: String, field: Field, attachments: [TodoAttachment] = []) {
+    public init(
+        quadrant: Quadrant, title: String, note: String, field: Field,
+        attachments: [TodoAttachment] = [], due: Date? = nil
+    ) {
         self.quadrant = quadrant
         self.title = title
         self.note = note
         self.field = field
         self.attachments = attachments
+        self.due = due
     }
 
-    private enum CodingKeys: String, CodingKey { case quadrant, title, note, field, attachments }
+    private enum CodingKeys: String, CodingKey { case quadrant, title, note, field, attachments, due }
 
-    /// Drafts stashed before attachments existed have none.
+    /// Drafts stashed before attachments (or due dates) existed have none.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         quadrant = try container.decode(Quadrant.self, forKey: .quadrant)
@@ -33,6 +39,7 @@ public struct StashedDraft: Codable, Hashable, Sendable {
         note = try container.decode(String.self, forKey: .note)
         field = try container.decode(Field.self, forKey: .field)
         attachments = try container.decodeIfPresent([TodoAttachment].self, forKey: .attachments) ?? []
+        due = try container.decodeIfPresent(Date.self, forKey: .due)
     }
 }
 

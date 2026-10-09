@@ -40,6 +40,13 @@ import Observation
 ///   tile's earlier selection: an edit is discarded (`.dismissEditor(.edit(id), stash: false)`),
 ///   a new todo is kept as the create draft (`stash: true`). ⌥1–4 keeps either as a draft and
 ///   focuses there (`.dismissEditor(_, stash: true)`).
+/// - Due date (list and Overview, no tile editor open): `t` (or `beginDueDate(id:)`, the row's
+///   clock) opens the due-date dialog (`DueDateDialog`) over the list for the selected todo. While
+///   it is open its keys come first: typing goes to its field (`.ignored`), ↩ sets a valid date
+///   (`.setDue(id, date)`, the row shows it at once; an empty field keeps the date), Esc closes
+///   the examples first and then the dialog, ⌘⌫ removes a set date (`.setDue(id, nil)`; without
+///   one it is the field's). Other keys are swallowed. The caller writes `.setDue` to the store.
+///   Due dates never change the order or the quadrant.
 /// - Closed: every key is `.ignored`.
 ///
 /// An opened todo's edit modal comes back here (`resume(at:)`, with the `BrowseReturn` taken by
@@ -94,6 +101,8 @@ public final class BrowseFlow {
         /// Overview: this tile editor closed. `stash`: keep it as a draft (focus moved to another
         /// tile, like losing panel focus, or Esc on a new todo); otherwise discard it (Esc on an edit).
         case dismissEditor(TileEditor, stash: Bool)
+        /// Set (or with `nil` remove) this todo's due date (the row already shows it).
+        case setDue(UUID, Date?)
         /// Show the archive.
         case openArchive
         /// Close the panel.
@@ -110,6 +119,8 @@ public final class BrowseFlow {
     public static let overviewKey: Character = "o"
     /// The key that creates a new todo in the shown quadrant (list and Overview).
     public static let newKey: Character = "n"
+    /// The key that opens the due-date dialog for the selected todo (list and Overview).
+    public static let dueKey: Character = "t"
 
     /// What the editor in the focused Overview tile is for.
     public enum TileEditor: Hashable, Sendable {
@@ -163,10 +174,19 @@ public final class BrowseFlow {
     /// The list's order when a pointer drag inside it began (`beginReorderDrag`).
     private var reorderDragStart: (quadrant: Quadrant, ids: [UUID], moved: UUID)?
 
-    public init(todos: [Quadrant: [TodoSnapshot]], quadrant: Quadrant = .urgentImportant) {
+    /// The due-date dialog over the list, while it is open, and the todo it is for.
+    public private(set) var dueDialog: DueDateDialog?
+    public private(set) var dueDialogTodoID: UUID?
+    private let dueContext: DueDateContext
+
+    public init(todos: [Quadrant: [TodoSnapshot]], quadrant: Quadrant = .urgentImportant, dueDates: DueDateContext = DueDateContext()) {
         self.todos = todos
         self.quadrant = quadrant
+        self.dueContext = dueDates
     }
+
+    /// The current time from the injected clock (for the rows' due labels).
+    public var now: Date { dueContext.now() }
 
     public func count(in quadrant: Quadrant) -> Int { todos[quadrant]?.count ?? 0 }
 
@@ -196,6 +216,7 @@ public final class BrowseFlow {
 
     @discardableResult
     public func handle(_ key: QuickEntryKey) -> Outcome {
+        if dueDialog != nil, phase != .closed { return handleDueDialogKey(key) }
         switch phase {
         case .closed:
             return .ignored
@@ -240,6 +261,8 @@ public final class BrowseFlow {
             case .letter(Self.moveKey):
                 if let todo = selectedTodo { openMovePicker(id: todo.id) }
             case .letter(Self.newKey): return .newTodo(quadrant)
+            case .letter(Self.dueKey):
+                if let todo = selectedTodo { beginDueDate(id: todo.id) }
             case .letter(Self.archiveKey): return .openArchive
             case .letter(Self.overviewKey): return showOverview()
             case .undo:
@@ -300,6 +323,8 @@ public final class BrowseFlow {
         case .letter(Self.newKey):
             tileEditor = .create(quadrant)
             return .createInTile(quadrant)
+        case .letter(Self.dueKey):
+            if let todo = selectedTodo { beginDueDate(id: todo.id) }
         case .letter(Self.archiveKey): return .openArchive
         case .undo:
             if let outcome = undo() { return outcome }
@@ -325,6 +350,93 @@ public final class BrowseFlow {
         }
         if let target { return move(id: picker.todo.id, toQuadrant: target) }
         return .handled
+    }
+
+    // MARK: Due date
+
+    /// `t` or a row's clock: selects the todo and opens the due-date dialog for it. In the
+    /// Overview it focuses the todo's tile; refused while a tile editor is open.
+    public func beginDueDate(id: UUID) {
+        guard showsRows, tileEditor == nil, dueDialog == nil, let q = quadrant(of: id) else { return }
+        if phase == .overview {
+            _ = focus(q)
+        } else if q != quadrant {
+            return
+        }
+        select(id: id)
+        movePicker = nil
+        dueDialog = DueDateDialog(current: rows(in: q).first { $0.id == id }?.due)
+        dueDialogTodoID = id
+    }
+
+    public func setDueText(_ text: String) {
+        dueDialog?.setText(text, context: dueContext)
+    }
+
+    /// ↩ or Set: `.setDue(id, date)` for a valid phrase (the row shows it at once), `.handled`
+    /// when an empty field keeps the date (the dialog closes) or the text isn't a date (it stays).
+    @discardableResult
+    public func confirmDue() -> Outcome {
+        guard let id = dueDialogTodoID, let confirmation = dueDialog?.confirmation else { return .handled }
+        closeDueDialog()
+        guard case .set(let date) = confirmation else { return .handled }
+        setDue(date, of: id)
+        return .setDue(id, date)
+    }
+
+    /// ⌘⌫ or Remove: `.setDue(id, nil)` when a date was set; `.handled` otherwise.
+    @discardableResult
+    public func removeDue() -> Outcome {
+        guard let id = dueDialogTodoID, dueDialog?.canRemove == true else { return .handled }
+        closeDueDialog()
+        setDue(nil, of: id)
+        return .setDue(id, nil)
+    }
+
+    /// Esc: closes the examples panel if open, else the dialog.
+    public func cancelDue() {
+        if dueDialog?.showsExamples == true {
+            dueDialog?.showsExamples = false
+        } else {
+            closeDueDialog()
+        }
+    }
+
+    public func toggleDueExamples() {
+        dueDialog?.showsExamples.toggle()
+    }
+
+    public func pickDueExample(_ phrase: String) {
+        setDueText(phrase)
+    }
+
+    private func closeDueDialog() {
+        dueDialog = nil
+        dueDialogTodoID = nil
+    }
+
+    private func setDue(_ due: Date?, of id: UUID) {
+        for (q, list) in todos {
+            guard let index = list.firstIndex(where: { $0.id == id }) else { continue }
+            todos[q]?[index].due = due
+        }
+    }
+
+    private func handleDueDialogKey(_ key: QuickEntryKey) -> Outcome {
+        switch key {
+        case .escape:
+            cancelDue()
+            return .handled
+        case .enter, .commandEnter:
+            return confirmDue()
+        case .commandDelete:
+            guard dueDialog?.canRemove == true else { return .ignored } // the field deletes to the line start
+            return removeDue()
+        case .letter, .digit, .space, .backspace, .left, .right, .other, .undo:
+            return .ignored // typing in the field
+        default:
+            return .handled
+        }
     }
 
     // MARK: Overview
@@ -495,6 +607,7 @@ public final class BrowseFlow {
     }
 
     private func showOverview() -> Outcome {
+        closeDueDialog()
         if phase == .listing { rememberSelection() }
         isArchiveHighlighted = false
         movePicker = nil
@@ -505,6 +618,7 @@ public final class BrowseFlow {
     }
 
     private func hideOverview() -> Outcome {
+        closeDueDialog()
         rememberSelection()
         tileEditor = nil
         movePicker = nil
@@ -532,6 +646,7 @@ public final class BrowseFlow {
         self.quadrant = quadrant
         isArchiveHighlighted = false
         movePicker = nil
+        closeDueDialog()
         phase = .listing
         selectedIndex = rows.isEmpty ? nil : 0
     }
@@ -636,6 +751,7 @@ public final class BrowseFlow {
     public func backToPicker() {
         guard phase == .listing else { return }
         movePicker = nil
+        closeDueDialog()
         phase = .picking
         selectedIndex = nil
     }
@@ -732,6 +848,7 @@ public final class BrowseFlow {
         let oldIndex = selectedIndex
         self.todos = todos
         if let picker = movePicker, !rows.contains(where: { $0.id == picker.todo.id }) { movePicker = nil }
+        if let id = dueDialogTodoID, quadrant(of: id) == nil { closeDueDialog() }
         guard showsRows else { return }
         if let selectedID, let index = rows.firstIndex(where: { $0.id == selectedID }) {
             selectedIndex = index
@@ -748,6 +865,7 @@ public final class BrowseFlow {
         movePicker = nil
         tileEditor = nil
         reorderDragStart = nil
+        closeDueDialog()
         return .close
     }
 

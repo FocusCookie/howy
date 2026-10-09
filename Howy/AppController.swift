@@ -214,7 +214,7 @@ final class AppController {
             showError(title: "Can't read Howy's data", message: error.localizedDescription, activate: activate)
             return
         }
-        let flow = BrowseFlow(todos: todos)
+        let flow = BrowseFlow(todos: todos, dueDates: .live())
         if let back { flow.resume(at: back) }
         if fromArchive { flow.highlightArchive() }
         let model = BrowseModel(flow: flow, store: store)
@@ -260,7 +260,7 @@ final class AppController {
             guard let todo = try? store.todo(id: id), todo.completedAt == nil else { return nil }
             flow = QuickEntryFlow(
                 mode: .edit(QuickEntryDraft(todo: todo, attachments: store.attachmentList(for: id))),
-                lastUsed: lastUsed, drafts: drafts, linkTitles: linkTitles
+                lastUsed: lastUsed, drafts: drafts, linkTitles: linkTitles, dueDates: .live()
             )
         case .create(let quadrant):
             flow = createFlow(in: quadrant)
@@ -288,7 +288,7 @@ final class AppController {
         let flow = QuickEntryFlow(
             mode: .create(preselected: preselected, startingInTitle: startingInTitle),
             lastUsed: lastUsed, drafts: drafts,
-            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles
+            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles, dueDates: .live()
         )
         let model = QuickEntryModel(flow: flow, store: store)
         model.escapeReturns = viaLauncher
@@ -311,7 +311,7 @@ final class AppController {
         QuickEntryFlow(
             mode: .create(preselected: quadrant, startingInTitle: true),
             lastUsed: lastUsed, drafts: drafts,
-            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles
+            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles, dueDates: .live()
         )
     }
 
@@ -348,7 +348,7 @@ final class AppController {
         }
         let flow = QuickEntryFlow(
             mode: .edit(QuickEntryDraft(todo: todo, attachments: store.attachmentList(for: id))),
-            lastUsed: lastUsed, drafts: drafts, linkTitles: linkTitles
+            lastUsed: lastUsed, drafts: drafts, linkTitles: linkTitles, dueDates: .live()
         )
         let model = QuickEntryModel(flow: flow, store: store)
         presentQuickEntry(model, kind: .edit, activate: activate)
