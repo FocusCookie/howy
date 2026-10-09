@@ -73,7 +73,7 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? NoteTextView else { return }
         if textView.string != text, !textView.hasMarkedText() {
-            // Changed from outside (e.g. ⌘⌫ cleared the draft, an attachment's reference was removed).
+            // Changed from outside (e.g. an attachment's reference was removed).
             textView.string = text
             MarkdownStyler.apply(to: textView, highlighting: highlightedName, among: attachmentNames)
             context.coordinator.appliedHighlight = highlightedName

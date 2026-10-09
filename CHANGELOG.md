@@ -6,6 +6,19 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **⌘D marks a todo done from the edit window.** It saves your edits and moves
+  the todo to the archive. A **Done** button does the same with the mouse.
+
+### Changed
+
+- **⌘⌫ is plain text editing again in the title and note.** It deletes to the
+  start of the line, as everywhere else on the Mac. It used to ask to delete the
+  todo (when editing) or clear the whole draft (when adding). Todos are now
+  deleted for good only from the archive, and the edit window's Delete button
+  is gone.
+
 ## [1.1.0] - 2026-10-09
 
 ### Added

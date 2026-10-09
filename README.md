@@ -18,6 +18,7 @@ Everything happens from a shortcut.
 - **Browse**: press **⌃⌥⇧⌘M**. You see the four quadrants with their open
   counts. Open a quadrant, go through its todos with **↑/↓**, edit with **↩**,
   mark done with **D**, undo with **⌘Z**, and reorder with **⌘↑/⌘↓** (or drag).
+  In the edit window, **⌘D** saves and marks the todo done.
 - **One-shortcut mode** (optional): a single shortcut opens a small chooser
   between _New Todo_ and _Browse_.
 - **Esc** never loses your typing. Unsaved text is kept as a draft, even across

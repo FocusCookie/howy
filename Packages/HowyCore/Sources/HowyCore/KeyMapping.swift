@@ -49,6 +49,8 @@ extension QuickEntryKey {
                 self = .moveUp
             } else if modifiers == .command, characters?.lowercased() == "j" {
                 self = .moveDown
+            } else if modifiers == .command, characters?.lowercased() == "d" {
+                self = .commandDone
             } else if modifiers == .command, characters?.lowercased() == "z" {
                 self = .undo
             } else if modifiers == .command, let characters, characters.count == 1, let digit = Int(characters) {

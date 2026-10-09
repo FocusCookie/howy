@@ -338,98 +338,79 @@ final class MemoryLastQuadrantStore: LastQuadrantStore {
         #expect(!edit.handle(.shiftTab))
     }
 
-    // MARK: delete confirmation
+    // MARK: ⌘⌫ is text editing, ⌘D marks done
 
     func makeEdit() -> QuickEntryFlow {
         QuickEntryFlow(mode: .edit(QuickEntryDraft(todoID: UUID(), title: "E", note: "n", quadrant: .urgentImportant)),
                        lastUsed: MemoryLastQuadrantStore())
     }
 
-    @Test(arguments: [0, 1, 2])
-    func commandDeleteArmsConfirmationInEveryPhase(shiftTabs: Int) {
-        let flow = makeEdit()
-        if shiftTabs == 1 { flow.handle(.shiftTab) }
-        if shiftTabs == 2 { flow.handle(.tab) }
-        #expect(flow.handle(.commandDelete))
-        #expect(flow.isConfirmingDelete)
-        #expect(flow.phase != .deleted)
+    @Test(arguments: [false, true])
+    func commandDeleteInTitleOrNoteIsLeftToTheTextField(editing: Bool) {
+        let flow = editing ? makeEdit() : makeCreate().0
+        if !editing { flow.handle(.enter) }
+        #expect(!flow.handle(.commandDelete), "the field deletes to the start of the line")
+        flow.handle(.tab)
+        #expect(flow.phase == .editingNote)
+        #expect(!flow.handle(.commandDelete))
+        #expect(!flow.isFinished)
+        #expect(flow.title == (editing ? "E" : ""))
     }
 
-    @Test func commandDeleteInCreateModeClearsInsteadOfAskingToDelete() {
+    @Test func commandDeleteDoesNothingInThePickerOrAttachments() {
+        let flow = makeEdit()
+        flow.handle(.shiftTab)
+        #expect(flow.handle(.commandDelete))
+        #expect(flow.phase == .pickingQuadrant)
+        flow.handle(.enter)
+        flow.handle(.optionEnter)
+        #expect(flow.handle(.commandDelete))
+        #expect(flow.phase == .browsingAttachments)
+        #expect(!flow.isFinished)
+    }
+
+    @Test(arguments: [0, 1, 2])
+    func commandDoneMarksTheEditedTodoDoneWithItsEdits(shiftTabs: Int) {
+        let flow = makeEdit()
+        flow.title = "Edited"
+        if shiftTabs == 1 { flow.handle(.shiftTab) }
+        if shiftTabs == 2 { flow.handle(.tab) }
+        #expect(flow.handle(.commandDone))
+        #expect(flow.phase == .completed)
+        #expect(flow.isFinished)
+        #expect(flow.savedDraft?.title == "Edited")
+        #expect(flow.savedDraft?.todoID == flow.todoID)
+    }
+
+    @Test func commandDoneNeedsATitle() {
+        let flow = makeEdit()
+        flow.title = "  "
+        #expect(flow.handle(.commandDone))
+        #expect(flow.phase == .editingTitle)
+        #expect(flow.showsEmptyTitleHint)
+    }
+
+    @Test func commandDoneIsIgnoredWhenCreating() {
         let (flow, _) = makeCreate()
         flow.handle(.enter)
         flow.title = "typed"
-        #expect(flow.handle(.commandDelete))
-        #expect(!flow.isConfirmingDelete)
-        #expect(flow.title == "")
-        #expect(flow.phase == .pickingQuadrant)
-    }
-
-    @Test(arguments: [QuickEntryKey.enter, .commandDelete])
-    func enterOrSecondCommandDeleteConfirms(key: QuickEntryKey) {
-        let flow = makeEdit()
-        flow.handle(.commandDelete)
-        #expect(flow.handle(key))
-        #expect(flow.phase == .deleted)
-        #expect(flow.isFinished)
-    }
-
-    @Test func commandEnterDoesNotConfirmDeleteNorSave() {
-        let flow = makeEdit()
-        flow.handle(.commandDelete)
-        #expect(flow.handle(.commandEnter))
-        #expect(flow.isConfirmingDelete)
+        #expect(flow.handle(.commandDone))
         #expect(flow.phase == .editingTitle)
         #expect(flow.savedDraft == nil)
     }
 
-    @Test(arguments: [QuickEntryKey.escape, .digit(2), .other, .tab, .up])
-    func otherKeysCancelConfirmationAndAreConsumed(key: QuickEntryKey) {
-        let flow = makeEdit()
-        flow.handle(.commandDelete)
-        #expect(flow.handle(key), "consumed so it can't change the form behind the prompt")
-        #expect(!flow.isConfirmingDelete)
-        #expect(flow.phase == .editingTitle)
-        #expect(flow.title == "E")
-    }
-
-    @Test func confirmingFromPickerDoesNotChangeQuadrantOnEnter() {
-        let flow = makeEdit()
-        flow.handle(.shiftTab)
-        flow.handle(.down)
-        flow.handle(.commandDelete)
-        flow.handle(.digit(3))
-        #expect(!flow.isConfirmingDelete)
-        #expect(flow.phase == .pickingQuadrant, "the digit only cancelled the prompt")
-    }
-
-    @Test func buttonsRequestConfirmAndCancel() {
-        let flow = makeEdit()
-        flow.requestDelete()
-        #expect(flow.isConfirmingDelete)
-        flow.cancelDelete()
-        #expect(!flow.isConfirmingDelete)
-        flow.confirmDelete()
-        #expect(flow.phase == .editingTitle, "confirm without a prompt is ignored")
-        flow.requestDelete()
-        flow.confirmDelete()
-        #expect(flow.phase == .deleted)
-    }
-
-    @Test func reopenAfterFailedSaveOrDeleteReturnsToTitle() {
+    @Test func reopenAfterFailedSaveOrCompleteReturnsToTitle() {
         let flow = makeEdit()
         flow.handle(.commandEnter)
         #expect(flow.phase == .saved)
         flow.reopen()
         #expect(flow.phase == .editingTitle)
         #expect(flow.savedDraft == nil)
-        #expect(flow.handle(.shiftTab))
-        flow.requestDelete()
-        flow.confirmDelete()
-        #expect(flow.phase == .deleted)
+        flow.handle(.commandDone)
+        #expect(flow.phase == .completed)
         flow.reopen()
         #expect(flow.phase == .editingTitle)
-        #expect(!flow.isConfirmingDelete)
+        #expect(flow.savedDraft == nil)
     }
 
     @Test func reopenIgnoresCancelledFlow() {

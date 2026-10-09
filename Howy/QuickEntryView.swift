@@ -27,9 +27,6 @@ struct QuickEntryView: View {
                 } else {
                     fields
                 }
-                if flow.isConfirmingDelete {
-                    DeleteConfirmation(model: model)
-                }
                 footer
             }
         }
@@ -111,7 +108,7 @@ struct QuickEntryView: View {
                     .foregroundStyle(.secondary)
             } else if flow.showsRestoredHint {
                 Label(
-                    flow.isEditing ? "Unsaved edit restored · esc discards" : "Draft restored · ⌘⌫ clear",
+                    flow.isEditing ? "Unsaved edit restored · esc discards" : "Draft restored",
                     systemImage: "arrow.uturn.backward"
                 )
                 .foregroundStyle(.secondary)
@@ -119,12 +116,11 @@ struct QuickEntryView: View {
             Spacer()
             KeyHints(hint)
             // Real buttons for the mouse: the key hints alone were easy to miss.
-            if shownPhase != .pickingQuadrant, !flow.isConfirmingDelete {
+            if shownPhase != .pickingQuadrant {
                 if flow.isEditing {
-                    Button { model.requestDelete() } label: {
-                        Text("Delete").foregroundStyle(.red)
-                    }
-                    .help("Delete this todo (⌘⌫)")
+                    Button("Done") { model.complete() }
+                        .disabled(!flow.canSave)
+                        .help("Save and mark done, moving it to the archive (⌘D)")
                 }
                 Button("Save") { model.save() }
                     .buttonStyle(.borderedProminent)
@@ -141,12 +137,11 @@ struct QuickEntryView: View {
     private var hint: String {
         switch shownPhase {
         case .pickingQuadrant: "←↑↓→ or 1–4 · ↩ choose · esc " + (flow.isEditing ? "cancel" : "close")
-        case _ where flow.isConfirmingDelete: "↩ delete · esc keep"
-        case .editingTitle: "↩ note · ⌥↩ files · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘⌫ delete" : "close")
+        case .editingTitle: "↩ note · ⌥↩ files · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘D done" : "close")
         case .browsingAttachments where flow.attachments.isEmpty: "↩ add files · ⇧⇥ note · ⌘↩ save · esc " + (flow.isEditing ? "cancel" : "close")
         case .browsingAttachments where flow.isAddSelected: "↩ add files · ← select · ⇧⇥ note · ⌘↩ save"
         case .browsingAttachments: "←→ select · space open · ⌥↩ other way · ⌫ remove · ⇧⇥ note"
-        default: "⌘↩ save · ⌥↩ files · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘⌫ delete" : "close")
+        default: "⌘↩ save · ⌥↩ files · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘D done" : "close")
         }
     }
 }
@@ -169,22 +164,5 @@ private struct WindowReader: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         DispatchQueue.main.async { [weak view] in onWindow(view?.window) }
-    }
-}
-
-private struct DeleteConfirmation: View {
-    let model: QuickEntryModel
-
-    var body: some View {
-        HStack {
-            Image(systemName: "trash").foregroundStyle(.red)
-            Text("Delete this todo? It won't go to the archive.")
-            Spacer()
-            Button("Cancel") { model.cancelDelete() }
-            Button("Delete", role: .destructive) { model.confirmDelete() }
-        }
-        .font(.callout)
-        .padding(10)
-        .background(.red.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }

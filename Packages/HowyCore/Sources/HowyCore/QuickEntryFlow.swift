@@ -12,8 +12,10 @@ public enum QuickEntryKey: Hashable, Sendable {
     case tab
     case shiftTab
     case commandEnter
-    /// ⌘⌫: ask to delete the edited todo (edit mode only).
+    /// ⌘⌫: delete the selected todo for good (archive only). Text fields delete to the line start.
     case commandDelete
+    /// ⌘D: mark the edited todo done (edit mode only), which moves it to the archive.
+    case commandDone
     case escape
     /// A plain Space. Text in the fields; "open" in the attachments.
     case space
@@ -101,11 +103,10 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 ///   are swallowed (nothing to type into).
 /// - Anywhere active: ⌘Enter saves if the trimmed title is non-empty (otherwise consumed and
 ///   blocked); Esc cancels.
-/// - Create mode: ⌘⌫ (any phase) clears the draft (title and note) and returns to the picker.
-/// - Edit mode: ⌘⌫ (any phase) shows a delete prompt. While it is shown, Enter or ⌘⌫ confirms
-///   (phase `.deleted`), ⌘Enter is ignored, and every other key only dismisses the prompt. All keys
-///   are consumed, so nothing changes behind the prompt.
-/// - Once saved, deleted or cancelled, every key is ignored.
+/// - ⌘⌫ is never ours: the title and note delete to the start of the line, elsewhere it does nothing.
+/// - Edit mode: ⌘D (any phase) saves the edits and marks the todo done (phase `.completed`), so it
+///   goes to the archive. Like ⌘Enter it needs a non-empty title. Ignored in create mode.
+/// - Once saved, completed or cancelled, every key is ignored.
 ///
 /// Modes: `.create` starts in the picker on the preselected / last-used quadrant and records the
 /// chosen quadrant as last-used on save. With `startingInTitle` it starts in the title instead,
@@ -140,8 +141,8 @@ public final class QuickEntryFlow {
 
     public enum Phase: Hashable, Sendable {
         case pickingQuadrant, editingTitle, editingNote, browsingAttachments, saved, cancelled
-        /// Edit mode: the user confirmed deleting the todo.
-        case deleted
+        /// Edit mode: ⌘D marked the todo done. `savedDraft` holds the edits to save first.
+        case completed
     }
 
     public let mode: Mode
@@ -157,10 +158,8 @@ public final class QuickEntryFlow {
     public private(set) var selectedAttachmentIndex: Int?
     /// Something for the caller to do with attachments (open one, pick files); see `takeRequest()`.
     public private(set) var request: AttachmentRequest?
-    /// Set once `phase == .saved`.
+    /// Set once `phase == .saved` or `.completed`.
     public private(set) var savedDraft: QuickEntryDraft?
-    /// The "Delete this todo?" prompt is showing (edit mode only).
-    public private(set) var isConfirmingDelete = false
     @ObservationIgnored private var saveAttempted = false
     /// The values came from a stashed draft, not from scratch / the stored todo.
     public private(set) var isRestoredDraft = false
@@ -230,7 +229,7 @@ public final class QuickEntryFlow {
         if case .edit = mode { true } else { false }
     }
 
-    public var isFinished: Bool { phase == .saved || phase == .cancelled || phase == .deleted }
+    public var isFinished: Bool { phase == .saved || phase == .cancelled || phase == .completed }
 
     public var canSave: Bool {
         !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -241,14 +240,6 @@ public final class QuickEntryFlow {
     @discardableResult
     public func handle(_ key: QuickEntryKey) -> Bool {
         guard !isFinished, !isAbandoned else { return false }
-        if isConfirmingDelete {
-            switch key {
-            case .enter, .commandDelete: confirmDelete()
-            case .commandEnter: break
-            default: cancelDelete()
-            }
-            return true
-        }
         switch key {
         case .escape:
             cancel()
@@ -256,8 +247,8 @@ public final class QuickEntryFlow {
         case .commandEnter:
             save()
             return true
-        case .commandDelete:
-            if isEditing { requestDelete() } else { clearDraft() }
+        case .commandDone:
+            complete()
             return true
         default:
             break
@@ -274,8 +265,8 @@ public final class QuickEntryFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .enter, .tab: phase = .editingTitle
             case .shiftTab, .moveUp, .moveDown, .commandDigit: return false
-            case .other, .letter, .space, .optionEnter, .backspace, .undo: break // nothing to type into
-            case .escape, .commandEnter, .commandDelete: break
+            case .other, .letter, .space, .optionEnter, .backspace, .commandDelete, .undo: break // nothing to type into
+            case .escape, .commandEnter, .commandDone: break
             }
             return true
         case .editingTitle:
@@ -296,7 +287,7 @@ public final class QuickEntryFlow {
         case .browsingAttachments:
             handleAttachmentKey(key)
             return true
-        case .saved, .cancelled, .deleted:
+        case .saved, .cancelled, .completed:
             return false
         }
     }
@@ -391,7 +382,7 @@ public final class QuickEntryFlow {
 
     /// Moves focus to a phase, e.g. when a field is clicked. Ignores finished phases.
     public func focus(_ phase: Phase) {
-        guard !isFinished, phase != .saved, phase != .cancelled, phase != .deleted else { return }
+        guard !isFinished, phase != .saved, phase != .cancelled, phase != .completed else { return }
         if phase == .browsingAttachments { return enterAttachments() }
         self.phase = phase
     }
@@ -399,6 +390,18 @@ public final class QuickEntryFlow {
     /// Saves if the title is non-empty. Returns whether it saved.
     @discardableResult
     public func save() -> Bool {
+        finish(as: .saved)
+    }
+
+    /// Edit mode: saves the edits and marks the todo done (phase `.completed`) if the title is
+    /// non-empty. Returns whether it finished.
+    @discardableResult
+    public func complete() -> Bool {
+        guard isEditing else { return false }
+        return finish(as: .completed)
+    }
+
+    private func finish(as finished: Phase) -> Bool {
         guard !isFinished else { return false }
         guard canSave else {
             saveAttempted = true
@@ -413,34 +416,15 @@ public final class QuickEntryFlow {
         )
         if !isEditing { lastUsed.save(quadrant) }
         setStash(nil)
-        phase = .saved
+        phase = finished
         return true
     }
 
-    // MARK: Delete confirmation
-
-    /// Shows the delete prompt (edit mode only).
-    public func requestDelete() {
-        guard !isFinished, isEditing else { return }
-        isConfirmingDelete = true
-    }
-
-    public func cancelDelete() { isConfirmingDelete = false }
-
-    /// Confirms a shown delete prompt: phase becomes `.deleted`. Ignored without a prompt.
-    public func confirmDelete() {
-        guard !isFinished, isConfirmingDelete else { return }
-        isConfirmingDelete = false
-        setStash(nil)
-        phase = .deleted
-    }
-
-    /// Undoes `.saved` / `.deleted` when the caller could not carry it out (e.g. the store threw),
+    /// Undoes `.saved` / `.completed` when the caller could not carry it out (e.g. the store threw),
     /// so the user keeps what they typed. Back in the title field of an unfinished flow.
     public func reopen() {
-        guard phase == .saved || phase == .deleted else { return }
+        guard phase == .saved || phase == .completed else { return }
         savedDraft = nil
-        isConfirmingDelete = false
         phase = .editingTitle
     }
 
@@ -458,19 +442,6 @@ public final class QuickEntryFlow {
         guard !isFinished, !isAbandoned else { return }
         stashCurrent()
         isAbandoned = true
-    }
-
-    /// Create mode: drop the draft (title and note) and start over in the picker.
-    public func clearDraft() {
-        guard !isFinished, !isEditing else { return }
-        title = ""
-        note = ""
-        attachments = []
-        selectedAttachmentIndex = nil
-        saveAttempted = false
-        isRestoredDraft = false
-        setStash(nil)
-        phase = .pickingQuadrant
     }
 
     // MARK: Drafts

@@ -40,6 +40,12 @@ import Testing
         #expect(key(51, [.command, .shift]) == nil)
     }
 
+    @Test func commandDIsDone() {
+        #expect(key(2, .command, "d") == .commandDone)
+        #expect(key(2, [], "d") == .letter("d"))
+        #expect(key(2, [.command, .shift], "d") == nil)
+    }
+
     @Test func arrowsNeedNoModifiers() {
         #expect(key(123) == .left)
         #expect(key(124) == .right)
