@@ -286,7 +286,7 @@ import Testing
         flow.handle(.down) // b
         let b = try id(flow, "b")
         flow.handle(.enter)
-        #expect(flow.handle(.optionDigit(2)) == .dismissEditor(b, stash: true))
+        #expect(flow.handle(.optionDigit(2)) == .dismissEditor(.edit(b), stash: true))
         #expect(flow.selection(in: .urgentImportant)?.id == b)
         #expect(flow.handle(.optionDigit(1)) == .handled)
         #expect(flow.selectedTodo?.id == b)
@@ -299,7 +299,7 @@ import Testing
         flow.handle(.letter("o"))
         let c = try id(flow, "c")
         flow.handle(.enter)
-        #expect(flow.handle(.escape) == .dismissEditor(c, stash: false), "editor → tile")
+        #expect(flow.handle(.escape) == .dismissEditor(.edit(c), stash: false), "editor → tile")
         #expect(flow.phase == .overview)
         #expect(flow.handle(.escape) == .hideOverview, "tile → grid")
         #expect(flow.phase == .picking)

@@ -26,6 +26,8 @@ final class QuickEntryModel {
 
     /// Set when saving or deleting failed; the panel stays open so nothing typed is lost.
     private(set) var errorMessage: String?
+    /// Create mode: the id of the todo the save added (Browse selects it on the way back).
+    @ObservationIgnored private(set) var createdTodoID: UUID?
     /// The thumbnail under the pointer.
     var hoveredAttachmentID: UUID?
     /// The attachment whose reference the caret is on, or the pointer hovers, in the note.
@@ -161,6 +163,7 @@ final class QuickEntryModel {
                 try store.setAttachments(draft.attachments, for: id)
                 do {
                     try store.add(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant)
+                    createdTodoID = id
                 } catch {
                     store.attachments?.removeAll(for: id)
                     throw error
@@ -275,6 +278,8 @@ final class BrowseModel {
     @ObservationIgnored var close: () -> Void = {}
     /// Opens a todo in the edit modal (replaces this panel).
     @ObservationIgnored var openTodo: (UUID) -> Void = { _ in }
+    /// `n` in the list: opens the create screen for a new todo in this quadrant (replaces this panel).
+    @ObservationIgnored var createTodo: (Quadrant) -> Void = { _ in }
     /// Shows the archive (replaces this panel).
     @ObservationIgnored var openArchive: () -> Void = {}
     /// Grows the panel to the Overview (`true`) or shrinks it back, running `changes` inside the
@@ -286,13 +291,14 @@ final class BrowseModel {
         changes()
         completion()
     }
-    /// Makes the editor for a todo opened in an Overview tile; `nil` when it can't be read.
-    @ObservationIgnored var makeTileEditor: (UUID) -> QuickEntryModel? = { _ in nil }
+    /// Makes the editor for an Overview tile: a todo opened there (`nil` when it can't be read),
+    /// or a new todo (`n`).
+    @ObservationIgnored var makeTileEditor: (BrowseFlow.TileEditor) -> QuickEntryModel? = { _ in nil }
 
     /// Where the grow into the Overview (or the shrink back) is; the view lays the tiles out from
     /// it. It lags the flow's phase while a transition runs.
     private(set) var morph = OverviewMorph()
-    /// The editor open in the focused Overview tile.
+    /// The editor open in the focused Overview tile (an edit or a new todo).
     private(set) var tileEditor: QuickEntryModel?
 
     private(set) var errorMessage: String?
@@ -331,7 +337,7 @@ final class BrowseModel {
     func handle(_ key: QuickEntryKey) -> Bool {
         // `d` removes the selected row inside the flow; fire the burst first so the view can
         // still measure that row.
-        if key == .letter(BrowseFlow.doneKey), flow.phase == .listing || flow.phase == .overview && flow.editingTodoID == nil,
+        if key == .letter(BrowseFlow.doneKey), flow.phase == .listing || flow.phase == .overview && flow.tileEditor == nil,
            let todo = flow.selectedTodo { celebrate(todo.id) }
         var outcome = BrowseFlow.Outcome.ignored
         withAnimation(.snappy(duration: 0.25)) { outcome = flow.handle(key) }
@@ -354,7 +360,8 @@ final class BrowseModel {
         _ = perform(outcome)
     }
 
-    /// A click on a row in any tile: opens it in that tile's editor.
+    /// A click on a row in any tile: opens it in that tile's editor (a new todo being written in
+    /// the focused tile is kept as a draft).
     func openInTile(_ id: UUID) {
         var outcome = BrowseFlow.Outcome.handled
         withAnimation(.snappy(duration: 0.25)) { outcome = flow.openEditor(id: id) }
@@ -428,24 +435,27 @@ final class BrowseModel {
         }
     }
 
-    private func openTileEditor(_ id: UUID) {
+    /// Opens the tile editor for a todo (`.edit`) or a new todo (`.create`), keeping any other
+    /// one still open as a draft.
+    private func openTileEditor(_ kind: BrowseFlow.TileEditor) {
         if let open = tileEditor {
-            if open.flow.todoID == id { return } // a click on the row being edited
+            if case .edit(let id) = kind, open.flow.todoID == id { return } // a click on the row being edited
             open.flow.abandon()
         }
-        guard let editor = makeTileEditor(id) else {
+        guard let editor = makeTileEditor(kind) else {
             tileEditor = nil
             flow.closeEditor()
             return
         }
         editor.close = { [weak self, weak editor] in
             guard let self, let editor, self.tileEditor === editor else { return }
-            self.tileEditorSaved()
+            self.tileEditorSaved(editor)
         }
         withAnimation(.snappy(duration: 0.22)) { tileEditor = editor }
     }
 
-    /// Esc (`stash` false: the edit is discarded) or focus moved to another tile (kept as a draft).
+    /// Esc on an edit (`stash` false: discarded), or Esc on a new todo / focus moved to another
+    /// tile (kept as a draft).
     private func dismissTileEditor(stash: Bool) {
         guard let editor = tileEditor else { return }
         if stash {
@@ -458,11 +468,12 @@ final class BrowseModel {
     }
 
     /// ⌘↩ / ⌘D / Save / Done in the tile editor wrote the todo: back to the tile's list with the
-    /// new data, the todo (or the row now in its place) selected.
-    private func tileEditorSaved() {
+    /// new data, the todo (or the row now in its place) selected. A new todo: focus moves to the
+    /// tile it was saved into, with it selected.
+    private func tileEditorSaved(_ editor: QuickEntryModel) {
         withAnimation(.snappy(duration: 0.22)) {
             if let todos = try? store.openSnapshots() { flow.reload(todos) }
-            flow.closeEditor()
+            flow.closeEditor(created: editor.createdTodoID)
             tileEditor = nil
         }
     }
@@ -523,17 +534,19 @@ final class BrowseModel {
 
     private func perform(_ outcome: BrowseFlow.Outcome) -> Bool {
         defer {
-            // In the Overview the tile editor always belongs to the todo the flow is editing (or
-            // both are gone).
+            // In the Overview the tile editor always matches the flow's: the same todo, or both a
+            // new todo, or both gone.
             assert(
-                flow.phase != .overview || tileEditor?.flow.todoID == flow.editingTodoID,
-                "Tile editor out of step with BrowseFlow.editingTodoID"
+                flow.phase != .overview
+                    || (tileEditor == nil) == (flow.tileEditor == nil) && tileEditor?.flow.todoID == flow.editingTodoID,
+                "Tile editor out of step with BrowseFlow.tileEditor"
             )
         }
         switch outcome {
         case .ignored: return false
         case .handled: return true
         case .open(let id): openTodo(id)
+        case .newTodo(let quadrant): createTodo(quadrant)
         case .complete(let id), .archive(let id): persistCompletion(id)
         case .restore(let id): persistRestore(id)
         case .move(let id, _, let to): persistMove(id, to: to)
@@ -542,7 +555,8 @@ final class BrowseModel {
         case .place(let id, _, let to, let index): persistPlace(id, to: to, at: index)
         case .showOverview: showOverview()
         case .hideOverview: hideOverview()
-        case .editInTile(let id): openTileEditor(id)
+        case .editInTile(let id): openTileEditor(.edit(id))
+        case .createInTile(let quadrant): openTileEditor(.create(quadrant))
         case .dismissEditor(_, let stash): dismissTileEditor(stash: stash)
         case .openArchive: openArchive()
         case .close: close()

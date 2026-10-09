@@ -181,10 +181,11 @@ final class AppController {
         }
     }
 
-    /// Where an edit opened from Browse returns to.
+    /// Where an edit or a new todo opened from Browse returns to.
     private struct BrowseReturn {
         let quadrant: Quadrant
-        let todoID: UUID
+        /// The todo to select; `nil` (an empty list) selects nothing.
+        let todoID: UUID?
         let index: Int?
         /// Browse itself was opened from the launcher, so leaving it goes back there.
         let viaLauncher: Bool
@@ -227,6 +228,13 @@ final class AppController {
             }
             self?.showEdit(id: id, returningTo: back)
         }
+        model.createTodo = { [weak self, weak flow] quadrant in
+            guard let flow else { return }
+            let back = BrowseReturn(
+                quadrant: flow.quadrant, todoID: flow.selectedTodo?.id, index: flow.selectedIndex, viaLauncher: viaLauncher
+            )
+            self?.showCreate(in: quadrant, returningTo: back)
+        }
         model.openArchive = { [weak self] in
             self?.showArchive(returning: { [weak self] in
                 self?.showBrowse(resuming: nil, viaLauncher: viaLauncher, fromArchive: true)
@@ -236,20 +244,29 @@ final class AppController {
             guard let panel else { changes(); completion(); return }
             panel.setOverview(expanded ? OverviewSize.load() : nil, animated: animated, changes: changes, completion: completion)
         }
-        model.makeTileEditor = { [weak self, weak panel] id in
-            self?.makeTileEditor(id: id, store: store, panel: panel)
+        model.makeTileEditor = { [weak self, weak panel] kind in
+            self?.makeTileEditor(kind, store: store, panel: panel)
         }
         // Focus loss, ⌘W or another screen: an open tile edit is kept as a draft.
         panel.willClose = { model.stashTileEditor() }
     }
 
-    /// The editor inside an Overview tile: the edit screen's flow and model, in the Browse panel.
-    private func makeTileEditor(id: UUID, store: TodoStore, panel: FloatingPanel?) -> QuickEntryModel? {
-        guard let todo = try? store.todo(id: id), todo.completedAt == nil else { return nil }
-        let flow = QuickEntryFlow(
-            mode: .edit(QuickEntryDraft(todo: todo, attachments: store.attachmentList(for: id))),
-            lastUsed: lastUsed, drafts: drafts
-        )
+    /// The editor inside an Overview tile, in the Browse panel: the edit screen's flow and model
+    /// for a todo, or the create screen's for a new todo in the tile's quadrant (`n`).
+    private func makeTileEditor(
+        _ kind: BrowseFlow.TileEditor, store: TodoStore, panel: FloatingPanel?
+    ) -> QuickEntryModel? {
+        let flow: QuickEntryFlow
+        switch kind {
+        case .edit(let id):
+            guard let todo = try? store.todo(id: id), todo.completedAt == nil else { return nil }
+            flow = QuickEntryFlow(
+                mode: .edit(QuickEntryDraft(todo: todo, attachments: store.attachmentList(for: id))),
+                lastUsed: lastUsed, drafts: drafts
+            )
+        case .create(let quadrant):
+            flow = createFlow(in: quadrant)
+        }
         let model = QuickEntryModel(flow: flow, store: store)
         if let panel {
             model.presenter = AttachmentPresenter(panel: panel) { [weak self] in self?.activateForPanel() }
@@ -280,6 +297,37 @@ final class AppController {
                 } else {
                     self?.closePanel()
                 }
+            }
+        }
+    }
+
+    /// A create flow for a new todo in a quadrant chosen in Browse, starting in the title. The
+    /// quadrant wins over the "New todo starts in" setting and over the stashed draft's quadrant;
+    /// the draft's text is restored.
+    private func createFlow(in quadrant: Quadrant) -> QuickEntryFlow {
+        QuickEntryFlow(
+            mode: .create(preselected: quadrant, startingInTitle: true),
+            lastUsed: lastUsed, drafts: drafts,
+            startQuadrant: NewTodoQuadrant.load()
+        )
+    }
+
+    /// `n` in Browse's list: the create screen for a new todo in that quadrant. Save returns to
+    /// Browse listing the quadrant it was saved into, with the new todo selected; Esc returns to
+    /// `back` (the draft is stashed); losing focus still closes.
+    private func showCreate(in quadrant: Quadrant, returningTo back: BrowseReturn) {
+        guard let store = freshStore() else { return }
+        let model = QuickEntryModel(flow: createFlow(in: quadrant), store: store)
+        presentQuickEntry(model, kind: .quickEntry, activate: false)
+        model.close = { [weak self, weak model] in
+            guard let self, let model else { return }
+            if let id = model.createdTodoID, let saved = model.flow.savedDraft {
+                // New todos go on top of their quadrant.
+                self.showBrowse(resuming: BrowseReturn(
+                    quadrant: saved.quadrant, todoID: id, index: 0, viaLauncher: back.viaLauncher
+                ))
+            } else {
+                self.showBrowse(resuming: back)
             }
         }
     }

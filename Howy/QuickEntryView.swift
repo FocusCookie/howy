@@ -199,14 +199,17 @@ struct QuickEntryView: View {
 
     private var hint: String {
         switch shownPhase {
-        case .pickingQuadrant: "←↑↓→ or 1–4 · ↩ choose · esc " + (flow.isEditing ? "cancel" : "close")
-        case .editingTitle: "↩ note · ⌥↩ files · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘D done" : "close")
-        case .browsingAttachments where flow.attachments.isEmpty: "↩ add files · ⇧⇥ note · ⌘↩ save · esc " + (flow.isEditing ? "cancel" : "close")
+        case .pickingQuadrant: "←↑↓→ or 1–4 · ↩ choose · esc " + (flow.isEditing ? "cancel" : closeWord)
+        case .editingTitle: "↩ note · ⌥↩ files · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)
+        case .browsingAttachments where flow.attachments.isEmpty: "↩ add files · ⇧⇥ note · ⌘↩ save · esc " + (flow.isEditing ? "cancel" : closeWord)
         case .browsingAttachments where flow.isAddSelected: "↩ add files · ← select · ⇧⇥ note · ⌘↩ save"
         case .browsingAttachments: "←→ select · space open · ⌥↩ other way · ⌫ remove · ⇧⇥ note"
-        default: "⌘↩ save · ⌥↩ files · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘D done" : "close")
+        default: "⌘↩ save · ⌥↩ files · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)
         }
     }
+
+    /// What Esc does to a new todo: closes the panel, or, in an Overview tile, goes back to its list.
+    private var closeWord: String { inTile ? "back" : "close" }
 }
 
 /// `QuickEntryView`'s measured heights in an Overview tile.
