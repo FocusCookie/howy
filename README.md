@@ -17,11 +17,12 @@ Everything happens from a shortcut.
   **1–4**), type a title, add an optional Markdown note, and save with **⌘↩**.
 - **Browse**: press **⌃⌥⇧⌘M**. You see the four quadrants with their open
   counts. Open a quadrant, go through its todos with **↑/↓**, edit with **↩**,
-  mark done with **D**, undo with **⌘Z**, and reorder with **⌘↑/⌘↓** (or drag).
+  add a new todo to that quadrant with **N**, mark done with **D**, undo with **⌘Z**, and reorder with **⌘↑/⌘↓** (or drag).
   In the edit window, **⌘D** saves and marks the todo done.
 - **Overview**: press **O** in Browse (or click the button between the
   quadrants) to see all four quadrants side by side. Focus one with **1–4** or
-  **⌥1–4**, edit todos right in their tile, and drag todos between quadrants.
+  **⌥1–4**, edit or add (**N**) todos right in their tile, and drag todos
+  between quadrants.
 - **One-shortcut mode** (optional): a single shortcut opens a small chooser
   between _New Todo_ and _Browse_.
 - **Esc** never loses your typing. Unsaved text is kept as a draft, even across
@@ -90,6 +91,5 @@ cd Packages/HowyCore && swift test
 ## Project docs
 
 - [`CHANGELOG.md`](CHANGELOG.md): release history
-- [`docs/PRD.md`](docs/PRD.md): product requirements and design decisions
 - [`AGENTS.md`](AGENTS.md): project structure and conventions for contributors
   and AI agents

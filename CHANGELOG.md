@@ -6,6 +6,37 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-09
+
+### Added
+
+- **New todo from Browse.** Press **N** while you look at a quadrant to add a
+  todo to it, also when the quadrant is empty.
+  - **In the list**, the create screen opens with the cursor in the title and
+    that quadrant already chosen (**Shift-Tab** still reaches the quadrant
+    picker). Save, and Browse comes back listing the quadrant you saved into,
+    with the new todo selected on top. **Esc** goes back to the list as it was
+    and keeps what you typed as a draft; the key hints say **esc back**. The
+    Quick Add shortcut there switches to Quick Add with what you typed, like it
+    does from the edit screen, instead of closing the panel.
+  - **In the Overview**, the editor opens right in the focused tile. Save, and
+    the focus moves to the tile you saved into with the new todo selected.
+    **Esc**, **⌥1–4** or a click on another tile keeps what you typed as a
+    draft.
+  - The quadrant you're browsing wins over the _New todo starts in_ setting and
+    over the draft's quadrant; the draft's title and note are still restored.
+    Quick Add and **N** share one draft, and saving updates the last-used
+    quadrant like Quick Add does.
+  - The key hints show **N new** next to **↩ edit**.
+  - **N** does nothing on the 2×2 quadrant picker.
+  - If the list can't be read back after you save in an Overview tile, Browse
+    says so instead of quietly not showing the new todo.
+
+### Fixed
+
+- Quick Add opened from the launcher says **esc back** in its key hints, since
+  Esc goes back to the launcher.
+
 ## [1.3.0] - 2026-10-09
 
 ### Added

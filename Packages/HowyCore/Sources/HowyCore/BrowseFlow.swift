@@ -12,7 +12,8 @@ import Observation
 /// - List: ↑/↓ move the selection (clamped); Enter → `.open(id)`; `d` completes the selected
 ///   todo (the row is removed here, the caller writes it: `.complete(id)`); ⌫ archives it the
 ///   same way but without the celebration (`.archive(id)`); 1–4 switch quadrant;
-///   `a` opens the archive; Esc / Shift+Tab go back to the picker; ⌘↑/⌘K and ⌘↓/⌘J move the
+///   `n` asks for a new todo in the shown quadrant (`.newTodo`, also on an empty one; the list
+///   stays as it is for coming back); `a` opens the archive; Esc / Shift+Tab go back to the picker; ⌘↑/⌘K and ⌘↓/⌘J move the
 ///   selected todo one row (`.reorder`, the caller writes the new order); ⌘1–4 move the selected
 ///   todo to that quadrant (`.move`: it leaves this list, which stays shown, and goes on top of
 ///   the other one; the caller writes it); `m` opens the move picker. Everything else is
@@ -30,16 +31,20 @@ import Observation
 ///   `toggleOverview()`): every list key acts on the focused tile (`quadrant`, `rows`,
 ///   `selectedIndex`), except that 1–4 and ⌥1–4 focus that quadrant instead of opening its list
 ///   (Tab / Shift-Tab focus the next / previous quadrant in priority order, wrapping),
-///   Enter opens the selected todo in the tile's editor (`.editInTile`), and Esc goes back to the
-///   picker with the focused quadrant highlighted (`.hideOverview`). Each tile remembers its
+///   Enter opens the selected todo in the tile's editor (`.editInTile`), `n` opens a create
+///   editor there for a new todo in the focused quadrant (`.createInTile`), and Esc goes back to
+///   the picker with the focused quadrant highlighted (`.hideOverview`). Each tile remembers its
 ///   selection: focusing it again selects that todo, or the first one when it is gone.
-///   With a tile editor open (`editingTodoID`), only Esc (discard, back to the tile with the todo
-///   selected: `.dismissEditor(id, stash: false)`) and ⌥1–4 of another quadrant (stash the edit,
-///   focus there: `.dismissEditor(id, stash: true)`) are ours; every other key is `.ignored`, for
-///   the editor.
+///   With a tile editor open (`tileEditor`), only Esc and ⌥1–4 of another quadrant are ours;
+///   every other key is `.ignored`, for the editor. Esc closes the editor and goes back to the
+///   tile's earlier selection: an edit is discarded (`.dismissEditor(.edit(id), stash: false)`),
+///   a new todo is kept as the create draft (`stash: true`). ⌥1–4 keeps either as a draft and
+///   focuses there (`.dismissEditor(_, stash: true)`).
 /// - Closed: every key is `.ignored`.
 ///
-/// An opened todo's edit modal comes back here (`resumeListing`) on Esc, save or delete.
+/// An opened todo's edit modal comes back here (`resume(at:)`, with the `BrowseReturn` taken by
+/// `returnPoint`) on Esc, save or delete; so does the create screen `n` opens from the list
+/// (`BrowseReturn.afterCreate`: the new todo selected after a save).
 ///
 /// Rows keep the order they are given in (the store's order), until moved here.
 @MainActor
@@ -78,12 +83,17 @@ public final class BrowseFlow {
         /// The Overview closed, back to the picker: shrink the panel. A tile editor that was open
         /// is closed too; stash its edit.
         case hideOverview
+        /// List: create a new todo in this quadrant (the create screen, starting in the title).
+        case newTodo(Quadrant)
         /// Overview: open this todo in the focused tile's editor (it is selected there). Stash any
         /// other tile editor still open first.
         case editInTile(UUID)
-        /// Overview: the tile editor of this todo closed. `stash`: keep the edit as a draft (focus
-        /// moved to another tile, like losing panel focus); otherwise discard it (Esc).
-        case dismissEditor(UUID, stash: Bool)
+        /// Overview: open a create editor for a new todo in this quadrant in its (focused) tile.
+        /// Stash any other tile editor still open first.
+        case createInTile(Quadrant)
+        /// Overview: this tile editor closed. `stash`: keep it as a draft (focus moved to another
+        /// tile, like losing panel focus, or Esc on a new todo); otherwise discard it (Esc on an edit).
+        case dismissEditor(TileEditor, stash: Bool)
         /// Show the archive.
         case openArchive
         /// Close the panel.
@@ -98,6 +108,16 @@ public final class BrowseFlow {
     public static let moveKey: Character = "m"
     /// The key that opens the Overview (picker and list).
     public static let overviewKey: Character = "o"
+    /// The key that creates a new todo in the shown quadrant (list and Overview).
+    public static let newKey: Character = "n"
+
+    /// What the editor in the focused Overview tile is for.
+    public enum TileEditor: Hashable, Sendable {
+        /// Editing this todo.
+        case edit(UUID)
+        /// A new todo, started in this quadrant (the editor may save it into another one).
+        case create(Quadrant)
+    }
 
     /// The small "Move to…" picker over the list: which todo, and which quadrant has the highlight.
     public struct MovePicker: Hashable, Sendable {
@@ -129,8 +149,12 @@ public final class BrowseFlow {
     public private(set) var selectedIndex: Int?
     /// The open move picker, or `nil`.
     public private(set) var movePicker: MovePicker?
-    /// Overview: the todo open in the focused tile's editor, or `nil`.
-    public private(set) var editingTodoID: UUID?
+    /// Overview: the editor open in the focused tile (an edit or a new todo), or `nil`.
+    public private(set) var tileEditor: TileEditor?
+    /// Overview: the todo open in the focused tile's editor; `nil` without one or for a new todo.
+    public var editingTodoID: UUID? {
+        if case .edit(let id) = tileEditor { id } else { nil }
+    }
     /// Overview: the todo last selected in each quadrant's tile.
     private var rememberedSelection: [Quadrant: UUID] = [:]
     private var todos: [Quadrant: [TodoSnapshot]]
@@ -215,6 +239,7 @@ public final class BrowseFlow {
                 }
             case .letter(Self.moveKey):
                 if let todo = selectedTodo { openMovePicker(id: todo.id) }
+            case .letter(Self.newKey): return .newTodo(quadrant)
             case .letter(Self.archiveKey): return .openArchive
             case .letter(Self.overviewKey): return showOverview()
             case .undo:
@@ -231,11 +256,12 @@ public final class BrowseFlow {
     }
 
     private func handleOverview(_ key: QuickEntryKey) -> Outcome {
-        if let editing = editingTodoID {
+        if let editor = tileEditor {
             switch key {
             case .escape:
                 closeEditor()
-                return .dismissEditor(editing, stash: false)
+                if case .create = editor { return .dismissEditor(editor, stash: true) }
+                return .dismissEditor(editor, stash: false)
             case .optionDigit(let n):
                 guard let picked = Quadrant(shortcutNumber: n) else { return .handled }
                 return focus(picked)
@@ -271,6 +297,9 @@ public final class BrowseFlow {
             }
         case .letter(Self.moveKey):
             if let todo = selectedTodo { openMovePicker(id: todo.id) }
+        case .letter(Self.newKey):
+            tileEditor = .create(quadrant)
+            return .createInTile(quadrant)
         case .letter(Self.archiveKey): return .openArchive
         case .undo:
             if let outcome = undo() { return outcome }
@@ -313,52 +342,68 @@ public final class BrowseFlow {
     }
 
     /// Focuses a quadrant's tile (⌥1–4, 1–4, a click on its header), selecting the todo last
-    /// selected there or its first one. Focusing another tile closes an open tile editor:
-    /// `.dismissEditor(id, stash: true)`; otherwise `.handled`. `.ignored` outside the Overview.
+    /// selected there or its first one. Focusing another tile closes an open tile editor (an edit
+    /// or a new todo): `.dismissEditor(editor, stash: true)`; otherwise `.handled`. `.ignored`
+    /// outside the Overview.
     @discardableResult
     public func focus(_ target: Quadrant) -> Outcome {
         guard phase == .overview else { return .ignored }
         movePicker = nil
         guard target != quadrant else { return .handled }
-        let editing = editingTodoID
-        editingTodoID = nil
+        let editor = tileEditor
+        tileEditor = nil
         rememberSelection()
         movePicker = nil
         quadrant = target
         selectedIndex = rememberedIndex(in: target)
-        return editing.map { .dismissEditor($0, stash: true) } ?? .handled
+        return editor.map { .dismissEditor($0, stash: true) } ?? .handled
     }
 
     /// Opens a todo in its tile's editor (Enter, or a click on a row in any tile), focusing that
     /// tile and selecting it: `.editInTile(id)`. The caller stashes any other tile editor still
-    /// open. `.ignored` outside the Overview or for an unknown id.
+    /// open (also a create editor). `.ignored` outside the Overview or for an unknown id.
     @discardableResult
     public func openEditor(id: UUID) -> Outcome {
         guard phase == .overview,
               let target = Quadrant.allCases.first(where: { q in rows(in: q).contains { $0.id == id } })
         else { return .ignored }
-        editingTodoID = nil
+        tileEditor = nil
         movePicker = nil
         _ = focus(target)
         select(id: id)
-        editingTodoID = id
+        tileEditor = .edit(id)
         return .editInTile(id)
     }
 
     /// Closes the tile editor (after the caller saved, completed or discarded it), back to the
-    /// tile's list with that todo selected, or, when it left this tile, the row now in its place.
-    /// Call `reload` with the new data first when the save changed it.
-    public func closeEditor() {
-        guard let id = editingTodoID else { return }
-        editingTodoID = nil
-        select(id: id)
+    /// tile's list. An edit: that todo selected, or, when it left this tile, the row now in its
+    /// place. A new todo: pass its id (`created`) once saved, and focus moves to the tile it was
+    /// saved into with it selected; without one (discarded, stashed) the tile keeps its earlier
+    /// selection. Call `reload` with the new data first when the save changed it.
+    /// Returns `false` when `created` is not in the data (the reload failed or missed it, so the
+    /// new todo isn't shown; the tile keeps its earlier selection), `true` otherwise.
+    @discardableResult
+    public func closeEditor(created id: UUID? = nil) -> Bool {
+        let target = id.flatMap { quadrant(of: $0) }
+        let found = id == nil || target != nil
+        guard let editor = tileEditor else { return found }
+        tileEditor = nil
+        switch editor {
+        case .edit(let id):
+            select(id: id)
+        case .create:
+            guard let id, let target else { return found }
+            _ = focus(target)
+            select(id: id)
+        }
+        return found
     }
 
     /// Overview drag and drop: whether `target`'s tile takes drops. Not the focused tile while
-    /// its editor is open (the list is hidden under it); every tile otherwise. `false` outside the
-    /// Overview.
+    /// its editor (an edit or a new todo) is open (the list is hidden under it); every tile
+    /// otherwise. `false` outside the Overview.
     public func canDrop(on target: Quadrant) -> Bool {
-        phase == .overview && !(editingTodoID != nil && target == quadrant)
+        phase == .overview && !(tileEditor != nil && target == quadrant)
     }
 
     /// The one rule for a drop that leaves a todo where it is: inside its own quadrant, at row
@@ -414,7 +459,7 @@ public final class BrowseFlow {
             movePicker = nil
             outcome = .place(id, from: source, to: target, index: landed)
         }
-        if editingTodoID == nil {
+        if tileEditor == nil {
             _ = focus(target)
             select(id: id)
         }
@@ -437,7 +482,7 @@ public final class BrowseFlow {
         guard reorder(q, from: from, to: from + delta) else { return .handled }
         undoable.append(.reorder(q, previousIDs: previous, moved: id))
         movePicker = nil
-        if phase == .overview, editingTodoID == nil {
+        if phase == .overview, tileEditor == nil {
             _ = focus(q)
             select(id: id)
         }
@@ -453,7 +498,7 @@ public final class BrowseFlow {
         if phase == .listing { rememberSelection() }
         isArchiveHighlighted = false
         movePicker = nil
-        editingTodoID = nil
+        tileEditor = nil
         phase = .overview
         selectedIndex = rememberedIndex(in: quadrant)
         return .showOverview
@@ -461,7 +506,7 @@ public final class BrowseFlow {
 
     private func hideOverview() -> Outcome {
         rememberSelection()
-        editingTodoID = nil
+        tileEditor = nil
         movePicker = nil
         phase = .picking
         selectedIndex = nil
@@ -701,7 +746,7 @@ public final class BrowseFlow {
         phase = .closed
         selectedIndex = nil
         movePicker = nil
-        editingTodoID = nil
+        tileEditor = nil
         reorderDragStart = nil
         return .close
     }

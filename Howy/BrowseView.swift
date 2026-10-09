@@ -272,17 +272,17 @@ struct BrowseView: View {
             let undo = flow.canUndo ? " · ⌘Z undo" : ""
             if flow.movePicker != nil {
                 KeyHints("1–4 move · ←↑↓→ select · ↩ move · esc cancel")
-            } else if model.morph.isExpandedLayout, model.tileEditor != nil {
-                KeyHints("⌥1–4 focus quadrant (keeps the edit as a draft)")
+            } else if model.morph.isExpandedLayout, let editor = model.tileEditor {
+                KeyHints("⌥1–4 focus quadrant (keeps the \(editor.flow.isEditing ? "edit" : "todo") as a draft)")
             } else if model.morph.isExpandedLayout {
                 KeyHints(
-                    "1–4 focus · ⇥ next · ↑↓ select · ↩ edit · D done · ⌫ archive · M ⌘1–4 move · ⌘J ⌘K reorder\(undo) · esc back",
-                    short: "1–4 focus · ↑↓ select · ↩ edit · D done · M move\(undo) · esc back"
+                    "1–4 focus · ⇥ next · ↑↓ select · ↩ edit · N new · D done · ⌫ archive · M ⌘1–4 move · ⌘J ⌘K reorder\(undo) · esc back",
+                    short: "1–4 focus · ↑↓ select · ↩ edit · N new · D done · M move\(undo) · esc back"
                 )
             } else if flow.phase == .listing {
                 KeyHints(
-                    "↑↓ select · ⌘J ⌘K reorder · ↩ edit · D done · ⌫ archive · M ⌘1–4 move\(undo) · 1–4 switch · esc back",
-                    short: "↑↓ select · ↩ edit · D done · M ⌘1–4 move\(undo) · esc back"
+                    "↑↓ select · ⌘J ⌘K reorder · ↩ edit · N new · D done · ⌫ archive · M ⌘1–4 move\(undo) · 1–4 switch · esc back",
+                    short: "↑↓ select · ↩ edit · N new · D done · M ⌘1–4 move\(undo) · esc back"
                 )
             } else {
                 KeyHints("←↑↓→ or 1–4 · ↩ open · O overview\(undo) · esc close", short: "←↑↓→ or 1–4 · ↩ open\(undo) · esc close")
