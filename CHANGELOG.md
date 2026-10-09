@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-10-09
+
 ### Added
 
 - **New todo from Browse.** Press **N** while you look at a quadrant to add a
