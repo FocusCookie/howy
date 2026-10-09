@@ -42,12 +42,12 @@ struct BrowseView: View {
                 if flow.phase == .listing {
                     list
                 } else {
-                    QuadrantGrid(highlighted: flow.isArchiveHighlighted ? nil : flow.quadrant, count: { flow.count(in: $0) }) {
-                        model.choose($0)
-                    }
+                    // The small grid and the Overview: one layout, so the tiles grow in step.
+                    OverviewView(model: model)
                 }
                 footer
             }
+            .frame(maxHeight: model.morph.isExpandedLayout ? .infinity : nil, alignment: .top)
             .onChange(of: model.lastMove) { _, event in
                 guard let event else { return }
                 panelEffects?.launchBadge(event.isUndo ? "Back to" : "Moved to", quadrant: event.quadrant)
@@ -127,7 +127,7 @@ struct BrowseView: View {
                                 .id(todo.id)
                                 .transition(.asymmetric(
                                     insertion: .opacity,
-                                    removal: .move(edge: .top).combined(with: .opacity)
+                                    removal: reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity)
                                 ))
                         }
                     }
@@ -190,8 +190,9 @@ struct BrowseView: View {
         .transaction { if isDragged { $0.animation = nil } }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction(named: "Move Up") { reorder(todo.id, to: index - 1) }
-        .accessibilityAction(named: "Move Down") { reorder(todo.id, to: index + 1) }
+        .accessibilityAction(named: "Mark done") { model.complete(todo.id) }
+        .accessibilityAction(named: "Move Up") { model.nudge(todo.id, by: -1) }
+        .accessibilityAction(named: "Move Down") { model.nudge(todo.id, by: 1) }
         .accessibilityActions {
             ForEach(Quadrant.allCases.filter { $0 != todo.quadrant }) { quadrant in
                 Button("Move to \(quadrant.displayName)") { model.move(todo.id, to: quadrant) }
@@ -208,22 +209,20 @@ struct BrowseView: View {
             .overlay {
                 DragHandleArea(
                     onBegan: {
-                        model.select(todo.id)
+                        model.beginReorderDrag(todo.id)
                         drag = RowDrag(id: todo.id, startIndex: flow.rows.firstIndex { $0.id == todo.id } ?? index)
                     },
                     onChanged: { translation in
                         guard var current = drag else { return }
-                        current.translation = translation
+                        current.translation = translation.height
                         drag = current
-                        let target = current.startIndex + Int((translation / Self.rowPitch).rounded())
+                        let target = current.startIndex + Int((translation.height / Self.rowPitch).rounded())
                         model.drag(todo.id, to: target)
                     },
                     onEnded: {
-                        guard let ended = drag else { return }
+                        guard drag != nil else { return }
                         withAnimation(.snappy(duration: 0.2)) { drag = nil }
-                        if flow.rows.firstIndex(where: { $0.id == ended.id }) != ended.startIndex {
-                            model.persistOrder()
-                        }
+                        model.endReorderDrag() // one reorder, ⌘Z takes it back
                         pointer.reset()
                     }
                 )
@@ -236,11 +235,6 @@ struct BrowseView: View {
     private func draggedOffset(index: Int) -> CGFloat {
         guard let drag else { return 0 }
         return drag.translation - CGFloat(index - drag.startIndex) * Self.rowPitch
-    }
-
-    private func reorder(_ id: UUID, to index: Int) {
-        model.drag(id, to: index)
-        model.persistOrder()
     }
 
     // MARK: Done emoji
@@ -256,7 +250,7 @@ struct BrowseView: View {
 
     private var footer: some View {
         HStack(spacing: 12) {
-            if flow.phase == .picking { archiveButton }
+            if flow.phase == .picking, !model.morph.isExpandedLayout { archiveButton }
             if let error = model.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red)
@@ -266,17 +260,28 @@ struct BrowseView: View {
             let undo = flow.canUndo ? " · ⌘Z undo" : ""
             if flow.movePicker != nil {
                 KeyHints("1–4 move · ←↑↓→ select · ↩ move · esc cancel")
+            } else if model.morph.isExpandedLayout, model.tileEditor != nil {
+                KeyHints("⌥1–4 focus quadrant (keeps the edit as a draft)")
+            } else if model.morph.isExpandedLayout {
+                KeyHints(
+                    "1–4 focus · ⇥ next · ↑↓ select · ↩ edit · D done · ⌫ archive · M ⌘1–4 move · ⌘J ⌘K reorder\(undo) · esc back",
+                    short: "1–4 focus · ↑↓ select · ↩ edit · D done · M move\(undo) · esc back"
+                )
             } else if flow.phase == .listing {
                 KeyHints(
                     "↑↓ select · ⌘J ⌘K reorder · ↩ edit · D done · ⌫ archive · M ⌘1–4 move\(undo) · 1–4 switch · esc back",
                     short: "↑↓ select · ↩ edit · D done · M ⌘1–4 move\(undo) · esc back"
                 )
             } else {
-                KeyHints("←↑↓→ or 1–4 · ↩ open\(undo) · esc close")
+                KeyHints("←↑↓→ or 1–4 · ↩ open · O overview\(undo) · esc close", short: "←↑↓→ or 1–4 · ↩ open\(undo) · esc close")
             }
         }
         .font(.caption)
         .lineLimit(1)
+        // Out of view while the tiles grow or shrink: the grid's and the Overview's hints swap
+        // unseen, instead of sliding through the tiles.
+        .opacity(model.morph.showsFooter ? 1 : 0)
+        .allowsHitTesting(model.morph.showsFooter)
     }
 
     /// Tertiary entry to the archive at the bottom of the picker; ↓ from the bottom row or `a`
@@ -322,11 +327,11 @@ final class PointerTracker {
     }
 }
 
-/// A transparent AppKit area that reports vertical drags (downwards positive). Being an NSView
+/// A transparent AppKit area that reports drags (how far the pointer moved; downwards positive). Being an NSView
 /// that can't move the window, dragging it reorders instead of moving the floating panel.
-private struct DragHandleArea: NSViewRepresentable {
+struct DragHandleArea: NSViewRepresentable {
     let onBegan: () -> Void
-    let onChanged: (CGFloat) -> Void
+    let onChanged: (CGSize) -> Void
     let onEnded: () -> Void
 
     func makeNSView(context: Context) -> HandleView { HandleView() }
@@ -339,32 +344,33 @@ private struct DragHandleArea: NSViewRepresentable {
 
     final class HandleView: NSView {
         var onBegan: () -> Void = {}
-        var onChanged: (CGFloat) -> Void = { _ in }
+        var onChanged: (CGSize) -> Void = { _ in }
         var onEnded: () -> Void = {}
-        private var startY: CGFloat?
+        private var start: NSPoint?
 
         override var mouseDownCanMoveWindow: Bool { false }
         override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
         override func resetCursorRects() {
-            addCursorRect(bounds, cursor: startY == nil ? .openHand : .closedHand)
+            addCursorRect(bounds, cursor: start == nil ? .openHand : .closedHand)
         }
 
         override func mouseDown(with event: NSEvent) {
-            startY = event.locationInWindow.y
+            start = event.locationInWindow
             NSCursor.closedHand.set()
             onBegan()
         }
 
         override func mouseDragged(with event: NSEvent) {
-            guard let startY else { return }
+            guard let start else { return }
             NSCursor.closedHand.set()
-            onChanged(startY - event.locationInWindow.y) // window y grows upwards
+            let now = event.locationInWindow
+            onChanged(CGSize(width: now.x - start.x, height: start.y - now.y)) // window y grows upwards
         }
 
         override func mouseUp(with event: NSEvent) {
-            guard startY != nil else { return }
-            startY = nil
+            guard start != nil else { return }
+            start = nil
             window?.invalidateCursorRects(for: self)
             onEnded()
         }
@@ -377,7 +383,7 @@ private struct DragHandleArea: NSViewRepresentable {
 /// clickable) on the selected row. Each dot is a plain Button with a 20 pt hit area, so a click
 /// never opens the row. Hidden from VoiceOver: the row has "Move to …"
 /// actions instead.
-private struct QuadrantDots: View {
+struct QuadrantDots: View {
     let current: Quadrant
     let isActive: Bool
     let onMove: (Quadrant) -> Void
@@ -436,7 +442,7 @@ private struct QuadrantDot: View {
 
 /// Marks a row's todo done. Shows a checkmark from the start (the row leaves the list on click, so
 /// an empty circle would never get its tick) and fills in under the pointer.
-private struct DoneButton: View {
+struct DoneButton: View {
     let color: Color
     let action: () -> Void
     @State private var isHovered = false

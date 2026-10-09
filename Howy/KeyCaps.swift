@@ -37,6 +37,8 @@ struct KeyHints: View {
         }
         .font(.caption)
         .lineLimit(1)
+        // A different hint is a new line, not the old keycaps sliding to new places.
+        .id(short.map { hint + $0 } ?? hint)
     }
 
     private func line(_ hint: String) -> some View {

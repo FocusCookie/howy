@@ -173,6 +173,28 @@ public final class TodoStore {
         return previous
     }
 
+    /// Moves a todo to `index` of `quadrant`'s open todos (Overview drag and drop; a drop on the
+    /// header is index 0). `index` counts the other todos there and is clamped to their count.
+    /// The target's `sortDate`s are rewritten downwards from now, so the order holds and a todo
+    /// added later still lands on top. Returns the `sortDate` the todo had before, for
+    /// `moveBack` (⌘Z). Within its own quadrant this reorders; already there writes nothing.
+    @discardableResult
+    public func move(id: UUID, to quadrant: Quadrant, at index: Int) throws -> Date {
+        let todo = try require(id)
+        let previous = todo.sortDate
+        let current = try openTodos(in: quadrant)
+        var ordered = current.filter { $0.id != id }
+        ordered.insert(todo, at: min(max(index, 0), ordered.count))
+        guard ordered.map(\.id) != current.map(\.id) else { return previous } // already there
+        todo.quadrant = quadrant
+        let newest = max(now(), ordered.first(where: { $0.id != id })?.sortDate ?? .distantPast)
+        for (position, item) in ordered.enumerated() {
+            item.sortDate = newest.addingTimeInterval(-Double(position) * 0.001)
+        }
+        try commit()
+        return previous
+    }
+
     /// Takes back a `move` (Browse's ⌘Z): the todo returns to `quadrant` with the `sortDate`
     /// `move` returned, so it is back at the position it had there.
     public func moveBack(id: UUID, to quadrant: Quadrant, sortDate: Date) throws {

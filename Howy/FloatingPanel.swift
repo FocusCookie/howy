@@ -18,6 +18,12 @@ import SwiftUI
 /// `init` for why the hosting view sits behind a container view to keep SwiftUI from doing that.
 /// Clicks on the transparent part fall through to whatever is beneath, as on any clear window.
 ///
+/// Browse's Overview is the one exception to the fixed size: `setOverview` grows the window once
+/// (in one step, with no frame animation) to also cover the Overview's frame, then animates only
+/// the card inside it, from its small size to the Overview's; going back animates the card down
+/// first and then restores the window's old frame. AppKit never animates the window and SwiftUI
+/// never sizes it, so the feedback loop described in `init` can't come back.
+///
 /// Losing key status is not always the user clicking away: activating the app, a menu closing or
 /// a widget host handing over focus all take it away briefly. So resigns shortly after `present()`
 /// are undone, and later ones only close the panel if it is still not key after a short delay.
@@ -55,6 +61,19 @@ final class FloatingPanel: NSPanel {
     private static let fadeOutDuration: TimeInterval = 0.12
 
     private let presentation = PanelPresentation()
+    /// The window's frame before the Overview grew it, and the grown frame (to follow a drag of
+    /// the panel while the Overview is open); `nil` while the window has its normal size.
+    private var compactWindowFrame: NSRect?
+    private var grownWindowFrame: NSRect?
+    /// The Overview's frame in the grown window (SwiftUI's window space).
+    private var grownExpandedFrame: CGRect?
+    /// Bumped on every Overview change, so a late step of an earlier one does nothing.
+    private var overviewGeneration = 0
+    /// The `changes` of a grow whose animated step (next turn) hasn't run yet. A later Overview
+    /// change or screen swap runs them first, unanimated, so every `changes` runs once and in order.
+    private var pendingOverviewChanges: (() -> Void)?
+    /// The `completion` of the latest `setOverview`, until it has run.
+    private var overviewCompletion: (() -> Void)?
 
     /// `width` is the card's width; the window is that plus the margin on both sides.
     init<Content: View>(width: CGFloat, @ViewBuilder content: () -> Content) {
@@ -103,7 +122,7 @@ final class FloatingPanel: NSPanel {
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         if let visible = screen?.visibleFrame {
             let width = frame.width
-            let cardTop = visible.maxY - visible.height * 0.22
+            let cardTop = OverviewSize.compactCardTop(in: visible)
             let windowTop = cardTop + Self.margin
             let rect = NSRect(x: visible.midX - width / 2, y: visible.minY, width: width, height: windowTop - visible.minY)
             setFrame(rect.integral, display: false)
@@ -266,6 +285,180 @@ final class FloatingPanel: NSPanel {
         }
     }
 
+    // MARK: Overview
+
+    /// Grows the card to the Overview (`size` of this panel's screen, centred on the card) or,
+    /// with `nil`, shrinks it back to its normal width and height. `changes` (the tiles switching
+    /// between the small grid's layout and the Overview's) run inside the same animation, so the
+    /// tiles and the card move as one; `animated: false` (Reduce Motion) makes the change in one
+    /// step. `completion` runs once the card has its new size (after a shrink, once the window is
+    /// back to its normal frame); it doesn't run when a later call or a screen swap superseded this one.
+    func setOverview(_ size: OverviewSize?, animated: Bool, changes: @escaping () -> Void, completion: @escaping () -> Void) {
+        flushPendingOverviewChanges()
+        overviewGeneration += 1
+        let generation = overviewGeneration
+        overviewCompletion = completion
+        // Runs `completion` once, if this is still the latest Overview change.
+        let complete: @MainActor @Sendable () -> Void = { [weak self] in
+            guard let self, !self.didClose, self.overviewGeneration == generation,
+                  let completion = self.overviewCompletion else { return }
+            self.overviewCompletion = nil
+            completion()
+        }
+        guard let size else {
+            guard grownExpandedFrame != nil else {
+                changes()
+                DispatchQueue.main.async(execute: complete)
+                return
+            }
+            guard animated, presentation.expandedFrame != nil else {
+                // Reduce Motion, or the grow never got to its animated step: nothing to animate
+                // back, and an animation that changes nothing might never report its completion.
+                withTransaction(Self.noAnimation) {
+                    presentation.expandedFrame = nil
+                    changes()
+                }
+                finishMorph()
+                restoreCompactWindow()
+                DispatchQueue.main.async(execute: complete)
+                return
+            }
+            presentation.isMorphing = true
+            withAnimation(Self.overviewAnimation, completionCriteria: .logicallyComplete) {
+                presentation.expandedFrame = nil
+                changes()
+            } completion: { [weak self] in
+                guard let self, !self.didClose, self.overviewGeneration == generation else { return }
+                self.finishMorph()
+                self.restoreCompactWindow()
+                complete()
+            }
+            // Should the completion never come, the window still goes back to its size.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.overviewDuration + 0.3) { [weak self] in
+                guard let self, !self.didClose, self.overviewGeneration == generation, self.compactWindowFrame != nil else { return }
+                self.finishMorph()
+                self.restoreCompactWindow()
+                complete()
+            }
+            return
+        }
+        let expanded: CGRect
+        if let grownExpandedFrame {
+            // Still grown (the card is on its way back): grow to the same place again.
+            expanded = grownExpandedFrame
+        } else {
+            guard let content = contentView,
+                  let screen = screen ?? NSScreen.main else {
+                changes()
+                DispatchQueue.main.async(execute: complete)
+                return
+            }
+            let visible = screen.visibleFrame
+            // The card's normal frame from the window's (fixed) frame, not the live card rect,
+            // which may be mid-animation (a screen swap still resizing it).
+            let compact = compactCardFrame
+            let target = size.frame(in: visible, centeredOn: CGPoint(x: compact.midX, y: compact.midY)).integral
+            // The shadow margin stays on this screen: past its edge it would show on a neighbour.
+            let grown = frame.union(target.insetBy(dx: -Self.margin, dy: -Self.margin))
+                .intersection(screen.frame.union(frame)).integral
+            compactWindowFrame = frame
+            grownWindowFrame = grown
+            // One step, not animated: the card keeps its place on screen inside the bigger window.
+            // The new origin is laid out and drawn together with the window's new frame, so no
+            // frame shows the card at its old origin in the grown window (a sideways jump).
+            withTransaction(Self.noAnimation) {
+                presentation.compactOrigin = CGPoint(x: compact.minX - grown.minX, y: grown.maxY - compact.maxY)
+            }
+            setFrame(grown, display: false)
+            content.layoutSubtreeIfNeeded()
+            content.displayIfNeeded()
+            expanded = CGRect(x: target.minX - grown.minX, y: grown.maxY - target.maxY, width: target.width, height: target.height)
+            grownExpandedFrame = expanded
+        }
+        pendingOverviewChanges = changes
+        // Next turn, so the first frame in the bigger window is drawn before the card moves.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.didClose, self.overviewGeneration == generation,
+                  let pending = self.pendingOverviewChanges else { return }
+            self.pendingOverviewChanges = nil
+            guard animated else {
+                withTransaction(Self.noAnimation) {
+                    self.presentation.expandedFrame = expanded
+                    pending()
+                }
+                self.finishMorph()
+                DispatchQueue.main.async(execute: complete)
+                return
+            }
+            self.presentation.isMorphing = true
+            withAnimation(Self.overviewAnimation, completionCriteria: .logicallyComplete) {
+                self.presentation.expandedFrame = expanded
+                pending()
+            } completion: { [weak self] in
+                guard let self, !self.didClose, self.overviewGeneration == generation else { return }
+                self.finishMorph()
+                complete()
+            }
+            // Should the completion never come, the rows still get revealed.
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.overviewDuration + 0.3) { [weak self] in
+                guard let self, !self.didClose, self.overviewGeneration == generation else { return }
+                self.finishMorph()
+                complete()
+            }
+        }
+    }
+
+    /// Runs the `changes` of a grow still waiting for its animated step, unanimated.
+    private func flushPendingOverviewChanges() {
+        guard let pending = pendingOverviewChanges else { return }
+        pendingOverviewChanges = nil
+        withTransaction(Self.noAnimation) { pending() }
+    }
+
+    /// The card's frame on screen at its normal size: its top-left corner from the window's frame
+    /// and `compactOrigin`, its height as laid out.
+    private var compactCardFrame: NSRect {
+        let width = frame.width - 2 * Self.margin
+        let height = presentation.cardFrame.height
+        let origin = presentation.compactOrigin
+        return NSRect(x: frame.minX + origin.x, y: frame.maxY - origin.y - height, width: width, height: height)
+    }
+
+    /// The Overview's grow or shrink is over: the effects layer follows the card again.
+    private func finishMorph() {
+        presentation.isMorphing = false
+        presentation.effectsCardFrame = presentation.cardFrame
+    }
+
+    /// One smooth ease-in-out for the card and the tiles in it. Not a spring: a spring is
+    /// "logically complete" while it still creeps towards its end, so the next stage (the counts
+    /// or rows fading in, the window going back to its size) started while the card was still a
+    /// little too big, and it then visibly shrank the rest of the way. A timing curve ends
+    /// exactly when its completion runs. (Reduce Motion makes the change in one step instead:
+    /// `animated: false`.)
+    private static var overviewAnimation: Animation { .timingCurve(0.3, 0, 0.15, 1, duration: overviewDuration) }
+
+    private static let overviewDuration: TimeInterval = 0.29
+
+    private static var noAnimation: Transaction {
+        var transaction = Transaction(animation: nil)
+        transaction.disablesAnimations = true
+        return transaction
+    }
+
+    /// After the card shrank back: the window returns to its normal frame (moved along if the panel
+    /// was dragged meanwhile), the card staying where it is on screen.
+    private func restoreCompactWindow() {
+        guard let compact = compactWindowFrame, let grown = grownWindowFrame, presentation.expandedFrame == nil else { return }
+        let restored = compact.offsetBy(dx: frame.minX - grown.minX, dy: frame.minY - grown.minY)
+        compactWindowFrame = nil
+        grownWindowFrame = nil
+        grownExpandedFrame = nil
+        withTransaction(Self.noAnimation) { presentation.compactOrigin = PanelPresentation.defaultCompactOrigin }
+        setFrame(restored, display: true)
+        contentView?.layoutSubtreeIfNeeded()
+    }
+
     /// True while the panel is on screen and not closing, so new content can move into it.
     var canReplaceContent: Bool { isVisible && !didClose && presentation.state == .shown }
 
@@ -278,10 +471,20 @@ final class FloatingPanel: NSPanel {
         willClose?()
         willClose = nil
         keyHandler = nil
+        flushPendingOverviewChanges()
         let view = AnyView(content())
-        withAnimation(Self.reduceMotion ? .easeOut(duration: 0.15) : .smooth(duration: 0.26)) {
+        // A screen opened from the Overview (the archive) comes in at the normal size.
+        let leavesOverview = grownExpandedFrame != nil
+        if leavesOverview { overviewGeneration += 1 }
+        let generation = overviewGeneration
+        withAnimation(Self.reduceMotion ? .easeOut(duration: 0.15) : .smooth(duration: 0.26), completionCriteria: .logicallyComplete) {
             presentation.content = view
             presentation.contentID += 1
+            presentation.expandedFrame = nil
+        } completion: { [weak self] in
+            guard leavesOverview, let self, !self.didClose, self.overviewGeneration == generation else { return }
+            self.finishMorph()
+            self.restoreCompactWindow()
         }
     }
 
@@ -336,7 +539,21 @@ final class PanelPresentation {
     var content = AnyView(EmptyView())
     var contentID = 0
     /// Where the card is inside the window (SwiftUI's window space), kept up to date by `PanelRoot`.
-    var cardFrame = CGRect.zero
+    /// Not observed: written every frame while the card animates, read only on demand.
+    @ObservationIgnored var cardFrame = CGRect.zero
+    /// The card frame the effects layer cuts out (observed): follows `cardFrame`, except during
+    /// the Overview's grow and shrink (`isMorphing`), where updating it every frame would re-render
+    /// the whole panel each frame; set once when the morph ends.
+    var effectsCardFrame = CGRect.zero
+    /// The card is growing into the Overview or shrinking back (set by `FloatingPanel`).
+    @ObservationIgnored var isMorphing = false
+    /// The card's top-left corner at its normal size, in SwiftUI's window space: the margin, unless
+    /// the Overview has grown the window around it.
+    var compactOrigin = PanelPresentation.defaultCompactOrigin
+    /// The Overview's frame in SwiftUI's window space while the card has that size, else `nil`.
+    var expandedFrame: CGRect?
+
+    static let defaultCompactOrigin = CGPoint(x: FloatingPanel.margin, y: FloatingPanel.margin)
     /// Decorations drawn over the window, outside the card (the done emoji).
     let effects = PanelEffects()
 }
@@ -350,6 +567,7 @@ extension EnvironmentValues {
 /// transparent) window, with a Spotlight-style entrance (fade in while settling from a slight
 /// zoom; fade only with Reduce Motion) and a quick fade out. Screens swapped by `replaceContent`
 /// cross-fade, top-aligned, while the card animates to the new height; the window stays put.
+/// For the Overview the card takes `expandedFrame` instead (the window has grown around it).
 private struct PanelRoot: View {
     let presentation: PanelPresentation
     let width: CGFloat
@@ -365,18 +583,25 @@ private struct PanelRoot: View {
                     // made it shimmer by a pixel until the animation settled.
                     .transition(.opacity)
             }
-            .frame(maxWidth: .infinity, alignment: .top)
+            .frame(maxWidth: .infinity, maxHeight: expanded == nil ? nil : .infinity, alignment: .top)
         }
-            .frame(width: width)
+            .frame(width: expanded?.width ?? width, height: expanded?.height)
             .environment(\.panelState, presentation.state)
             .environment(\.panelEffects, presentation.effects)
-            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { presentation.cardFrame = $0 }
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
+                presentation.cardFrame = frame
+                if !presentation.isMorphing, presentation.effectsCardFrame != frame { presentation.effectsCardFrame = frame }
+            }
             .scaleEffect(scale)
             .opacity(presentation.state == .shown ? 1 : 0)
-            .padding(FloatingPanel.margin)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-            .overlay { PanelEffectsLayer(effects: presentation.effects, card: presentation.cardFrame) } // window space, unclipped
+            .padding(.leading, origin.x)
+            .padding(.top, origin.y)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .overlay { PanelEffectsLayer(effects: presentation.effects, card: presentation.effectsCardFrame) } // window space, unclipped
     }
+
+    private var expanded: CGRect? { presentation.expandedFrame }
+    private var origin: CGPoint { expanded?.origin ?? presentation.compactOrigin }
 
     private var scale: CGFloat {
         guard !reduceMotion else { return 1 }

@@ -5,7 +5,8 @@ import SwiftUI
 
 /// The things worth configuring: the global shortcuts (one launcher shortcut, or separate Quick Add
 /// and Browse shortcuts), the quadrant new todos start on, how attachments open, what plays when a
-/// todo is marked done, how long the archive keeps done todos, and launching at login.
+/// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, and
+/// launching at login.
 struct SettingsView: View {
     let controller: AppController
     @State private var newTodoQuadrant = NewTodoQuadrant.load()
@@ -14,6 +15,7 @@ struct SettingsView: View {
     @State private var openMode = AttachmentOpenMode.load()
     @State private var doneAnimation = DoneAnimation.load()
     @State private var archiveRetention = ArchiveRetention.load()
+    @State private var overviewSize = OverviewSize.load()
     @State private var copiedFormat = false
 
     var body: some View {
@@ -84,6 +86,28 @@ struct SettingsView: View {
                     .foregroundStyle(.secondary)
             }
             Section {
+                LabeledContent("Width:") {
+                    percentSlider(
+                        "Overview width", value: overviewSize.widthPercent,
+                        set: { overviewSize.with(widthPercent: $0) }
+                    )
+                }
+                LabeledContent("Height:") {
+                    percentSlider(
+                        "Overview height", value: overviewSize.heightPercent,
+                        set: { overviewSize.with(heightPercent: $0) }
+                    )
+                }
+                OverviewSizePreview(size: overviewSize)
+                    .frame(maxWidth: .infinity)
+            } header: {
+                Text("Overview")
+            } footer: {
+                Text("How much of the screen Browse's Overview takes (O, or the button between the quadrants). The tiles never get narrower than the editor needs.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section {
                 Picker("Delete done todos after:", selection: $archiveRetention) {
                     ForEach(ArchiveRetention.options) { option in
                         Text(option.displayName).tag(option)
@@ -139,10 +163,128 @@ extension SettingsView {
         }
     }
 
+    private var overviewRange: ClosedRange<Double> {
+        Double(OverviewSize.percentRange.lowerBound)...Double(OverviewSize.percentRange.upperBound)
+    }
+
+    /// A 50–95 % slider for one of the Overview's percentages (`value`), with its value; `set`
+    /// gives the size with a new percentage, saved as the slider moves.
+    private func percentSlider(_ label: String, value: Int, set: @escaping (Int) -> OverviewSize) -> some View {
+        HStack {
+            Slider(
+                value: Binding(
+                    get: { Double(value) },
+                    set: { newValue in
+                        let size = set(Int(newValue.rounded()))
+                        guard size != overviewSize else { return }
+                        overviewSize = size
+                        size.save()
+                    }
+                ),
+                in: overviewRange, step: 5
+            )
+            .labelsHidden()
+            .accessibilityLabel(label)
+            .accessibilityValue("\(value) percent")
+            Text("\(value) %")
+                .monospacedDigit()
+                .frame(width: 40, alignment: .trailing)
+                .accessibilityHidden(true)
+        }
+    }
+
     private var footerHint: String {
         let recording = "Click a shortcut, then press the new keys. Esc cancels, Delete removes it."
         guard controller.shortcutMode == .single else { return recording }
         return "Opens a chooser: ← or 1 for New Todo, → or 2 for Browse, ↩ for the selected one. " + recording
+    }
+}
+
+/// The Overview setting's preview: the screen the Settings window is on as a rounded rectangle
+/// (its aspect, its menu bar and Dock left out as on screen), with the Overview's frame on it in
+/// the accent colour, worked out by the same `OverviewSize.frame` as the real panel, grown from
+/// where the panel's card sits when it was not moved (`OverviewSize.compactCardCenter`).
+private struct OverviewSizePreview: View {
+    let size: OverviewSize
+    @State private var screen: NSScreen?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static let width: CGFloat = 220
+    /// About the height of Browse's small card (the four quadrant cards and the footer).
+    private static let compactCardHeight: CGFloat = 264
+
+    var body: some View {
+        let shownScreen = screen ?? NSScreen.main
+        let full = shownScreen?.frame ?? CGRect(x: 0, y: 0, width: 1512, height: 982)
+        let visible = shownScreen?.visibleFrame ?? full
+        let scale = Self.width / full.width
+        // AppKit's origin is bottom-left; the preview's is top-left.
+        let shown = CGRect(
+            x: (visible.minX - full.minX) * scale, y: (full.maxY - visible.maxY) * scale,
+            width: visible.width * scale, height: visible.height * scale
+        )
+        let center = OverviewSize.compactCardCenter(in: shown, cardHeight: Self.compactCardHeight * scale, yAxisUp: false)
+        let overview = size.frame(in: shown, centeredOn: center, scale: scale)
+        VStack(spacing: 4) {
+            ZStack(alignment: .topLeading) {
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.06))
+                    .strokeBorder(Color.primary.opacity(0.25), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 3, style: .continuous)
+                    .fill(Color.accentColor.opacity(0.35))
+                    .strokeBorder(Color.accentColor, lineWidth: 1)
+                    .frame(width: overview.width, height: overview.height)
+                    .offset(x: overview.minX, y: overview.minY)
+            }
+            .frame(width: Self.width, height: full.height * scale)
+            .animation(reduceMotion ? nil : .snappy(duration: 0.2), value: size)
+            .accessibilityElement()
+            .accessibilityLabel("Overview size preview")
+            .accessibilityValue("\(size.widthPercent) percent wide, \(size.heightPercent) percent high")
+            Text("Shaped like the screen this window is on.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .padding(.vertical, 4)
+        .background(ScreenReader { screen = $0 })
+    }
+}
+
+/// Reports the screen its window is on, now and whenever the window moves to another one.
+private struct ScreenReader: NSViewRepresentable {
+    let onScreen: (NSScreen?) -> Void
+
+    func makeNSView(context: Context) -> ScreenView {
+        let view = ScreenView()
+        view.onScreen = onScreen
+        return view
+    }
+
+    func updateNSView(_ view: ScreenView, context: Context) {
+        view.onScreen = onScreen
+    }
+
+    final class ScreenView: NSView {
+        var onScreen: (NSScreen?) -> Void = { _ in }
+        private var observer: (any NSObjectProtocol)?
+
+        override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            if let observer { NotificationCenter.default.removeObserver(observer) }
+            observer = nil
+            guard let window else { return }
+            observer = NotificationCenter.default.addObserver(
+                forName: NSWindow.didChangeScreenNotification, object: window, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { self?.report() }
+            }
+            report()
+        }
+
+        private func report() {
+            let screen = window?.screen
+            DispatchQueue.main.async { [weak self] in self?.onScreen(screen) }
+        }
     }
 }
 

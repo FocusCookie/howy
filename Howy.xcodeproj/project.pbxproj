@@ -18,6 +18,7 @@
 		470346A8E7091DF2BFF39590 /* KeyCaps.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF04576165DFE642A2F8A439 /* KeyCaps.swift */; };
 		4CA80814C4F06C0B28A1BDEA /* HowyCore in Frameworks */ = {isa = PBXBuildFile; productRef = CEC58E681F37DE007F0CB3BE /* HowyCore */; };
 		5D63323548115299DB3B4CD3 /* ErrorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9E7FED2B1EF708C91DEA9C54 /* ErrorView.swift */; };
+		671AA6B198F1606C750DB690 /* OverviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 010CD0FEE36D7BBC57C87D57 /* OverviewView.swift */; };
 		68F67A4A7A8F6DCCD7645F39 /* CompleteTodoIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3B983BC97682573579868AD1 /* CompleteTodoIntent.swift */; };
 		697598A21BE560FE7EAA3D0A /* QuadrantSectionView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C4F9E894BCBF91E34D384F6D /* QuadrantSectionView.swift */; };
 		7B8617FF23F33CDA934FF17B /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */; };
@@ -67,6 +68,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		010CD0FEE36D7BBC57C87D57 /* OverviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OverviewView.swift; sourceTree = "<group>"; };
 		07826C86F3F5CB305345155D /* HowyWidgets.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = HowyWidgets.entitlements; sourceTree = "<group>"; };
 		118DD4D73296779867497E3E /* HowyWidgetsBundle.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowyWidgetsBundle.swift; sourceTree = "<group>"; };
 		1849ED8A8D6DAF74152C550F /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
@@ -181,6 +183,7 @@
 				CF04576165DFE642A2F8A439 /* KeyCaps.swift */,
 				C36129D26F9300D8846BDBF0 /* LauncherView.swift */,
 				84290BBDBCD49A56EEA94F7B /* MarkdownNoteEditor.swift */,
+				010CD0FEE36D7BBC57C87D57 /* OverviewView.swift */,
 				5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */,
 				9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */,
 				4C67371D1BD06CC98E9938C2 /* QuickEntryModel.swift */,
@@ -325,6 +328,7 @@
 				470346A8E7091DF2BFF39590 /* KeyCaps.swift in Sources */,
 				EB8D902146CAB44DDD4BC4FC /* LauncherView.swift in Sources */,
 				B78F79856B67B0C7107B52B4 /* MarkdownNoteEditor.swift in Sources */,
+				671AA6B198F1606C750DB690 /* OverviewView.swift in Sources */,
 				FF3F3E4AB4EB81E4BE20CD3B /* PanelEffects.swift in Sources */,
 				97DAF4E1F5C8FFDFDE99EF36 /* QuadrantGrid.swift in Sources */,
 				382DA95CE190BB17CDE95C7D /* QuickEntryModel.swift in Sources */,

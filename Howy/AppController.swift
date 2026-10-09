@@ -206,6 +206,30 @@ final class AppController {
                 self?.showBrowse(resuming: nil, viaLauncher: viaLauncher, fromArchive: true)
             })
         }
+        model.resizeForOverview = { [weak panel] expanded, animated, changes, completion in
+            guard let panel else { changes(); completion(); return }
+            panel.setOverview(expanded ? OverviewSize.load() : nil, animated: animated, changes: changes, completion: completion)
+        }
+        model.makeTileEditor = { [weak self, weak panel] id in
+            self?.makeTileEditor(id: id, store: store, panel: panel)
+        }
+        // Focus loss, ⌘W or another screen: an open tile edit is kept as a draft.
+        panel.willClose = { model.stashTileEditor() }
+    }
+
+    /// The editor inside an Overview tile: the edit screen's flow and model, in the Browse panel.
+    private func makeTileEditor(id: UUID, store: TodoStore, panel: FloatingPanel?) -> QuickEntryModel? {
+        guard let todo = try? store.todo(id: id), todo.completedAt == nil else { return nil }
+        let flow = QuickEntryFlow(
+            mode: .edit(QuickEntryDraft(todo: todo, attachments: store.attachmentList(for: id))),
+            lastUsed: lastUsed, drafts: drafts
+        )
+        let model = QuickEntryModel(flow: flow, store: store)
+        if let panel {
+            model.presenter = AttachmentPresenter(panel: panel) { [weak self] in self?.activateForPanel() }
+        }
+        model.didFinish = { [weak self] in self?.collectStagedAttachments() }
+        return model
     }
 
     /// With `viaLauncher`, Esc returns to the launcher (keeping the draft) instead of closing.

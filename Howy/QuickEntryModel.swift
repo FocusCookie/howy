@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import HowyCore
 import Observation
@@ -264,7 +265,8 @@ final class ArchiveModel {
 }
 
 /// Glue between the browse panel, `BrowseFlow` and `TodoStore`: performs the opens,
-/// completions, moves to another quadrant, undos (⌘Z) and reorders the flow asks for.
+/// completions, moves to another quadrant, undos (⌘Z) and reorders the flow asks for, and runs
+/// the Overview: the panel's resize and the editor inside the focused tile.
 @MainActor
 @Observable
 final class BrowseModel {
@@ -275,12 +277,31 @@ final class BrowseModel {
     @ObservationIgnored var openTodo: (UUID) -> Void = { _ in }
     /// Shows the archive (replaces this panel).
     @ObservationIgnored var openArchive: () -> Void = {}
+    /// Grows the panel to the Overview (`true`) or shrinks it back, running `changes` inside the
+    /// resize animation (or in one step, `animated: false`) and `completion` once the card has its
+    /// new size (set by the app controller to `FloatingPanel.setOverview`).
+    @ObservationIgnored var resizeForOverview: (
+        _ expanded: Bool, _ animated: Bool, _ changes: @escaping () -> Void, _ completion: @escaping () -> Void
+    ) -> Void = { _, _, changes, completion in
+        changes()
+        completion()
+    }
+    /// Makes the editor for a todo opened in an Overview tile; `nil` when it can't be read.
+    @ObservationIgnored var makeTileEditor: (UUID) -> QuickEntryModel? = { _ in nil }
+
+    /// Where the grow into the Overview (or the shrink back) is; the view lays the tiles out from
+    /// it. It lags the flow's phase while a transition runs.
+    private(set) var morph = OverviewMorph()
+    /// The editor open in the focused Overview tile.
+    private(set) var tileEditor: QuickEntryModel?
 
     private(set) var errorMessage: String?
 
     /// A todo marked done, for the view's emoji burst. `sequence` makes two in a row observable.
     struct DoneEvent: Hashable {
         let id: UUID
+        /// The quadrant it was in (the Overview launches the emoji over that tile).
+        let quadrant: Quadrant?
         let emoji: String
         let sequence: Int
     }
@@ -310,14 +331,145 @@ final class BrowseModel {
     func handle(_ key: QuickEntryKey) -> Bool {
         // `d` removes the selected row inside the flow; fire the burst first so the view can
         // still measure that row.
-        if key == .letter(BrowseFlow.doneKey), flow.phase == .listing, let todo = flow.selectedTodo { celebrate(todo.id) }
+        if key == .letter(BrowseFlow.doneKey), flow.phase == .listing || flow.phase == .overview && flow.editingTodoID == nil,
+           let todo = flow.selectedTodo { celebrate(todo.id) }
         var outcome = BrowseFlow.Outcome.ignored
         withAnimation(.snappy(duration: 0.25)) { outcome = flow.handle(key) }
+        // With a tile editor open, the keys the flow leaves alone are the editor's.
+        if outcome == .ignored, let tileEditor { return tileEditor.handle(key) }
         return perform(outcome)
     }
 
+    // MARK: Overview
+
+    /// The middle button between the cards (or tiles).
+    func toggleOverview() {
+        _ = perform(flow.toggleOverview())
+    }
+
+    /// A click on a tile's header.
+    func focus(_ quadrant: Quadrant) {
+        var outcome = BrowseFlow.Outcome.handled
+        withAnimation(.snappy(duration: 0.25)) { outcome = flow.focus(quadrant) }
+        _ = perform(outcome)
+    }
+
+    /// A click on a row in any tile: opens it in that tile's editor.
+    func openInTile(_ id: UUID) {
+        var outcome = BrowseFlow.Outcome.handled
+        withAnimation(.snappy(duration: 0.25)) { outcome = flow.openEditor(id: id) }
+        _ = perform(outcome)
+    }
+
+    /// A todo dropped at insertion point `index` of a tile (0 on its header).
+    func drop(_ id: UUID, on quadrant: Quadrant, at index: Int) {
+        var outcome = BrowseFlow.Outcome.handled
+        withAnimation(.snappy(duration: 0.25)) { outcome = flow.drop(id: id, on: quadrant, at: index) }
+        _ = perform(outcome)
+    }
+
+    /// The accessibility Move Up (−1) / Move Down (+1) actions, in the list and the Overview.
+    func nudge(_ id: UUID, by delta: Int) {
+        var outcome = BrowseFlow.Outcome.handled
+        withAnimation(.snappy(duration: 0.25)) { outcome = flow.nudge(id: id, by: delta) }
+        _ = perform(outcome)
+    }
+
+    /// The panel is going away or showing another screen: keep an open tile edit as a draft.
+    func stashTileEditor() {
+        tileEditor?.flow.abandon()
+        tileEditor = nil
+    }
+
+    private func showOverview() {
+        changeMorph { $0.expand() }
+    }
+
+    private func hideOverview() {
+        // Kept as a draft; it fades out with the rows.
+        withAnimation(.easeIn(duration: Self.contentFadeOut)) { stashTileEditor() }
+        changeMorph { $0.collapse() }
+    }
+
+    // MARK: Grow and shrink
+
+    /// How long the content fades take: out quickly before the card changes size, in after it.
+    private static let contentFadeOut: TimeInterval = 0.1
+    private static let contentFadeIn: TimeInterval = 0.18
+
+    private static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+
+    /// Applies a change of `morph` (`expand`, `collapse`, or `finish` of a completed stage) inside
+    /// the animation of the stage it leads to, and has that animation's completion finish it, so
+    /// the stages run one after the other. A completion of a stage that was since turned around
+    /// carries an old generation and does nothing (`OverviewMorph.finish`).
+    private func changeMorph(_ change: (inout OverviewMorph) -> Bool) {
+        var next = morph
+        guard change(&next) else { return }
+        let generation = next.generation
+        let finish: @MainActor @Sendable () -> Void = { [weak self] in self?.changeMorph { $0.finish(generation) } }
+        switch next.stage {
+        case .growing, .shrinking:
+            // Shells and card in one spring: the panel animates the card's frame and runs the
+            // layout change in the same transaction.
+            resizeForOverview(next.stage == .growing, !Self.reduceMotion, { [weak self] in self?.morph = next }, finish)
+        case .hidingCounts, .hidingRows, .revealingRows, .revealingCounts:
+            let reveals = next.stage == .revealingRows || next.stage == .revealingCounts
+            let duration = reveals ? Self.contentFadeIn : Self.contentFadeOut
+            withAnimation(reveals ? .easeOut(duration: duration) : .easeIn(duration: duration)) {
+                morph = next
+            } completion: {
+                finish()
+            }
+            // A fade that changes nothing on screen might never report its completion.
+            DispatchQueue.main.asyncAfter(deadline: .now() + duration + 0.1, execute: finish)
+        case .compact, .expanded:
+            morph = next
+        }
+    }
+
+    private func openTileEditor(_ id: UUID) {
+        if let open = tileEditor {
+            if open.flow.todoID == id { return } // a click on the row being edited
+            open.flow.abandon()
+        }
+        guard let editor = makeTileEditor(id) else {
+            tileEditor = nil
+            flow.closeEditor()
+            return
+        }
+        editor.close = { [weak self, weak editor] in
+            guard let self, let editor, self.tileEditor === editor else { return }
+            self.tileEditorSaved()
+        }
+        withAnimation(.snappy(duration: 0.22)) { tileEditor = editor }
+    }
+
+    /// Esc (`stash` false: the edit is discarded) or focus moved to another tile (kept as a draft).
+    private func dismissTileEditor(stash: Bool) {
+        guard let editor = tileEditor else { return }
+        if stash {
+            editor.flow.abandon()
+        } else {
+            editor.flow.cancel()
+            editor.didFinish()
+        }
+        withAnimation(.snappy(duration: 0.22)) { tileEditor = nil }
+    }
+
+    /// ⌘↩ / ⌘D / Save / Done in the tile editor wrote the todo: back to the tile's list with the
+    /// new data, the todo (or the row now in its place) selected.
+    private func tileEditorSaved() {
+        withAnimation(.snappy(duration: 0.22)) {
+            if let todos = try? store.openSnapshots() { flow.reload(todos) }
+            flow.closeEditor()
+            tileEditor = nil
+        }
+    }
+
     private func celebrate(_ id: UUID) {
-        lastDone = DoneEvent(id: id, emoji: doneEmoji.next(), sequence: (lastDone?.sequence ?? 0) + 1)
+        let quadrant = Quadrant.allCases.first { q in flow.rows(in: q).contains { $0.id == id } }
+        lastDone = DoneEvent(id: id, quadrant: quadrant, emoji: doneEmoji.next(), sequence: (lastDone?.sequence ?? 0) + 1)
     }
 
     func choose(_ quadrant: Quadrant) {
@@ -344,25 +496,40 @@ final class BrowseModel {
         withAnimation(.snappy(duration: 0.18)) { flow.closeMovePicker() }
     }
 
-    /// A click on a move-picker tile or a row's quadrant dot, or a VoiceOver "Move to" action.
+    /// A click on a move-picker tile or a row's quadrant dot, or a VoiceOver "Move to" action
+    /// (the flow's one "Move to" path, in the list and the Overview).
     func move(_ id: UUID, to quadrant: Quadrant) {
-        guard let from = flow.rows.first(where: { $0.id == id })?.quadrant else { return }
-        var moved = false
-        withAnimation(.snappy(duration: 0.25)) { moved = flow.moveTodo(id: id, to: quadrant) }
-        if moved { _ = perform(.move(id, from: from, to: quadrant)) }
+        var outcome = BrowseFlow.Outcome.handled
+        withAnimation(.snappy(duration: 0.25)) { outcome = flow.move(id: id, toQuadrant: quadrant) }
+        _ = perform(outcome)
     }
 
-    /// Moves a row while it is dragged; the order is written once the drag ends (`persistOrder`).
+    /// A row's grip was grabbed in the list: the drag's live steps (`drag`) become one reorder
+    /// that ⌘Z takes back.
+    func beginReorderDrag(_ id: UUID) {
+        flow.select(id: id)
+        flow.beginReorderDrag(id: id)
+    }
+
+    /// Moves a row while it is dragged; the order is written once the drag ends (`endReorderDrag`).
     func drag(_ id: UUID, to index: Int) {
         withAnimation(.snappy(duration: 0.2)) { _ = flow.move(id: id, to: index) }
     }
 
-    /// Writes the shown list's current order.
-    func persistOrder() {
-        persistOrder(of: flow.quadrant)
+    /// The grip was let go: writes the new order, if it changed.
+    func endReorderDrag() {
+        _ = perform(flow.endReorderDrag())
     }
 
     private func perform(_ outcome: BrowseFlow.Outcome) -> Bool {
+        defer {
+            // In the Overview the tile editor always belongs to the todo the flow is editing (or
+            // both are gone).
+            assert(
+                flow.phase != .overview || tileEditor?.flow.todoID == flow.editingTodoID,
+                "Tile editor out of step with BrowseFlow.editingTodoID"
+            )
+        }
         switch outcome {
         case .ignored: return false
         case .handled: return true
@@ -372,6 +539,11 @@ final class BrowseModel {
         case .move(let id, _, let to): persistMove(id, to: to)
         case .moveBack(let id, let to): persistMoveBack(id, to: to)
         case .reorder(let quadrant): persistOrder(of: quadrant)
+        case .place(let id, _, let to, let index): persistPlace(id, to: to, at: index)
+        case .showOverview: showOverview()
+        case .hideOverview: hideOverview()
+        case .editInTile(let id): openTileEditor(id)
+        case .dismissEditor(_, let stash): dismissTileEditor(stash: stash)
         case .openArchive: openArchive()
         case .close: close()
         }
@@ -380,7 +552,8 @@ final class BrowseModel {
 
     private func persistOrder(of quadrant: Quadrant) {
         do {
-            try store.reorder(flow.rows.map(\.id), in: quadrant)
+            // Not `rows`: an Overview drop can reorder a tile other than the focused one.
+            try store.reorder(flow.rows(in: quadrant).map(\.id), in: quadrant)
             errorMessage = nil
         } catch {
             log.error("Reorder failed: \(error, privacy: .public)")
@@ -412,6 +585,22 @@ final class BrowseModel {
             announceMove(to: quadrant, isUndo: false)
         } catch {
             log.error("Move failed: \(error, privacy: .public)")
+            errorMessage = "Couldn't move this todo."
+            if let todos = try? store.openSnapshots() {
+                withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }
+            }
+        }
+    }
+
+    /// An Overview drop into another quadrant, at a position there; ⌘Z takes it back like a move.
+    private func persistPlace(_ id: UUID, to quadrant: Quadrant, at index: Int) {
+        do {
+            let previous = try store.move(id: id, to: quadrant, at: index)
+            sortDatesBeforeMove[id, default: []].append(previous)
+            errorMessage = nil
+            announceMove(to: quadrant, isUndo: false)
+        } catch {
+            log.error("Drop failed: \(error, privacy: .public)")
             errorMessage = "Couldn't move this todo."
             if let todos = try? store.openSnapshots() {
                 withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }

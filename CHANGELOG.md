@@ -6,6 +6,31 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Overview in Browse.** Press **O** (or click the small button in the gap
+  where the four quadrants meet) and the panel grows into a large view with all
+  four quadrants side by side, each listing its open todos. The counts fade out,
+  the four cards grow into the tiles together with the panel, and only then do
+  the todos fade in (and the reverse on the way back). With Reduce Motion the
+  tiles fade out and back in instead of growing.
+  - **1–4** or **⌥1–4** focus a quadrant, and **Tab** / **Shift-Tab** step to
+    the next / previous one. The focused tile gets a border in its quadrant
+    colour, and a coloured dot before each tile's name matches the move dots.
+    Every key you know from a quadrant's list works on the focused tile (↑↓, D,
+    ⌫, M, ⌘1–4, ⌘J/⌘K, ⌘Z).
+  - **↩** or a click edits a todo right inside its tile, with the other three
+    still visible. ⌘↩ saves, ⌘D saves and marks done, Esc discards. Focusing
+    another quadrant keeps the edit as a draft.
+  - Drag a todo by its grip to another place or another quadrant. A line shows
+    where it lands, dropping on a quadrant's header puts it on top, and ⌘Z
+    takes it back.
+  - **Esc** or the button shrinks the panel back to the four quadrants.
+- **Overview size in Settings.** Width and height sliders (50–95 % of the
+  screen, 80 % by default) with a live preview of the Overview on your display.
+- **Hover on quadrant cards.** The four cards in Browse and in quick entry get a
+  touch brighter under the pointer, so you can see what a click opens.
+
 ## [1.2.0] - 2026-10-09
 
 ### Added

@@ -40,6 +40,11 @@ extension QuickEntryKey {
         case 49 where plain: self = .space
         case 126 where modifiers == .command: self = .moveUp
         case 125 where modifiers == .command: self = .moveDown
+        // ⌥1–4 by key code: charactersIgnoringModifiers gives the Option character (¡ “ ¶ ¢).
+        case 18 where modifiers == .option: self = .optionDigit(1)
+        case 19 where modifiers == .option: self = .optionDigit(2)
+        case 20 where modifiers == .option: self = .optionDigit(3)
+        case 21 where modifiers == .option: self = .optionDigit(4)
         case 123 where plain: self = .left
         case 124 where plain: self = .right
         case 125 where plain: self = .down
