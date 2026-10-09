@@ -21,6 +21,7 @@ struct OverviewView: View {
     @Environment(\.panelEffects) private var panelEffects
     @Environment(\.panelState) private var panelState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.panelScale) private var scale
 
     @State private var drag: TileDrag?
     /// The small grid's card under the pointer.
@@ -43,11 +44,16 @@ struct OverviewView: View {
     /// How far tiles start outside their grid position when the panel opens.
     private static let entranceOffset: CGFloat = 4
 
+    // At 100 %; the panel zoom (`scale`) multiplies them. The Overview's outer size doesn't zoom
+    // (a share of the screen, Settings), only what is inside the tiles.
     private static let rowHeight: CGFloat = 38
     private static let rowSpacing: CGFloat = 2
-    private static var rowPitch: CGFloat { rowHeight + rowSpacing }
-    private static let tileSpacing = TileNotch.spacing
     private nonisolated static let space = "overview"
+
+    private var rowHeight: CGFloat { Self.rowHeight * scale }
+    private var rowSpacing: CGFloat { Self.rowSpacing * scale }
+    private var rowPitch: CGFloat { rowHeight + rowSpacing }
+    private var tileSpacing: CGFloat { TileNotch.spacing * scale }
 
     /// A row being dragged by its grip: where it started (Overview space) and how far it has moved.
     private struct TileDrag {
@@ -57,9 +63,12 @@ struct OverviewView: View {
         var translation = CGSize.zero
         var target: DropTarget?
 
+        /// How far the grip's middle is in from the row's trailing end (17 pt at 100 %).
+        var gripInset: CGFloat
+
         /// The pointer, on the grip at the row's trailing end.
         var point: CGPoint {
-            CGPoint(x: start.maxX - 17 + translation.width, y: start.midY + translation.height)
+            CGPoint(x: start.maxX - gripInset + translation.width, y: start.midY + translation.height)
         }
     }
 
@@ -72,9 +81,9 @@ struct OverviewView: View {
     }
 
     var body: some View {
-        VStack(spacing: Self.tileSpacing) {
+        VStack(spacing: tileSpacing) {
             ForEach(0..<2, id: \.self) { row in
-                HStack(spacing: Self.tileSpacing) {
+                HStack(spacing: tileSpacing) {
                     ForEach(0..<2, id: \.self) { column in
                         if let quadrant = Quadrant(gridPosition: GridPosition(row: row, column: column)) {
                             tile(quadrant)
@@ -120,8 +129,8 @@ struct OverviewView: View {
 
     private func tile(_ quadrant: Quadrant) -> some View {
         let isHighlighted = highlighted == quadrant
-        let notch = TileNotch(quadrant)
-        return VStack(alignment: .leading, spacing: expanded ? 8 : 6) {
+        let notch = TileNotch(quadrant, scale: scale)
+        return VStack(alignment: .leading, spacing: (expanded ? 8 : 6) * scale) {
             header(quadrant)
                 .modifier(notch.headerClearance)
             if expanded {
@@ -144,9 +153,9 @@ struct OverviewView: View {
                     .opacity(morph.showsCounts ? 1 : 0)
             }
         }
-        .padding(12)
+        .padding(12 * scale)
         .padding(.bottom, expanded ? notch.bottomClearance : 0)
-        .frame(maxWidth: .infinity, minHeight: expanded ? nil : 96, maxHeight: expanded ? .infinity : nil, alignment: .topLeading)
+        .frame(maxWidth: .infinity, minHeight: expanded ? nil : 96 * scale, maxHeight: expanded ? .infinity : nil, alignment: .topLeading)
         .modifier(QuadrantTileBackground(
             quadrant: quadrant, isHighlighted: isHighlighted, shape: notch.shape, style: expanded ? .outline : .glow,
             showsGlow: morph.showsCounts, // fades in with the counts, once the tiles have their size
@@ -171,13 +180,13 @@ struct OverviewView: View {
     /// The small grid's big "N open".
     private func openCount(_ quadrant: Quadrant) -> some View {
         let n = flow.count(in: quadrant)
-        return HStack(alignment: .firstTextBaseline, spacing: 4) {
+        return HStack(alignment: .firstTextBaseline, spacing: 4 * scale) {
             Text("\(n)")
-                .font(.system(size: 30, weight: .semibold, design: .rounded).monospacedDigit())
+                .panelFont(size: 30, weight: .semibold, design: .rounded, monospacedDigit: true)
                 .foregroundStyle(n == 0 ? AnyShapeStyle(.tertiary) : AnyShapeStyle(quadrant.color))
                 .contentTransition(.numericText())
             Text("open")
-                .font(.caption)
+                .panelFont(.caption)
                 .foregroundStyle(.secondary)
         }
     }
@@ -186,7 +195,7 @@ struct OverviewView: View {
     private func entranceOffset(for quadrant: Quadrant) -> CGSize {
         guard panelState == .hidden, !reduceMotion, !expanded else { return .zero }
         let position = quadrant.gridPosition
-        let d = Self.entranceOffset
+        let d = Self.entranceOffset * scale
         return CGSize(width: position.column == 0 ? -d : d, height: position.row == 0 ? -d : d)
     }
 
@@ -194,23 +203,24 @@ struct OverviewView: View {
     /// focuses the tile (Overview) or opens the quadrant (small grid); in the Overview a drop on
     /// it puts a todo on top.
     private func header(_ quadrant: Quadrant) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 8) {
+        let dotLift = 4 * scale // captured: the alignment guide's closure runs off the main actor
+        return HStack(alignment: .firstTextBaseline, spacing: 8 * scale) {
             if expanded {
                 // The quadrant's colour, like the move dots on the selected row.
                 Circle()
                     .fill(quadrant.color)
-                    .frame(width: QuadrantDots.dotSize, height: QuadrantDots.dotSize)
-                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + 4 }
+                    .frame(width: QuadrantDots.dotSize * scale, height: QuadrantDots.dotSize * scale)
+                    .alignmentGuide(.firstTextBaseline) { $0[VerticalAlignment.center] + dotLift }
                     .transition(.opacity)
                     .accessibilityHidden(true)
             }
             Text(quadrant.displayName)
-                .font(.headline)
+                .panelFont(.headline)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
             if expanded {
                 Text("\(flow.count(in: quadrant)) open")
-                    .font(.caption.monospacedDigit())
+                    .panelFont(.caption, monospacedDigit: true)
                     .foregroundStyle(.secondary)
                     .contentTransition(.numericText())
                     .transition(.opacity)
@@ -235,13 +245,13 @@ struct OverviewView: View {
     @ViewBuilder private func list(_ quadrant: Quadrant) -> some View {
         let rows = flow.rows(in: quadrant)
         if rows.isEmpty {
-            ContentUnavailableView("Nothing here", systemImage: "checkmark.circle")
+            PanelEmptyState(title: "Nothing here", systemImage: "checkmark.circle")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named(Self.space)) } action: { listFrames[quadrant] = $0 }
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: Self.rowSpacing) {
+                    LazyVStack(spacing: rowSpacing) {
                         ForEach(Array(rows.enumerated()), id: \.element.id) { index, todo in
                             row(todo, in: quadrant, index: index)
                                 .id(todo.id)
@@ -269,7 +279,7 @@ struct OverviewView: View {
     private func row(_ todo: TodoSnapshot, in quadrant: Quadrant, index: Int) -> some View {
         let isSelected = flow.quadrant == quadrant && flow.selectedTodo?.id == todo.id
         let isDragged = drag?.todo.id == todo.id
-        return HStack(spacing: 10) {
+        return HStack(spacing: 10 * scale) {
             DoneButton(color: todo.quadrant.color) { model.complete(todo.id) }
             Text(todo.title)
                 .lineLimit(1)
@@ -278,12 +288,12 @@ struct OverviewView: View {
             QuadrantDots(current: todo.quadrant, isActive: isSelected && drag == nil) { model.move(todo.id, to: $0) }
             dragHandle(todo, in: quadrant, isActive: isSelected || isDragged)
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 4)
-        .frame(height: Self.rowHeight)
+        .padding(.leading, 10 * scale)
+        .padding(.trailing, 4 * scale)
+        .frame(height: rowHeight)
         .background(
             Color.primary.opacity(isSelected ? (colorScheme == .dark ? 0.12 : 0.07) : 0),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
         )
         .contentShape(Rectangle())
         .opacity(isDragged ? 0.35 : 1)
@@ -312,14 +322,14 @@ struct OverviewView: View {
     /// drag never moves the panel).
     private func dragHandle(_ todo: TodoSnapshot, in quadrant: Quadrant, isActive: Bool) -> some View {
         Image(systemName: "line.3.horizontal")
-            .font(.system(size: 12, weight: .medium))
+            .panelFont(size: 12, weight: .medium)
             .foregroundStyle(isActive ? .secondary : .tertiary)
-            .frame(width: 26, height: Self.rowHeight)
+            .frame(width: 26 * scale, height: rowHeight)
             .overlay {
                 DragHandleArea(
                     onBegan: {
                         guard let start = rowFrames[todo.id] else { return }
-                        drag = TileDrag(todo: todo, source: quadrant, start: start)
+                        drag = TileDrag(todo: todo, source: quadrant, start: start, gripInset: 17 * scale)
                     },
                     onChanged: { translation in
                         guard var current = drag else { return }
@@ -353,19 +363,19 @@ struct OverviewView: View {
         guard let list = listFrames[quadrant] else { return nil }
         // Where row 0 is (it moves with scrolling), from a row that is in view.
         let anchor = rows.indices.first { index in rowFrames[rows[index].id].map { list.intersects($0) } ?? false }
-        let top = anchor.flatMap { index in rowFrames[rows[index].id].map { $0.minY - CGFloat(index) * Self.rowPitch } } ?? list.minY
+        let top = anchor.flatMap { index in rowFrames[rows[index].id].map { $0.minY - CGFloat(index) * rowPitch } } ?? list.minY
         let index: Int
-        if let header = headerFrames[quadrant], point.y <= header.maxY + 4 {
+        if let header = headerFrames[quadrant], point.y <= header.maxY + 4 * scale {
             index = 0
         } else {
-            let gap = Int(((point.y - top - Self.rowHeight / 2) / Self.rowPitch).rounded(.down)) + 1
+            let gap = Int(((point.y - top - rowHeight / 2) / rowPitch).rounded(.down)) + 1
             index = min(max(gap, 0), rows.count)
         }
         // Where it already is: no line, and the drop changes nothing.
         if quadrant == drag.source, let from = rows.firstIndex(where: { $0.id == drag.todo.id }), index == from || index == from + 1 {
             return DropTarget(quadrant: quadrant, index: index, lineY: nil)
         }
-        let y = top + CGFloat(index) * Self.rowPitch - Self.rowSpacing / 2
+        let y = top + CGFloat(index) * rowPitch - rowSpacing / 2
         return DropTarget(quadrant: quadrant, index: index, lineY: min(max(y, list.minY + 1), list.maxY - 1))
     }
 
@@ -376,26 +386,26 @@ struct OverviewView: View {
                 if let target = drag.target, let y = target.lineY, let tile = tileFrames[target.quadrant] {
                     Capsule()
                         .fill(target.quadrant.color)
-                        .frame(width: tile.width - 24, height: 3)
+                        .frame(width: tile.width - 24 * scale, height: 3 * scale)
                         .position(x: tile.midX, y: y)
                 }
-                HStack(spacing: 10) {
+                HStack(spacing: 10 * scale) {
                     Image(systemName: "checkmark.circle")
-                        .font(.system(size: 15))
+                        .panelFont(size: 15)
                         .foregroundStyle(drag.todo.quadrant.color)
                     Text(drag.todo.title)
                         .lineLimit(1)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     Image(systemName: "line.3.horizontal")
-                        .font(.system(size: 12, weight: .medium))
+                        .panelFont(size: 12, weight: .medium)
                         .foregroundStyle(.secondary)
-                        .frame(width: 26)
+                        .frame(width: 26 * scale)
                 }
-                .padding(.leading, 10)
-                .padding(.trailing, 4)
-                .frame(width: drag.start.width, height: Self.rowHeight)
+                .padding(.leading, 10 * scale)
+                .padding(.trailing, 4 * scale)
+                .frame(width: drag.start.width, height: rowHeight)
                 .background {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
                         .fill(.background)
                         .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
                 }
@@ -414,8 +424,8 @@ struct OverviewView: View {
     @ViewBuilder private var movePickerLayer: some View {
         if morph.showsRows, let picker = flow.movePicker, let row = rowFrames[picker.todo.id], let tile = tileFrames[flow.quadrant] {
             let height = movePickerSize.height
-            let below = row.maxY + 4
-            let y = below + height <= tile.maxY ? below : max(row.minY - 4 - height, tile.minY)
+            let below = row.maxY + 4 * scale
+            let y = below + height <= tile.maxY ? below : max(row.minY - 4 * scale - height, tile.minY)
             ZStack(alignment: .topLeading) {
                 // A click anywhere else closes the picker (and does nothing else).
                 Color.clear
@@ -424,7 +434,7 @@ struct OverviewView: View {
                     .accessibilityHidden(true)
                 MoveQuadrantPicker(picker: picker) { model.move(picker.todo.id, to: $0) }
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { movePickerSize = $0 }
-                    .offset(x: tile.maxX - 60 - MoveQuadrantPicker.width, y: y)
+                    .offset(x: tile.maxX - (60 + MoveQuadrantPicker.width) * scale, y: y)
                     .transition(reduceMotion ? .opacity : .scale(scale: 0.96, anchor: .top).combined(with: .opacity))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -441,7 +451,9 @@ struct OverviewToggleButton: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityDifferentiateWithoutColor) private var differentiateWithoutColor
     @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.panelScale) private var scale
 
+    /// At 100 %; the panel zoom multiplies it (and the tiles' cut-out around it, `TileNotch`).
     nonisolated static let size: CGFloat = 30
 
     var body: some View {
@@ -455,9 +467,9 @@ struct OverviewToggleButton: View {
                 Image(systemName: "arrow.up.left.and.arrow.down.right").opacity(isOverview ? 0 : 1)
                 Image(systemName: "arrow.down.right.and.arrow.up.left").opacity(isOverview ? 1 : 0)
             }
-                .font(.system(size: 11, weight: .semibold))
+                .panelFont(size: 11, weight: .semibold)
                 .foregroundStyle(isHovered ? .primary : .secondary)
-                .frame(width: Self.size, height: Self.size)
+                .frame(width: Self.size * scale, height: Self.size * scale)
                 .background(QuadrantTileBackground<RoundedRectangle>.restingFill(isDark: isDark), in: shape)
                 // A touch brighter under the pointer (no scale: the gap around it stays even).
                 .background(Color.primary.opacity(isHovered ? (isDark ? 0.08 : 0.05) : 0), in: shape)

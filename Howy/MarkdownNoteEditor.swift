@@ -32,6 +32,8 @@ struct MarkdownNoteEditor: NSViewRepresentable {
     /// up to `maxHeight`.
     var fillsHeight = false
 
+    /// The editor's height range at 100 %; the panel zoom (`\.panelScale`) multiplies both, like
+    /// the text's sizes (`MarkdownStyler`).
     static let minHeight: CGFloat = 60
     static let maxHeight: CGFloat = 260
 
@@ -56,12 +58,15 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
-        textView.font = MarkdownStyler.baseFont
-        textView.typingAttributes = MarkdownStyler.baseAttributes
+        let scale = context.environment.panelScale
+        textView.font = MarkdownStyler.baseFont(scale: scale)
+        textView.typingAttributes = MarkdownStyler.baseAttributes(scale: scale)
+        textView.textContainerInset = NSSize(width: 0, height: 2 * scale)
         textView.string = text
         textView.registerForDraggedTypes([.fileURL])
-        MarkdownStyler.apply(to: textView, highlighting: highlightedName, among: attachmentNames)
+        MarkdownStyler.apply(to: textView, scale: scale, highlighting: highlightedName, among: attachmentNames)
         context.coordinator.appliedHighlight = highlightedName
+        context.coordinator.appliedScale = scale
 
         let scrollView = NSScrollView()
         scrollView.documentView = textView
@@ -75,38 +80,53 @@ struct MarkdownNoteEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         context.coordinator.parent = self
         guard let textView = scrollView.documentView as? NoteTextView else { return }
+        let scale = context.environment.panelScale
+        let coordinator = context.coordinator
         if textView.string != text, !textView.hasMarkedText() {
             // Changed from outside (e.g. an attachment's reference was removed).
             textView.string = text
-            MarkdownStyler.apply(to: textView, highlighting: highlightedName, among: attachmentNames)
-            context.coordinator.appliedHighlight = highlightedName
-        } else if context.coordinator.appliedHighlight != highlightedName, !textView.hasMarkedText() {
-            MarkdownStyler.apply(to: textView, highlighting: highlightedName, among: attachmentNames)
-            context.coordinator.appliedHighlight = highlightedName
+            restyle(textView, scale: scale, coordinator: coordinator)
+        } else if coordinator.appliedHighlight != highlightedName || coordinator.appliedScale != scale,
+                  !textView.hasMarkedText() {
+            restyle(textView, scale: scale, coordinator: coordinator)
         }
         context.coordinator.syncFocus(textView)
     }
 
+    /// Styles the whole text at `scale` (a zoom change restyles it at the new sizes).
+    private func restyle(_ textView: NSTextView, scale: CGFloat, coordinator: Coordinator) {
+        if coordinator.appliedScale != scale {
+            textView.font = MarkdownStyler.baseFont(scale: scale)
+            textView.textContainerInset = NSSize(width: 0, height: 2 * scale)
+        }
+        MarkdownStyler.apply(to: textView, scale: scale, highlighting: highlightedName, among: attachmentNames)
+        coordinator.appliedHighlight = highlightedName
+        coordinator.appliedScale = scale
+    }
+
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
         let width = proposal.width ?? 400
+        let scale = context.environment.panelScale
+        let minHeight = Self.minHeight * scale
+        let maxHeight = Self.maxHeight * scale
         guard let textView = nsView.documentView as? NSTextView, let storage = textView.textStorage else {
-            return CGSize(width: width, height: Self.minHeight)
+            return CGSize(width: width, height: minHeight)
         }
         let measured = storage.length == 0 ? 0 : storage.boundingRect(
             with: NSSize(width: width, height: .greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading]
         ).height
         // A trailing newline starts a line the bounding rect doesn't count.
-        let trailingLine = storage.string.hasSuffix("\n") ? MarkdownStyler.baseFont.boundingRectForFont.height : 0
+        let trailingLine = storage.string.hasSuffix("\n") ? MarkdownStyler.baseFont(scale: scale).boundingRectForFont.height : 0
         let height = ceil(measured + trailingLine) + textView.textContainerInset.height * 2
         // A scroller only when the note is taller than the editor: while the editor first appears it
         // is briefly laid out smaller than its text, which would flash an overlay scroller.
         let offered = proposal.height.flatMap { $0.isFinite ? $0 : nil }
-        let limit = fillsHeight ? max(offered ?? Self.maxHeight, Self.minHeight) : Self.maxHeight
+        let limit = fillsHeight ? max(offered ?? maxHeight, minHeight) : maxHeight
         let overflows = height > limit
         if nsView.hasVerticalScroller != overflows { nsView.hasVerticalScroller = overflows }
         if fillsHeight, offered != nil { return CGSize(width: width, height: limit) }
-        return CGSize(width: width, height: min(max(height, Self.minHeight), Self.maxHeight))
+        return CGSize(width: width, height: min(max(height, minHeight), maxHeight))
     }
 
     @MainActor
@@ -116,6 +136,8 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         private var hasBeenFocused = false
         /// The highlighted attachment name the text is currently styled with.
         var appliedHighlight: String?
+        /// The panel zoom the text is currently styled at.
+        var appliedScale: CGFloat = 1
         private var caretReference: String?
         private var hoverReference: String?
         private var reportedReference: String?
@@ -127,7 +149,7 @@ struct MarkdownNoteEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             // Mid-composition the marked text carries the IME's own attributes: restyle once it commits.
             if !textView.hasMarkedText() {
-                MarkdownStyler.apply(to: textView, highlighting: parent.highlightedName, among: parent.attachmentNames)
+                MarkdownStyler.apply(to: textView, scale: appliedScale, highlighting: parent.highlightedName, among: parent.attachmentNames)
                 appliedHighlight = parent.highlightedName
             }
             parent.onChange(textView.string)
@@ -312,15 +334,29 @@ final class NoteTextView: NSTextView {
     }
 }
 
-/// Applies `MarkdownHighlighter` spans to a text view's storage.
+/// Applies `MarkdownHighlighter` spans to a text view's storage. Every size (the body text,
+/// headings, code, line spacing) is multiplied by the panel zoom's `scale`.
 @MainActor
 enum MarkdownStyler {
-    static let baseFont = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+    /// The body text at `scale` (13 pt at 100 %).
+    static func baseFont(scale: CGFloat) -> NSFont {
+        NSFont.systemFont(ofSize: NSFont.systemFontSize * scale)
+    }
 
-    static var baseAttributes: [NSAttributedString.Key: Any] {
+    static func baseAttributes(scale: CGFloat) -> [NSAttributedString.Key: Any] {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = 2
-        return [.font: baseFont, .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+        paragraph.lineSpacing = 2 * scale
+        return [.font: baseFont(scale: scale), .foregroundColor: NSColor.labelColor, .paragraphStyle: paragraph]
+    }
+
+    /// Heading sizes at 100 %, by level (deeper levels are body-sized and bold).
+    private static func headingSize(level: Int) -> CGFloat? {
+        switch level {
+        case 1: 20
+        case 2: 17
+        case 3: 15
+        default: nil
+        }
     }
 
     private static let codeBackground = NSColor.quaternaryLabelColor.withAlphaComponent(0.12)
@@ -329,20 +365,23 @@ enum MarkdownStyler {
 
     /// Restyles the whole text; references to `highlightedName` (among the attachment `names`)
     /// get a soft accent background.
-    static func apply(to textView: NSTextView, highlighting highlightedName: String? = nil, among names: Set<String> = []) {
+    static func apply(
+        to textView: NSTextView, scale: CGFloat, highlighting highlightedName: String? = nil, among names: Set<String> = []
+    ) {
         guard let storage = textView.textStorage else { return }
         let spans = MarkdownHighlighter.spans(in: storage.string).sorted { order($0.style) < order($1.style) }
         let full = NSRange(location: 0, length: storage.length)
+        let base = baseAttributes(scale: scale)
         storage.beginEditing()
-        storage.setAttributes(baseAttributes, range: full)
-        for span in spans { apply(span, to: storage) }
+        storage.setAttributes(base, range: full)
+        for span in spans { apply(span, to: storage, scale: scale) }
         if let highlightedName, names.contains(highlightedName) {
             for match in AttachmentReference.matches(in: storage.string, names: [highlightedName]) {
                 storage.addAttribute(.backgroundColor, value: referenceHighlight, range: match.range)
             }
         }
         storage.endEditing()
-        textView.typingAttributes = baseAttributes
+        textView.typingAttributes = base
     }
 
     /// Blocks first, inline styles on top, dimming last.
@@ -356,28 +395,25 @@ enum MarkdownStyler {
         }
     }
 
-    private static func apply(_ span: MarkdownStyleSpan, to storage: NSTextStorage) {
+    private static func apply(_ span: MarkdownStyleSpan, to storage: NSTextStorage, scale: CGFloat) {
         let range = span.range
+        let baseSize = NSFont.systemFontSize * scale
         switch span.style {
         case .heading(let level):
-            let size: CGFloat = switch level {
-            case 1: 20
-            case 2: 17
-            case 3: 15
-            default: baseFont.pointSize
-            }
+            let size = headingSize(level: level).map { $0 * scale } ?? baseSize
             storage.addAttribute(.font, value: NSFont.systemFont(ofSize: size, weight: .bold), range: range)
         case .bold:
-            transformFont(in: range, of: storage) { withTraits(.bold, $0) }
+            transformFont(in: range, of: storage, scale: scale) { withTraits(.bold, $0) }
         case .italic:
-            transformFont(in: range, of: storage) { withTraits(.italic, $0) }
+            transformFont(in: range, of: storage, scale: scale) { withTraits(.italic, $0) }
         case .strikethrough:
             storage.addAttributes([
                 .strikethroughStyle: NSUnderlineStyle.single.rawValue,
                 .foregroundColor: NSColor.secondaryLabelColor,
             ], range: range)
         case .inlineCode, .codeBlock:
-            transformFont(in: range, of: storage) {
+            // 0.93 × the surrounding size, which is already zoomed (body or heading).
+            transformFont(in: range, of: storage, scale: scale) {
                 NSFont.monospacedSystemFont(ofSize: $0.pointSize * 0.93, weight: .regular)
             }
             storage.addAttribute(.backgroundColor, value: codeBackground, range: range)
@@ -386,11 +422,11 @@ enum MarkdownStyler {
         case .quoteMarker:
             storage.addAttributes([
                 .foregroundColor: NSColor.controlAccentColor.withAlphaComponent(0.7),
-                .font: NSFont.systemFont(ofSize: baseFont.pointSize, weight: .heavy),
+                .font: NSFont.systemFont(ofSize: baseSize, weight: .heavy),
             ], range: range)
         case .listMarker:
             storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
-            transformFont(in: range, of: storage) { withTraits(.bold, $0) }
+            transformFont(in: range, of: storage, scale: scale) { withTraits(.bold, $0) }
         case .link:
             storage.addAttributes([
                 .foregroundColor: NSColor.linkColor,
@@ -401,9 +437,11 @@ enum MarkdownStyler {
         }
     }
 
-    private static func transformFont(in range: NSRange, of storage: NSTextStorage, _ transform: (NSFont) -> NSFont) {
+    private static func transformFont(
+        in range: NSRange, of storage: NSTextStorage, scale: CGFloat, _ transform: (NSFont) -> NSFont
+    ) {
         storage.enumerateAttribute(.font, in: range) { value, subrange, _ in
-            let font = (value as? NSFont) ?? baseFont
+            let font = (value as? NSFont) ?? baseFont(scale: scale)
             storage.addAttribute(.font, value: transform(font), range: subrange)
         }
     }

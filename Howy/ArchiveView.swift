@@ -10,33 +10,45 @@ struct ArchiveView: View {
     var escapeHint = "esc close"
     @Environment(\.colorScheme) private var colorScheme
     @State private var pointer = PointerTracker()
+    @Environment(\.panelScale) private var scale
+    @Environment(\.panelHeightLimit) private var heightLimit
     private let retention = ArchiveRetention.load()
 
     private var flow: ArchiveFlow { model.flow }
 
+    // At 100 %; the panel zoom (`scale`) multiplies them.
     private static let rowHeight: CGFloat = 50
     private static let rowSpacing: CGFloat = 2
-    private static var rowPitch: CGFloat { rowHeight + rowSpacing }
     private static let maxListHeight: CGFloat = 420
+    /// The card's height around the list: its padding, the header, the footer and the gaps.
+    private static let chromeHeight: CGFloat = 90
+
+    private var rowHeight: CGFloat { Self.rowHeight * scale }
+    private var rowSpacing: CGFloat { Self.rowSpacing * scale }
+    private var rowPitch: CGFloat { rowHeight + rowSpacing }
+    /// The list's cap: about the same number of rows at every zoom, but never past the screen.
+    private var maxListHeight: CGFloat {
+        max(min(Self.maxListHeight * scale, heightLimit - Self.chromeHeight * scale), rowPitch)
+    }
 
     var body: some View {
         Group { // the card is drawn once by the panel (PanelRoot)
-            VStack(alignment: .leading, spacing: 10) {
+            VStack(alignment: .leading, spacing: 10 * scale) {
                 HStack {
-                    Text("Archive").font(.headline)
+                    Text("Archive").panelFont(.headline)
                     Spacer()
                     Text("Kept for \(retention.displayName)")
-                        .font(.caption)
+                        .panelFont(.caption)
                         .foregroundStyle(.tertiary)
                 }
                 if model.items.isEmpty {
-                    ContentUnavailableView(
-                        "Archive is empty",
+                    PanelEmptyState(
+                        title: "Archive is empty",
                         systemImage: "archivebox",
-                        description: Text("Completed todos show up here for \(retention.displayName).")
+                        description: "Completed todos show up here for \(retention.displayName)."
                     )
                     .frame(maxWidth: .infinity) // the column is leading-aligned; centre it in the card
-                    .frame(height: 160)
+                    .frame(height: 160 * scale)
                 } else {
                     list
                 }
@@ -48,7 +60,7 @@ struct ArchiveView: View {
     private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(spacing: Self.rowSpacing) {
+                LazyVStack(spacing: rowSpacing) {
                     ForEach(model.items) { item in
                         row(item, isSelected: item.id == flow.selectedID)
                             .id(item.id)
@@ -60,7 +72,7 @@ struct ArchiveView: View {
                 }
             }
             .scrollIndicators(.automatic)
-            .frame(height: min(CGFloat(model.items.count) * Self.rowPitch, Self.maxListHeight))
+            .frame(height: min(CGFloat(model.items.count) * rowPitch, maxListHeight))
             .onChange(of: flow.selectedIndex) { _, _ in
                 if let id = flow.selectedID { proxy.scrollTo(id) }
             }
@@ -69,19 +81,19 @@ struct ArchiveView: View {
     }
 
     private func row(_ item: ArchiveModel.Item, isSelected: Bool) -> some View {
-        HStack(spacing: 10) {
-            Circle().fill(item.quadrant.color).frame(width: 8, height: 8)
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
+        HStack(spacing: 10 * scale) {
+            Circle().fill(item.quadrant.color).frame(width: 8 * scale, height: 8 * scale)
+            VStack(alignment: .leading, spacing: 2 * scale) {
+                HStack(spacing: 6 * scale) {
                     Text(item.title).lineLimit(1)
                     AttachmentBadge(count: item.attachmentCount)
                 }
-                HStack(spacing: 4) {
+                HStack(spacing: 4 * scale) {
                     Text(item.quadrant.displayName).foregroundStyle(item.quadrant.color)
                     Text("·")
                     Text(item.completedAt, format: .relative(presentation: .named))
                 }
-                .font(.caption)
+                .panelFont(.caption)
                 .foregroundStyle(.secondary)
             }
             Spacer()
@@ -93,12 +105,12 @@ struct ArchiveView: View {
             .help("Delete now (⌫)")
         }
         .buttonStyle(.borderless)
-        .padding(.horizontal, 10)
-        .frame(height: Self.rowHeight)
+        .padding(.horizontal, 10 * scale)
+        .frame(height: rowHeight)
         .background(
             // Neutral selection like the Browse list; the quadrant colour stays on the dot.
             Color.primary.opacity(isSelected ? (colorScheme == .dark ? 0.12 : 0.07) : 0),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
         )
         .contentShape(Rectangle())
         .onHover { inside in

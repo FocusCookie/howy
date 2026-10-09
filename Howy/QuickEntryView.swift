@@ -18,6 +18,7 @@ struct QuickEntryView: View {
     @State private var tileSpace = TileSpace()
     /// The last unfinished phase, so the layout doesn't flip while the panel fades out after Esc/save.
     @State private var activePhase: QuickEntryFlow.Phase?
+    @Environment(\.panelScale) private var scale
 
     private var flow: QuickEntryFlow { model.flow }
 
@@ -27,7 +28,7 @@ struct QuickEntryView: View {
 
     var body: some View {
         Group { // the card is drawn once by the panel (PanelRoot)
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: gap) {
                 if inTile {
                     tileContent
                 } else if shownPhase == .pickingQuadrant {
@@ -79,18 +80,18 @@ struct QuickEntryView: View {
     @ViewBuilder private var tileContent: some View {
         Group {
             if shownPhase == .pickingQuadrant {
-                if tileSpace.available < Self.pickerHeight {
+                if tileSpace.available < Self.pickerHeight * scale {
                     ScrollView { picker }
                 } else {
                     picker
                 }
-            } else if tileSpace.available < tileSpace.head + 12 + MarkdownNoteEditor.minHeight {
+            } else if tileSpace.available < tileSpace.head + gap + noteMinHeight {
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 12) { fields(fillsHeight: false, showsAttachments: false) }
+                    VStack(alignment: .leading, spacing: gap) { fields(fillsHeight: false, showsAttachments: false) }
                 }
             } else {
-                let full = tileSpace.head + 12 + MarkdownNoteEditor.minHeight + 12 + tileSpace.attachments
-                VStack(alignment: .leading, spacing: 12) {
+                let full = tileSpace.head + gap + noteMinHeight + gap + tileSpace.attachments
+                VStack(alignment: .leading, spacing: gap) {
                     fields(fillsHeight: true, showsAttachments: tileSpace.available >= full)
                 }
             }
@@ -99,14 +100,17 @@ struct QuickEntryView: View {
         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tileSpace.available = $0 }
     }
 
-    /// The quadrant picker's lowest height: two rows of 72 pt cards and the gap.
+    /// The quadrant picker's lowest height at 100 %: two rows of 72 pt cards and the gap.
     private static let pickerHeight: CGFloat = 2 * 72 + 10
+    /// The gap between the sections (12 pt at 100 %).
+    private var gap: CGFloat { 12 * scale }
+    private var noteMinHeight: CGFloat { MarkdownNoteEditor.minHeight * scale }
 
     /// `fillsHeight`: the note takes the height offered (in a tile). `showsAttachments`: the
     /// attachment divider and strip below the note.
     @ViewBuilder private func fields(fillsHeight: Bool = false, showsAttachments: Bool = true) -> some View {
         @Bindable var bindable = flow
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: gap) {
             Button { flow.focus(.pickingQuadrant) } label: {
                 QuadrantChip(quadrant: flow.quadrant)
             }
@@ -115,7 +119,7 @@ struct QuickEntryView: View {
 
             TextField("Title", text: $bindable.title)
                 .textFieldStyle(.plain)
-                .font(.title2)
+                .panelFont(.title2)
                 .focused($focus, equals: .title)
 
             Divider()
@@ -138,13 +142,13 @@ struct QuickEntryView: View {
             if flow.note.isEmpty {
                 Text("Note (Markdown)")
                     .foregroundStyle(.tertiary)
-                    .padding(.top, 2)
+                    .padding(.top, 2 * scale)
                     .allowsHitTesting(false)
             }
         }
 
         if showsAttachments {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: gap) {
                 AttachmentDivider(name: model.spotlightName)
                 AttachmentStrip(model: model)
             }
@@ -153,7 +157,7 @@ struct QuickEntryView: View {
     }
 
     private var footer: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: gap) {
             if let error = model.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle")
                     .foregroundStyle(.red)
@@ -183,8 +187,8 @@ struct QuickEntryView: View {
             }
         }
         .buttonStyle(.bordered)
-        .controlSize(.small)
-        .font(.caption)
+        .panelControlSize(.small)
+        .panelFont(.caption)
         .lineLimit(1)
     }
 

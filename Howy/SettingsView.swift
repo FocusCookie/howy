@@ -3,7 +3,7 @@ import HowyCore
 import KeyboardShortcuts
 import SwiftUI
 
-/// The things worth configuring: the global shortcuts (one launcher shortcut, or separate Quick Add
+/// The things worth configuring: how big the panels are drawn, the global shortcuts (one launcher shortcut, or separate Quick Add
 /// and Browse shortcuts), the quadrant new todos start on, how attachments open, what plays when a
 /// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, and
 /// launching at login.
@@ -18,135 +18,164 @@ struct SettingsView: View {
     @State private var overviewSize = OverviewSize.load()
     @State private var copiedFormat = false
 
+    /// Width of each of the two columns.
+    private static let columnWidth: CGFloat = 440
+
     var body: some View {
-        Form {
-            Section {
-                Toggle("Use one shortcut for everything", isOn: Binding(
-                    get: { controller.shortcutMode == .single },
-                    set: { single in
-                        recorder.stop()
-                        controller.setShortcutMode(single ? .single : .separate)
-                    }
-                ))
-                if controller.shortcutMode == .single {
-                    LabeledContent("Open Howy:") { ShortcutField(name: .launcher, model: recorder) }
-                    Picker("Selected first:", selection: $launcherDefault) {
-                        Text("New Todo").tag(LauncherChoice.create)
-                        Text("Browse").tag(LauncherChoice.browse)
-                    }
-                    .onChange(of: launcherDefault) { _, value in value.saveAsDefault() }
-                } else {
-                    LabeledContent("Quick Add:") { ShortcutField(name: .quickAdd, model: recorder) }
-                    LabeledContent("Browse:") { ShortcutField(name: .browse, model: recorder) }
-                }
-                Button("Restore Default Shortcuts") {
-                    recorder.restoreDefaults() // ⌃⌥⇧⌘Space, ⌃⌥⇧⌘M and ⌃⌥⇧⌘Space
-                }
-            } header: {
-                Text("Shortcuts")
-            } footer: {
-                Text(recorder.message ?? footerHint)
-                    .font(.caption)
-                    .foregroundStyle(recorder.message == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
-            }
-            Section("New Todos") {
-                Picker("Start on:", selection: $newTodoQuadrant) {
-                    ForEach(NewTodoQuadrant.allCases) { option in
-                        Text(option.displayName).tag(option)
-                    }
-                }
-                .onChange(of: newTodoQuadrant) { _, value in value.save() }
-            }
-            Section {
-                Picker("Open attachments in:", selection: $openMode) {
-                    ForEach(AttachmentOpenMode.allCases) { mode in
-                        Text(mode.displayName).tag(mode)
-                    }
-                }
-                .onChange(of: openMode) { _, value in value.save() }
-            } header: {
-                Text("Attachments")
-            } footer: {
-                Text("Click, Space or ↩ opens an attachment this way; ⌥-click or ⌥↩ opens it the other way.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Picker("When a todo is done:", selection: $doneAnimation) {
-                    ForEach(DoneAnimation.allCases) { style in
-                        Text(style.displayName).tag(style)
-                    }
-                }
-                .onChange(of: doneAnimation) { _, value in value.save() }
-            } header: {
-                Text("Celebration")
-            } footer: {
-                Text("A random emoji rises out of the panel when you mark a todo done, with a small confetti burst. Reduce Motion skips the confetti.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                LabeledContent("Width:") {
-                    percentSlider(
-                        "Overview width", value: overviewSize.widthPercent,
-                        set: { overviewSize.with(widthPercent: $0) }
-                    )
-                }
-                LabeledContent("Height:") {
-                    percentSlider(
-                        "Overview height", value: overviewSize.heightPercent,
-                        set: { overviewSize.with(heightPercent: $0) }
-                    )
-                }
-                OverviewSizePreview(size: overviewSize)
-                    .frame(maxWidth: .infinity)
-            } header: {
-                Text("Overview")
-            } footer: {
-                Text("How much of the screen Browse's Overview takes (O, or the button between the quadrants). The tiles never get narrower than the editor needs.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                Picker("Delete done todos after:", selection: $archiveRetention) {
-                    ForEach(ArchiveRetention.options) { option in
-                        Text(option.displayName).tag(option)
-                    }
-                }
-                .onChange(of: archiveRetention) { _, value in value.save() }
-            } header: {
-                Text("Archive")
-            } footer: {
-                Text("Done todos and their attachments are deleted from the archive once they're older than this.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section {
-                LabeledContent("Convert data from other apps:") {
-                    Button(copiedFormat ? "Copied" : "Copy for AI") { copyFormat() }
-                }
-            } header: {
-                Text("Import Format")
-            } footer: {
-                Text("Export writes a folder with howy.json and attachments/<todo id>/<file name>, and Import reads it back. To bring in todos from another app, copy the format and paste it into an AI chat together with your data; it answers with a howy.json you can import.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
-            Section("General") {
-                Toggle("Start Howy at login", isOn: Binding(
-                    get: { controller.launchesAtLogin },
-                    set: { controller.setLaunchesAtLogin($0) }
-                ))
-            }
+        HStack(alignment: .top, spacing: 0) {
+            column { leftSections }
+            column { rightSections }
         }
-        .formStyle(.grouped)
-        .frame(width: 440)
         .fixedSize()
         .animation(.snappy(duration: 0.2), value: controller.shortcutMode)
         .onAppear { controller.refreshLaunchesAtLogin() }
         .onDisappear { recorder.stop() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             recorder.stop()
+        }
+    }
+
+    /// One grouped form column, as tall as its content so it never scrolls.
+    private func column(@ViewBuilder _ content: () -> some View) -> some View {
+        Form { content() }
+            .formStyle(.grouped)
+            .scrollDisabled(true)
+            .frame(width: Self.columnWidth)
+            .fixedSize()
+    }
+
+    /// Appearance, Shortcuts, New Todos, Attachments and Celebration.
+    @ViewBuilder private var leftSections: some View {
+        Section {
+            LabeledContent("Panel size:") { zoomSlider }
+        } header: {
+            Text("Appearance")
+        } footer: {
+            Text("How big text and everything else is in Howy's panels. In an open panel, ⌘+ and ⌘- change it too, and ⌘0 goes back to 100 %.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Toggle("Use one shortcut for everything", isOn: Binding(
+                get: { controller.shortcutMode == .single },
+                set: { single in
+                    recorder.stop()
+                    controller.setShortcutMode(single ? .single : .separate)
+                }
+            ))
+            if controller.shortcutMode == .single {
+                LabeledContent("Open Howy:") { ShortcutField(name: .launcher, model: recorder) }
+                Picker("Selected first:", selection: $launcherDefault) {
+                    Text("New Todo").tag(LauncherChoice.create)
+                    Text("Browse").tag(LauncherChoice.browse)
+                }
+                .onChange(of: launcherDefault) { _, value in value.saveAsDefault() }
+            } else {
+                LabeledContent("Quick Add:") { ShortcutField(name: .quickAdd, model: recorder) }
+                LabeledContent("Browse:") { ShortcutField(name: .browse, model: recorder) }
+            }
+            Button("Restore Default Shortcuts") {
+                recorder.restoreDefaults() // ⌃⌥⇧⌘Space, ⌃⌥⇧⌘M and ⌃⌥⇧⌘Space
+            }
+        } header: {
+            Text("Shortcuts")
+        } footer: {
+            Text(recorder.message ?? footerHint)
+                .font(.caption)
+                .foregroundStyle(recorder.message == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
+        }
+        Section("New Todos") {
+            Picker("Start on:", selection: $newTodoQuadrant) {
+                ForEach(NewTodoQuadrant.allCases) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .onChange(of: newTodoQuadrant) { _, value in value.save() }
+        }
+        Section {
+            Picker("Open attachments in:", selection: $openMode) {
+                ForEach(AttachmentOpenMode.allCases) { mode in
+                    Text(mode.displayName).tag(mode)
+                }
+            }
+            .onChange(of: openMode) { _, value in value.save() }
+        } header: {
+            Text("Attachments")
+        } footer: {
+            Text("Click, Space or ↩ opens an attachment this way; ⌥-click or ⌥↩ opens it the other way.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Picker("When a todo is done:", selection: $doneAnimation) {
+                ForEach(DoneAnimation.allCases) { style in
+                    Text(style.displayName).tag(style)
+                }
+            }
+            .onChange(of: doneAnimation) { _, value in value.save() }
+        } header: {
+            Text("Celebration")
+        } footer: {
+            Text("A random emoji rises out of the panel when you mark a todo done, with a small confetti burst. Reduce Motion skips the confetti.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    /// Overview, Archive, Import Format and General.
+    @ViewBuilder private var rightSections: some View {
+        Section {
+            LabeledContent("Width:") {
+                percentSlider(
+                    "Overview width", value: overviewSize.widthPercent,
+                    set: { overviewSize.with(widthPercent: $0) }
+                )
+            }
+            LabeledContent("Height:") {
+                percentSlider(
+                    "Overview height", value: overviewSize.heightPercent,
+                    set: { overviewSize.with(heightPercent: $0) }
+                )
+            }
+            OverviewSizePreview(size: overviewSize)
+                .frame(maxWidth: .infinity)
+        } header: {
+            Text("Overview")
+        } footer: {
+            Text("How much of the screen Browse's Overview takes (O, or the button between the quadrants). The tiles never get narrower than the editor needs.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            Picker("Delete done todos after:", selection: $archiveRetention) {
+                ForEach(ArchiveRetention.options) { option in
+                    Text(option.displayName).tag(option)
+                }
+            }
+            .onChange(of: archiveRetention) { _, value in value.save() }
+        } header: {
+            Text("Archive")
+        } footer: {
+            Text("Done todos and their attachments are deleted from the archive once they're older than this.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Section {
+            LabeledContent("Convert data from other apps:") {
+                Button(copiedFormat ? "Copied" : "Copy for AI") { copyFormat() }
+            }
+        } header: {
+            Text("Import Format")
+        } footer: {
+            Text("Export writes a folder with howy.json and attachments/<todo id>/<file name>, and Import reads it back. To bring in todos from another app, copy the format and paste it into an AI chat together with your data; it answers with a howy.json you can import.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        Section("General") {
+            Toggle("Start Howy at login", isOn: Binding(
+                get: { controller.launchesAtLogin },
+                set: { controller.setLaunchesAtLogin($0) }
+            ))
         }
     }
 }
@@ -187,6 +216,29 @@ extension SettingsView {
             .accessibilityLabel(label)
             .accessibilityValue("\(value) percent")
             Text("\(value) %")
+                .monospacedDigit()
+                .frame(width: 40, alignment: .trailing)
+                .accessibilityHidden(true)
+        }
+    }
+
+    /// The panel zoom's four stops (100 / 115 / 130 / 150 %), with the current percentage. The
+    /// same value as ⌘+ / ⌘- / ⌘0 in a panel (`AppController.panelZoom`).
+    private var zoomSlider: some View {
+        let zoom = controller.panelZoom
+        return HStack {
+            Slider(
+                value: Binding(
+                    get: { Double(zoom.step) },
+                    set: { controller.setPanelZoom(PanelZoom(step: Int($0.rounded()))) }
+                ),
+                in: Double(PanelZoom.steps.lowerBound)...Double(PanelZoom.steps.upperBound),
+                step: 1
+            )
+            .labelsHidden()
+            .accessibilityLabel("Panel size")
+            .accessibilityValue("\(zoom.percent) percent")
+            Text("\(zoom.percent) %")
                 .monospacedDigit()
                 .frame(width: 40, alignment: .trailing)
                 .accessibilityHidden(true)

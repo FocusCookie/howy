@@ -19,16 +19,28 @@ struct BrowseView: View {
     @State private var movePickerSize = CGSize(width: MoveQuadrantPicker.width, height: 150)
     @Environment(\.panelEffects) private var panelEffects
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.panelScale) private var scale
+    @Environment(\.panelHeightLimit) private var heightLimit
 
     private var flow: BrowseFlow { model.flow }
 
+    // At 100 %; the panel zoom (`scale`) multiplies them.
     private static let rowHeight: CGFloat = 38
     private static let rowSpacing: CGFloat = 2
-    private static var rowPitch: CGFloat { rowHeight + rowSpacing }
     private static let maxListHeight: CGFloat = 380
+    /// The card's height around the list: its padding, the quadrant chip, the footer and the gaps.
+    private static let chromeHeight: CGFloat = 100
     private nonisolated static let listSpace = "browseList"
     /// How far the move picker sits in from the trailing edge, leaving the row's grip in view.
     private static let movePickerTrailing: CGFloat = 60
+
+    private var rowHeight: CGFloat { Self.rowHeight * scale }
+    private var rowSpacing: CGFloat { Self.rowSpacing * scale }
+    private var rowPitch: CGFloat { rowHeight + rowSpacing }
+    /// The list's cap: about the same number of rows at every zoom, but never past the screen.
+    private var maxListHeight: CGFloat {
+        max(min(Self.maxListHeight * scale, heightLimit - Self.chromeHeight * scale), rowPitch)
+    }
 
     private struct RowDrag {
         let id: UUID
@@ -38,7 +50,7 @@ struct BrowseView: View {
 
     var body: some View {
         Group { // the card is drawn once by the panel (PanelRoot)
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 12 * scale) {
                 if flow.phase == .listing {
                     list
                 } else {
@@ -59,7 +71,7 @@ struct BrowseView: View {
 
     private var list: some View {
         let placement = movePickerPlacement
-        return VStack(alignment: .leading, spacing: 12) {
+        return VStack(alignment: .leading, spacing: 12 * scale) {
             listContent
         }
         .coordinateSpace(.named(Self.listSpace))
@@ -75,7 +87,7 @@ struct BrowseView: View {
                     .accessibilityHidden(true)
                 MoveQuadrantPicker(picker: picker) { model.move(picker.todo.id, to: $0) }
                     .onGeometryChange(for: CGSize.self) { $0.size } action: { movePickerSize = $0 }
-                    .padding(.trailing, Self.movePickerTrailing)
+                    .padding(.trailing, Self.movePickerTrailing * scale)
                     .offset(y: placement.y)
                     .transition(reduceMotion ? .opacity : .scale(scale: 0.96, anchor: .top).combined(with: .opacity))
             }
@@ -88,40 +100,40 @@ struct BrowseView: View {
     private var movePickerPlacement: (y: CGFloat, minHeight: CGFloat?)? {
         guard let picker = flow.movePicker, let row = rowListFrames[picker.todo.id] else { return nil }
         let height = movePickerSize.height
-        let below = row.maxY + 4
-        let above = row.minY - 4 - height
+        let below = row.maxY + 4 * scale
+        let above = row.minY - 4 * scale - height
         if below + height <= listSize.height { return (below, nil) }
         if above >= 0 { return (above, nil) }
         return (below, below + height)
     }
 
     @ViewBuilder private var listContent: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 8 * scale) {
             Button { withAnimation(.snappy(duration: 0.25)) { flow.backToPicker() } } label: {
                 QuadrantChip(quadrant: flow.quadrant)
             }
             .buttonStyle(.plain)
             .help("Back to quadrants (esc)")
             Text("\(flow.rows.count) open")
-                .font(.caption.monospacedDigit())
+                .panelFont(.caption, monospacedDigit: true)
                 .foregroundStyle(.secondary)
                 .contentTransition(.numericText())
             Spacer()
         }
 
         if flow.rows.isEmpty {
-            ContentUnavailableView(
-                "Nothing here",
+            PanelEmptyState(
+                title: "Nothing here",
                 systemImage: "checkmark.circle",
-                description: Text("No open todos in \(flow.quadrant.displayName).")
+                description: "No open todos in \(flow.quadrant.displayName)."
             )
             .frame(maxWidth: .infinity) // the column is leading-aligned; centre it in the card
-            .frame(height: 160)
+            .frame(height: 160 * scale)
             .transition(.opacity)
         } else {
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(spacing: Self.rowSpacing) {
+                    LazyVStack(spacing: rowSpacing) {
                         ForEach(Array(flow.rows.enumerated()), id: \.element.id) { index, todo in
                             row(todo, index: index, isSelected: index == flow.selectedIndex)
                                 .id(todo.id)
@@ -133,7 +145,7 @@ struct BrowseView: View {
                     }
                 }
                 .scrollIndicators(.automatic)
-                .frame(height: min(CGFloat(flow.rows.count) * Self.rowPitch, Self.maxListHeight))
+                .frame(height: min(CGFloat(flow.rows.count) * rowPitch, maxListHeight))
                 .onChange(of: flow.selectedIndex) { _, _ in
                     if drag == nil, let id = flow.selectedTodo?.id { proxy.scrollTo(id) }
                 }
@@ -151,7 +163,7 @@ struct BrowseView: View {
 
     private func row(_ todo: TodoSnapshot, index: Int, isSelected: Bool) -> some View {
         let isDragged = drag?.id == todo.id
-        return HStack(spacing: 10) {
+        return HStack(spacing: 10 * scale) {
             DoneButton(color: todo.quadrant.color) { model.complete(todo.id) }
             Text(todo.title)
                 .lineLimit(1)
@@ -160,17 +172,17 @@ struct BrowseView: View {
             QuadrantDots(current: todo.quadrant, isActive: isSelected && !isDragged) { model.move(todo.id, to: $0) }
             dragHandle(todo, index: index, isActive: isSelected || isDragged)
         }
-        .padding(.leading, 10)
-        .padding(.trailing, 4)
-        .frame(height: Self.rowHeight)
+        .padding(.leading, 10 * scale)
+        .padding(.trailing, 4 * scale)
+        .frame(height: rowHeight)
         .background(
             // Neutral selection like Raycast's list; the quadrant colour stays on the circle.
             Color.primary.opacity(isSelected || isDragged ? (colorScheme == .dark ? 0.12 : 0.07) : 0),
-            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+            in: RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
         )
         .background {
             if isDragged {
-                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
                     .fill(.background)
                     .shadow(color: .black.opacity(0.18), radius: 8, y: 3)
             }
@@ -203,9 +215,9 @@ struct BrowseView: View {
     /// The grip on the right: drag it to move the row (an AppKit view, so the drag never moves the panel).
     private func dragHandle(_ todo: TodoSnapshot, index: Int, isActive: Bool) -> some View {
         Image(systemName: "line.3.horizontal")
-            .font(.system(size: 12, weight: .medium))
+            .panelFont(size: 12, weight: .medium)
             .foregroundStyle(isActive ? .secondary : .tertiary)
-            .frame(width: 26, height: Self.rowHeight)
+            .frame(width: 26 * scale, height: rowHeight)
             .overlay {
                 DragHandleArea(
                     onBegan: {
@@ -216,7 +228,7 @@ struct BrowseView: View {
                         guard var current = drag else { return }
                         current.translation = translation.height
                         drag = current
-                        let target = current.startIndex + Int((translation.height / Self.rowPitch).rounded())
+                        let target = current.startIndex + Int((translation.height / rowPitch).rounded())
                         model.drag(todo.id, to: target)
                     },
                     onEnded: {
@@ -234,7 +246,7 @@ struct BrowseView: View {
     /// Keeps the dragged row under the pointer while its slot in the list changes.
     private func draggedOffset(index: Int) -> CGFloat {
         guard let drag else { return 0 }
-        return drag.translation - CGFloat(index - drag.startIndex) * Self.rowPitch
+        return drag.translation - CGFloat(index - drag.startIndex) * rowPitch
     }
 
     // MARK: Done emoji
@@ -249,7 +261,7 @@ struct BrowseView: View {
     // MARK: Footer
 
     private var footer: some View {
-        HStack(spacing: 12) {
+        HStack(spacing: 12 * scale) {
             if flow.phase == .picking, !model.morph.isExpandedLayout { archiveButton }
             if let error = model.errorMessage {
                 Label(error, systemImage: "exclamationmark.triangle")
@@ -276,7 +288,7 @@ struct BrowseView: View {
                 KeyHints("←↑↓→ or 1–4 · ↩ open · O overview\(undo) · esc close", short: "←↑↓→ or 1–4 · ↩ open\(undo) · esc close")
             }
         }
-        .font(.caption)
+        .panelFont(.caption)
         .lineLimit(1)
         // Out of view while the tiles grow or shrink: the grid's and the Overview's hints swap
         // unseen, instead of sliding through the tiles.
@@ -289,15 +301,15 @@ struct BrowseView: View {
     private var archiveButton: some View {
         let isHighlighted = flow.isArchiveHighlighted
         return Button { model.openArchive() } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 6 * scale) {
                 Image(systemName: "archivebox")
                 Text("Archive")
                 KeyCap(text: String(BrowseFlow.archiveKey).uppercased())
             }
-            .font(.caption.weight(.medium))
+            .panelFont(.caption, weight: .medium)
             .foregroundStyle(isHighlighted ? Color.accentColor : .secondary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 4)
+            .padding(.horizontal, 8 * scale)
+            .padding(.vertical, 4 * scale)
             .background(
                 Color.accentColor.opacity(isHighlighted ? (colorScheme == .dark ? 0.22 : 0.12) : 0),
                 in: Capsule()
@@ -388,6 +400,7 @@ struct QuadrantDots: View {
     let isActive: Bool
     let onMove: (Quadrant) -> Void
 
+    // At 100 %; the panel zoom multiplies them.
     static let hitSize: CGFloat = 20
     static let dotSize: CGFloat = 11
 
@@ -409,6 +422,7 @@ private struct QuadrantDot: View {
     let isActive: Bool
     let action: () -> Void
     @State private var isHovered = false
+    @Environment(\.panelScale) private var scale
 
     private var isClickable: Bool { isActive && !isCurrent }
 
@@ -420,13 +434,13 @@ private struct QuadrantDot: View {
                 if isCurrent {
                     Circle().fill(quadrant.color)
                 } else {
-                    Circle().strokeBorder(quadrant.color, lineWidth: 1.5)
+                    Circle().strokeBorder(quadrant.color, lineWidth: 1.5 * scale)
                 }
             }
-            .frame(width: QuadrantDots.dotSize, height: QuadrantDots.dotSize)
+            .frame(width: QuadrantDots.dotSize * scale, height: QuadrantDots.dotSize * scale)
             .scaleEffect(isHovered && isClickable ? 1.3 : 1)
             .animation(.snappy(duration: 0.12), value: isHovered)
-            .frame(width: QuadrantDots.hitSize, height: QuadrantDots.hitSize)
+            .frame(width: QuadrantDots.hitSize * scale, height: QuadrantDots.hitSize * scale)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -450,7 +464,7 @@ struct DoneButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: isHovered ? "checkmark.circle.fill" : "checkmark.circle")
-                .font(.system(size: 15))
+                .panelFont(size: 15)
                 .foregroundStyle(color)
                 .contentTransition(.symbolEffect(.replace))
         }

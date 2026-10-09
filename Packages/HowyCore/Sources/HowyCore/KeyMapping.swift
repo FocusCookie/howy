@@ -50,7 +50,9 @@ extension QuickEntryKey {
         case 125 where plain: self = .down
         case 126 where plain: self = .up
         default:
-            if modifiers == .command, characters?.lowercased() == "w" {
+            if let zoom = Self.zoomKey(keyCode: keyCode, modifiers: modifiers, characters: characters) {
+                self = zoom
+            } else if modifiers == .command, characters?.lowercased() == "w" {
                 self = .closePanel
             } else if modifiers == .command, characters?.lowercased() == "k" {
                 self = .moveUp
@@ -71,6 +73,29 @@ extension QuickEntryKey {
             } else {
                 return nil
             }
+        }
+    }
+
+    /// ⌘= / ⌘+ zoom in, ⌘- zoom out, ⌘0 reset. Checked before the generic ⌘ + digit rule.
+    /// By character first, so every layout works (US ⌘+ is ⌘⇧=, German ⌘= is ⌘⇧0 and German
+    /// ⌘+ is its own key); shift is allowed only for ⌘+ and ⌘=. Without characters, by the US
+    /// key codes (= 24, - 27, 0 29) and the keypad (+ 69, - 78, 0 82).
+    private static func zoomKey(keyCode: UInt16, modifiers: QuickEntryModifiers, characters: String?) -> QuickEntryKey? {
+        guard modifiers == .command || modifiers == [.command, .shift] else { return nil }
+        let shifted = modifiers.contains(.shift)
+        if let characters, !characters.isEmpty {
+            switch characters {
+            case "=", "+": return .zoomIn
+            case "-" where !shifted: return .zoomOut
+            case "0" where !shifted: return .zoomReset
+            default: return nil
+            }
+        }
+        switch keyCode {
+        case 24, 69: return .zoomIn
+        case 27 where !shifted, 78 where !shifted: return .zoomOut
+        case 29 where !shifted, 82 where !shifted: return .zoomReset
+        default: return nil
         }
     }
 }
