@@ -172,7 +172,7 @@ struct QuickEntryView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            KeyHints(hint, short: inTile ? shortHint : nil)
+            KeyHints(hint, short: inTile ? shortHint : hintWithoutChecklist)
             // Real buttons for the mouse: the key hints alone were easy to miss.
             if shownPhase != .pickingQuadrant {
                 if flow.isEditing {
@@ -198,7 +198,19 @@ struct QuickEntryView: View {
         return shownPhase == .pickingQuadrant ? "1–4 choose · esc \(esc)" : "⌘↩ save · esc \(esc)"
     }
 
+    /// ⇧⌘L (checklist items) only while the note has focus; it is the first hint to go when the
+    /// footer is too narrow.
     private var hint: String {
+        shownPhase == .editingNote ? baseHint + KeyHint.separator + Self.checklistHint : baseHint
+    }
+
+    private var hintWithoutChecklist: String? {
+        shownPhase == .editingNote ? baseHint : nil
+    }
+
+    private static let checklistHint = "⇧⌘L checklist"
+
+    private var baseHint: String {
         switch shownPhase {
         case .pickingQuadrant: "←↑↓→ or 1–4 · ↩ choose · esc " + (flow.isEditing ? "cancel" : closeWord)
         case .editingTitle: "↩ note · ⌥↩ files · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)

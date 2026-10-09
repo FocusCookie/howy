@@ -13,6 +13,10 @@ import SwiftUI
 /// attached via `onAttach` and their references inserted on their own line at the caret / drop
 /// point (undoable). The reference under the caret or pointer is reported, and the references to
 /// `highlightedName` get a soft background.
+///
+/// Checklists: ⇧⌘L turns the selected lines into task items or ticks / unticks them
+/// (`MarkdownTaskToggle`), and a click on a box ticks or unticks it, with a pointing hand and a
+/// soft rounded highlight over the box. Both are one undo step each.
 struct MarkdownNoteEditor: NSViewRepresentable {
     let text: String
     /// The flow is in the note field: the text view should be first responder.
@@ -102,6 +106,7 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         MarkdownStyler.apply(to: textView, scale: scale, highlighting: highlightedName, among: attachmentNames)
         coordinator.appliedHighlight = highlightedName
         coordinator.appliedScale = scale
+        (textView as? NoteTextView)?.clearTaskHover() // the text or its sizes changed under it
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
@@ -263,14 +268,137 @@ final class NoteTextView: NSTextView {
 
     // MARK: Attachments
 
-    /// ⌘V goes to `paste` here even if no menu offers Paste (a menu-bar-only app).
+    /// ⌘V goes to `paste` here even if no menu offers Paste (a menu-bar-only app); ⇧⌘L toggles
+    /// the checklist items under the selection.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        if flags == .command, event.charactersIgnoringModifiers?.lowercased() == "v", window?.firstResponder === self {
-            paste(nil)
-            return true
+        let key = event.charactersIgnoringModifiers?.lowercased()
+        if window?.firstResponder === self {
+            if flags == .command, key == "v" {
+                paste(nil)
+                return true
+            }
+            if flags == [.command, .shift], key == "l" {
+                toggleChecklist()
+                return true
+            }
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    // MARK: Checklists
+
+    private static let checklistUndoName = "Toggle Checklist Item"
+
+    /// ⇧⌘L: lines become checklist items, or their boxes are ticked / unticked (`MarkdownTaskToggle`).
+    private func toggleChecklist() {
+        guard !hasMarkedText(), let edit = MarkdownTaskToggle.toggle(in: string, selection: selectedRange()) else { return }
+        applyChecklistEdit(edit, selection: edit.selection)
+    }
+
+    /// Replaces as one undo step through the normal text-change path (binding, restyle).
+    private func applyChecklistEdit(_ edit: MarkdownTaskToggle.Edit, selection: NSRange) {
+        guard let storage = textStorage, shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
+        breakUndoCoalescing() // not merged into the typing before it
+        storage.replaceCharacters(in: edit.range, with: edit.replacement)
+        didChangeText()
+        breakUndoCoalescing() // nor into the typing after it
+        undoManager?.setActionName(Self.checklistUndoName)
+        setSelectedRange(selection)
+    }
+
+    /// The task box (from `MarkdownHighlighter.taskBoxes`) whose glyphs, padded a little, contain
+    /// `point` (view coordinates), and its rect.
+    private func taskBox(at point: NSPoint) -> (range: NSRange, rect: NSRect)? {
+        guard !string.isEmpty else { return nil }
+        for box in MarkdownHighlighter.taskBoxes(in: string) {
+            guard let rect = rect(forCharacters: box.range) else { continue }
+            if rect.insetBy(dx: -Self.boxPadding, dy: -Self.boxPadding).contains(point) { return (box.range, rect) }
+        }
+        return nil
+    }
+
+    /// The bounding rect of a character range in view coordinates (TextKit 2).
+    private func rect(forCharacters range: NSRange) -> NSRect? {
+        guard let layout = textLayoutManager, let content = layout.textContentManager,
+              let start = content.location(content.documentRange.location, offsetBy: range.location),
+              let end = content.location(start, offsetBy: range.length),
+              let textRange = NSTextRange(location: start, end: end) else { return nil }
+        layout.ensureLayout(for: textRange)
+        var union: NSRect?
+        layout.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
+            union = union.map { $0.union(frame) } ?? frame
+            return true
+        }
+        let origin = textContainerOrigin
+        return union.map { $0.offsetBy(dx: origin.x, dy: origin.y) }
+    }
+
+    /// A click on a box ticks or unticks it, leaving the selection where it was.
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        guard !hasMarkedText(), let box = taskBox(at: point) else {
+            super.mouseDown(with: event)
+            return
+        }
+        guard event.clickCount == 1 else { return } // a double click doesn't tick twice or select
+        let selection = selectedRange()
+        if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+        if let edit = MarkdownTaskToggle.toggleBox(in: string, at: box.range) {
+            applyChecklistEdit(edit, selection: selection) // same length: the selection stays valid
+        }
+        // The text changed (the highlight was cleared): show it again under the pointer.
+        updateTaskHover(at: point)
+    }
+
+    // MARK: Box hover
+
+    private static let boxPadding: CGFloat = 2
+    private static let boxCornerRadius: CGFloat = 4
+
+    /// A soft rounded rect behind the box under the pointer. A plain subview below the text,
+    /// so it scrolls with the text and never takes clicks.
+    private var boxHighlight: BoxHighlightView?
+    private var hoveredBox: NSRange?
+
+    /// Highlights the box under `point` (view coordinates) and shows the pointing hand over it.
+    /// Returns whether the pointer is over a box.
+    @discardableResult
+    private func updateTaskHover(at point: NSPoint?) -> Bool {
+        let box = point.flatMap { taskBox(at: $0) }
+        if let box {
+            let highlight = boxHighlight ?? {
+                let view = BoxHighlightView(cornerRadius: Self.boxCornerRadius)
+                addSubview(view, positioned: .below, relativeTo: nil)
+                boxHighlight = view
+                return view
+            }()
+            if hoveredBox != box.range || highlight.isHidden {
+                highlight.frame = box.rect.insetBy(dx: -Self.boxPadding, dy: -Self.boxPadding).integral
+                highlight.isHidden = false
+            }
+            hoveredBox = box.range
+            NSCursor.pointingHand.set()
+        } else {
+            clearTaskHover()
+        }
+        return box != nil
+    }
+
+    /// Removes the box highlight (the text or its layout changed, or the pointer left).
+    func clearTaskHover() {
+        hoveredBox = nil
+        if let boxHighlight, !boxHighlight.isHidden { boxHighlight.isHidden = true }
+    }
+
+    override func didChangeText() {
+        super.didChangeText()
+        clearTaskHover()
+    }
+
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        clearTaskHover() // a new width rewraps the lines
     }
 
     /// ⌘V: files copied in Finder, or an image (a screenshot) without text, become attachments.
@@ -317,21 +445,48 @@ final class NoteTextView: NSTextView {
     }
 
     override func mouseMoved(with event: NSEvent) {
-        super.mouseMoved(with: event)
+        super.mouseMoved(with: event) // sets the I-beam
         let point = convert(event.locationInWindow, from: nil)
         let index = string.isEmpty ? nil : characterIndexForInsertion(at: point)
         coordinator?.pointerMoved(to: index, in: self)
+        updateTaskHover(at: point) // the pointing hand over a box
     }
 
     override func mouseExited(with event: NSEvent) {
         super.mouseExited(with: event)
         coordinator?.pointerMoved(to: nil, in: self)
+        clearTaskHover()
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         coordinator?.syncFocus(self) // the first update can run before there is a window
     }
+}
+
+/// The soft rounded background behind a hovered task box. Never takes the mouse: clicks go to
+/// the text view, which hit-tests the boxes itself.
+private final class BoxHighlightView: NSView {
+    private static let color = NSColor.controlAccentColor.withAlphaComponent(0.18)
+
+    init(cornerRadius: CGFloat) {
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.cornerRadius = cornerRadius
+        layer?.cornerCurve = .continuous
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override var wantsUpdateLayer: Bool { true }
+
+    override func updateLayer() {
+        // Resolved here, so it follows light / dark mode and the accent colour.
+        layer?.backgroundColor = Self.color.cgColor
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }
 
 /// Applies `MarkdownHighlighter` spans to a text view's storage. Every size (the body text,
@@ -384,14 +539,18 @@ enum MarkdownStyler {
         textView.typingAttributes = base
     }
 
-    /// Blocks first, inline styles on top, dimming last.
+    /// Blocks first, inline styles on top, dimming last; a task box and its check last of all.
+    /// A ticked item's grey and strike-through go right after the inline styles: its bold and
+    /// italic fonts stay, a link in it turns grey too, and its markup is still dimmed below that.
     private static func order(_ style: MarkdownStyleSpan.Style) -> Int {
         switch style {
         case .heading, .quote, .codeBlock: 0
         case .bold, .italic, .strikethrough, .link, .listMarker: 1
-        case .inlineCode: 2
+        case .inlineCode, .taskDone: 2
         case .quoteMarker: 3
         case .syntax: 4
+        case .taskBox: 5
+        case .taskCheck: 6
         }
     }
 
@@ -432,8 +591,16 @@ enum MarkdownStyler {
                 .foregroundColor: NSColor.linkColor,
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
             ], range: range)
-        case .syntax:
+        case .syntax, .taskBox:
             storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
+        case .taskCheck:
+            storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
+            transformFont(in: range, of: storage, scale: scale) { withTraits(.bold, $0) }
+        case .taskDone:
+            storage.addAttributes([
+                .strikethroughStyle: NSUnderlineStyle.single.rawValue,
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ], range: range)
         }
     }
 

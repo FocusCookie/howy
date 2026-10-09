@@ -6,6 +6,20 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Checklists in notes.** Markdown task items (`- [ ] todo`, `- [x] done`)
+  get a dimmed box with an accent-coloured tick, and a ticked item's text is
+  crossed out and greyed.
+  - **⇧⌘L** in the note turns the selected lines into checklist items (a list
+    item keeps its marker, `1.` included). Pressed on items, it ticks them, or
+    unticks them when they're all ticked already. On an empty line it starts a
+    new `- [ ] ` item.
+  - **Click a box** to tick or untick it. The pointer turns into a hand over a
+    box and the box gets a soft highlight; the cursor stays where it was.
+  - **⌘Z** undoes either in one step. The key hints show **⇧⌘L checklist**
+    while you're in the note.
+
 ## [1.4.0] - 2026-10-09
 
 ### Added

@@ -32,6 +32,10 @@ Everything happens from a shortcut.
   remembered.
 - **Live Markdown** in notes: headings, bold, lists and links are styled as you
   type, and lists continue when you press ↩.
+- **Checklists** in notes: **⇧⌘L** turns the lines you've selected into
+  `- [ ]` items, and pressed again it ticks or unticks them. Click a box to
+  tick or untick it. Ticked items are crossed out and greyed. **⌘Z** undoes
+  either. The key hints show **⇧⌘L checklist** while you're in the note.
 - **Attachments**: paste or drop screenshots and files into a todo. You get
   thumbnails, and files open in Quick Look.
 - A small emoji and confetti burst when you finish something. You can turn it

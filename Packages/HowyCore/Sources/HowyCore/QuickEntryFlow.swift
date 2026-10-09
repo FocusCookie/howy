@@ -107,6 +107,8 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 ///   1–4 choose a quadrant and jump to the title; Enter/Tab go to the title.
 /// - Title: Enter/Tab go to the note; Shift+Tab goes back to the picker.
 /// - Note: Enter is a line break (not consumed); Tab not consumed; Shift+Tab goes to the title.
+///   ⇧⌘L never reaches the flow (`KeyMapping` leaves it unmapped): the note editor toggles
+///   checklist items with it (`MarkdownTaskToggle`).
 /// - Title, note: ⌥Enter goes to the attachments.
 /// - Attachments: ←/→ select (clamped); Space/Enter ask to open the selected one, ⌥Enter to open
 ///   it the other way (`takeRequest()`); Enter with none asks to pick files; ⌫ removes the
