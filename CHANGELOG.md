@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-09
+
 ### Added
 
 - **Panel zoom.** Make everything in Howy's panels bigger: **⌘+** (or **⌘=**)
