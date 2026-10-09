@@ -14,6 +14,7 @@ struct SettingsView: View {
     @State private var openMode = AttachmentOpenMode.load()
     @State private var doneAnimation = DoneAnimation.load()
     @State private var archiveRetention = ArchiveRetention.load()
+    @State private var copiedFormat = false
 
     var body: some View {
         Form {
@@ -96,6 +97,17 @@ struct SettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+            Section {
+                LabeledContent("Convert data from other apps:") {
+                    Button(copiedFormat ? "Copied" : "Copy for AI") { copyFormat() }
+                }
+            } header: {
+                Text("Import Format")
+            } footer: {
+                Text("Export writes a folder with howy.json and attachments/<todo id>/<file name>, and Import reads it back. To bring in todos from another app, copy the format and paste it into an AI chat together with your data; it answers with a howy.json you can import.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Section("General") {
                 Toggle("Start Howy at login", isOn: Binding(
                     get: { controller.launchesAtLogin },
@@ -116,6 +128,17 @@ struct SettingsView: View {
 }
 
 extension SettingsView {
+    /// Puts the import format description on the pasteboard and says "Copied" for a moment.
+    private func copyFormat() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(HowyFormat.llmDescription, forType: .string)
+        copiedFormat = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            copiedFormat = false
+        }
+    }
+
     private var footerHint: String {
         let recording = "Click a shortcut, then press the new keys. Esc cancels, Delete removes it."
         guard controller.shortcutMode == .single else { return recording }
@@ -148,6 +171,6 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window = nil // rebuild next time, so it re-reads login item and settings
-        NSApp.setActivationPolicy(.accessory)
+        NSApp.returnToAccessoryUnlessWindowsAreOpen(except: notification.object as? NSWindow)
     }
 }

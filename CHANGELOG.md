@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-09
+
 ### Added
 
 - **Move a todo to another quadrant from Browse.** In the list, ⌘1–4 sends the
@@ -15,6 +17,21 @@ All notable changes to Howy are documented here. The format follows
   on top of its new quadrant and you stay in the list. ⌘Z puts it back where it
   was. A small glass badge rises out of the panel ("↗ Moved to ● Urgent &
   Important"), and VoiceOver gets "Move to …" actions on each row.
+- **Export.** **Export…** in the menu-bar menu writes every todo, open and done,
+  with its attachments into a folder you pick (`howy.json` plus
+  `attachments/<todo id>/<file name>`). A window then shows how many todos and
+  attachments were exported, lists any files that couldn't be copied, and has a
+  **Show in Finder** button.
+- **Import.** **Import…** reads an export folder back in. Howy first shows what
+  it found ("Found 87 todos (12 already exist and will be skipped, 2 invalid),
+  23 attachments. Import?") and only writes after you confirm. Todos that
+  already exist are skipped, existing data never changes, and timestamps are
+  kept. A summary lists the counts and one line per problem, with a **Copy**
+  button. A file that can't be read, or that comes from a newer Howy, is refused
+  and nothing changes.
+- **Copy for AI.** Settings has a new **Import Format** section. **Copy for AI**
+  puts a description of the import format, with an example, on the clipboard,
+  so an AI chat can turn data from another app into a `howy.json` to import.
 
 ### Changed
 
