@@ -60,6 +60,19 @@ public enum MarkdownHighlighter {
     }
 
     public static func spans(in text: String) -> [MarkdownStyleSpan] {
+        var links: [NoteLink] = []
+        return spans(in: text, links: &links)
+    }
+
+    /// Every Markdown link and bare URL outside code, in text order (`NoteLinks`). Found by the
+    /// same pass as the `.link` spans, so a link is styled exactly where it is one.
+    static func links(in text: String) -> [NoteLink] {
+        var links: [NoteLink] = []
+        _ = spans(in: text, links: &links)
+        return links.sorted { $0.range.location < $1.range.location }
+    }
+
+    private static func spans(in text: String, links: inout [NoteLink]) -> [MarkdownStyleSpan] {
         var spans: [MarkdownStyleSpan] = []
         var fenceStart: Int?
         for line in lines(of: text) {
@@ -73,7 +86,7 @@ public enum MarkdownHighlighter {
                     spans.append(.init(.syntax, fence))
                 }
             } else if !line.isCode {
-                spans += lineSpans(line.text, at: line.range.location)
+                spans += lineSpans(line.text, at: line.range.location, links: &links)
             }
         }
         if let start = fenceStart { // unclosed fence runs to the end
@@ -137,7 +150,7 @@ public enum MarkdownHighlighter {
 
     // MARK: Lines
 
-    private static func lineSpans(_ line: String, at offset: Int) -> [MarkdownStyleSpan] {
+    private static func lineSpans(_ line: String, at offset: Int, links: inout [NoteLink]) -> [MarkdownStyleSpan] {
         let ns = line as NSString
         var spans: [MarkdownStyleSpan] = []
         var contentStart = 0
@@ -169,15 +182,21 @@ public enum MarkdownHighlighter {
         }
 
         let content = NSRange(location: contentStart, length: ns.length - contentStart)
-        spans += inlineSpans(ns.substring(with: content)).map {
+        var inlineLinks: [NoteLink] = []
+        spans += inlineSpans(ns.substring(with: content), links: &inlineLinks).map {
             MarkdownStyleSpan($0.style, NSRange(location: $0.range.location + content.location + offset, length: $0.range.length))
+        }
+        links += inlineLinks.map {
+            NoteLink(range: NSRange(location: $0.range.location + content.location + offset, length: $0.range.length),
+                     title: $0.title, url: $0.url, isBare: $0.isBare)
         }
         return spans
     }
 
     // MARK: Inline
 
-    private static func inlineSpans(_ text: String) -> [MarkdownStyleSpan] {
+    /// `links` gets the links found, with ranges in `text`.
+    private static func inlineSpans(_ text: String, links: inout [NoteLink]) -> [MarkdownStyleSpan] {
         guard !text.isEmpty else { return [] }
         var spans: [MarkdownStyleSpan] = []
         // Matched markup is blanked out in this working copy (same UTF-16 length), so later
@@ -212,6 +231,9 @@ public enum MarkdownHighlighter {
         }
         for m in Pattern.link.matches(in: work as String, range: NSRange(location: 0, length: work.length)) {
             let label = m.range(at: 1)
+            let source = text as NSString
+            links.append(NoteLink(range: m.range, title: source.substring(with: label),
+                                  url: source.substring(with: m.range(at: 2)), isBare: false))
             spans.append(.init(.link, label))
             spans.append(.init(.syntax, NSRange(location: m.range.location, length: 1)))
             spans.append(.init(.syntax, NSRange(location: NSMaxRange(label), length: NSMaxRange(m.range) - NSMaxRange(label))))
@@ -220,6 +242,8 @@ public enum MarkdownHighlighter {
         }
         for m in Pattern.bareURL.matches(in: work as String, range: NSRange(location: 0, length: work.length)) {
             spans.append(.init(.link, m.range))
+            let url = (text as NSString).substring(with: m.range)
+            links.append(NoteLink(range: m.range, title: url, url: url, isBare: true))
             blank(m.range)
         }
 

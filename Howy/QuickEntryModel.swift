@@ -35,6 +35,8 @@ final class QuickEntryModel {
     var hoveredAttachmentID: UUID?
     /// The attachment whose reference the caret is on, or the pointer hovers, in the note.
     var noteReferenceName: String?
+    /// The link at the caret in the note, and where its chip is (for the popover).
+    var noteLink: NoteLinkAnchor?
 
     init(flow: QuickEntryFlow, store: TodoStore) {
         self.flow = flow
@@ -120,6 +122,19 @@ final class QuickEntryModel {
         presenter?.chooseFiles { [weak self] urls in
             self?.attach(urls.map { .file($0) })
         }
+    }
+
+    // MARK: Links
+
+    /// Opens a note link in the default browser (the panel then loses focus and closes).
+    func openLink(_ link: NoteLink) {
+        let url = URL(string: link.url)
+            ?? link.url.addingPercentEncoding(withAllowedCharacters: .urlFragmentAllowed).flatMap(URL.init(string:))
+        guard let url else {
+            errorMessage = "That link isn't a valid web address."
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 
     private func performRequest() {
@@ -340,6 +355,8 @@ final class BrowseModel {
     func handle(_ key: QuickEntryKey) -> Bool {
         // `d` removes the selected row inside the flow; fire the burst first so the view can
         // still measure that row.
+        // A tile editor's link dialog takes every key first (Esc closes only the dialog).
+        if let tileEditor, tileEditor.flow.linkDialog != nil { return tileEditor.handle(key) }
         if key == .letter(BrowseFlow.doneKey), flow.phase == .listing || flow.phase == .overview && flow.tileEditor == nil,
            let todo = flow.selectedTodo { celebrate(todo.id) }
         var outcome = BrowseFlow.Outcome.ignored

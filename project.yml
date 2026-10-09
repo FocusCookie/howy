@@ -60,6 +60,8 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
+        # Fetches a pasted link's page title (the note's link dialog).
+        com.apple.security.network.client: true
         com.apple.security.application-groups:
           - $(TeamIdentifierPrefix)io.lichtwart.howy
   HowyWidgets:

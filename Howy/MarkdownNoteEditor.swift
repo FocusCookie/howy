@@ -17,6 +17,14 @@ import SwiftUI
 /// Checklists: ⇧⌘L turns the selected lines into task items or ticks / unticks them
 /// (`MarkdownTaskToggle`), and a click on a box ticks or unticks it, with a pointing hand and a
 /// soft rounded highlight over the box. Both are one undo step each.
+///
+/// Links (`NoteLinks`): a Markdown link shows as a chip with a link icon and its title; `[` and `](url)`
+/// stay in the text but take no space. The caret steps over a chip, the first ⌫ / ⌦ next to one
+/// selects it, and an edit cutting into one takes all of it. Pasting a URL over selected text
+/// links that text; otherwise `onPasteURL` asks for a title. ⌘O (or ⌘-click) opens the link at
+/// the caret, ⌘E edits it (`onEditLink`); a click on a chip puts the caret after it. The link at
+/// the caret is reported with the chip's frame (`onLinkChange`) for its popover. The link dialog's
+/// result arrives as `pendingEdit` and is applied as one undo step.
 struct MarkdownNoteEditor: NSViewRepresentable {
     let text: String
     /// The flow is in the note field: the text view should be first responder.
@@ -32,6 +40,17 @@ struct MarkdownNoteEditor: NSViewRepresentable {
     var onAttach: ([QuickEntryModel.AttachmentSource]) -> [String] = { _ in [] }
     /// The attachment referenced under the caret (while focused) or the pointer changed.
     var onReferenceChange: (String?) -> Void = { _ in }
+    /// A link dialog's change to the note, applied once (then `onEditApplied` with its id).
+    var pendingEdit: QuickEntryFlow.PendingNoteEdit?
+    var onEditApplied: (Int) -> Void = { _ in }
+    /// A URL was pasted with no text selected to link: ask for a title for the link over this range.
+    var onPasteURL: (String, NSRange) -> Void = { _, _ in }
+    /// ⌘E on a link.
+    var onEditLink: (NoteLink) -> Void = { _ in }
+    /// ⌘O or ⌘-click on a link.
+    var onOpenLink: (NoteLink) -> Void = { _ in }
+    /// The link at the caret (while focused) changed, or its chip moved.
+    var onLinkChange: (NoteLinkAnchor?) -> Void = { _ in }
     /// Take all the height offered (an Overview tile's editor) instead of growing with the text
     /// up to `maxHeight`.
     var fillsHeight = false
@@ -78,6 +97,9 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         scrollView.borderType = .noBorder
         scrollView.hasVerticalScroller = true
         scrollView.autohidesScrollers = true
+        // Scrolling moves a chip under its popover.
+        scrollView.contentView.postsBoundsChangedNotifications = true
+        context.coordinator.observeScrolling(of: scrollView)
         return scrollView
     }
 
@@ -95,6 +117,7 @@ struct MarkdownNoteEditor: NSViewRepresentable {
             restyle(textView, scale: scale, coordinator: coordinator)
         }
         context.coordinator.syncFocus(textView)
+        context.coordinator.applyPendingEdit(to: textView)
     }
 
     /// Styles the whole text at `scale` (a zoom change restyles it at the new sizes).
@@ -147,6 +170,11 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         private var hoverReference: String?
         private var reportedReference: String?
         weak var textViewForFocus: NSTextView?
+        /// The last `pendingEdit` applied (each is applied once).
+        private var appliedEditID: Int?
+        private var reportedLink: NoteLinkAnchor?
+        private weak var scrollView: NSScrollView?
+        private var scrollObserver: (any NSObjectProtocol)?
 
         init(_ parent: MarkdownNoteEditor) { self.parent = parent }
 
@@ -168,6 +196,91 @@ struct MarkdownNoteEditor: NSViewRepresentable {
                 ? AttachmentReference.name(at: selection.location, in: textView.string, names: parent.attachmentNames)
                 : nil
             reportReference()
+            reportLink(textView)
+        }
+
+        /// The caret steps over a chip; a selection grows and shrinks by whole chips.
+        func textView(
+            _ textView: NSTextView, willChangeSelectionFromCharacterRange old: NSRange, toCharacterRange new: NSRange
+        ) -> NSRange {
+            guard !textView.hasMarkedText(), new.location != NSNotFound else { return new }
+            return NoteLinks.snap(new, from: old, in: textView.string)
+        }
+
+        /// An edit cutting into a chip (⌥⌫, cut) takes the whole chip instead.
+        func textView(_ textView: NSTextView, shouldChangeTextIn range: NSRange, replacementString: String?) -> Bool {
+            guard let replacementString, !textView.hasMarkedText() else { return true }
+            let widened = NoteLinks.widen(range, in: textView.string)
+            guard widened != range else { return true }
+            textView.insertText(replacementString, replacementRange: widened)
+            return false
+        }
+
+        // MARK: Links
+
+        /// ⌘V of a single URL: links the selected text, or asks for a title.
+        func pasteURL(_ url: String, in textView: NoteTextView) {
+            let selection = textView.selectedRange()
+            if let edit = NoteLinks.linkSelection(url: url, in: textView.string, selection: selection) {
+                textView.applyEdit(range: edit.range, replacement: edit.replacement, selection: edit.selection, actionName: "Add Link")
+            } else {
+                parent.onPasteURL(url, selection)
+            }
+        }
+
+        /// The link at the caret, or the one the selection lies in.
+        func link(in textView: NSTextView) -> NoteLink? {
+            NoteLinks.link(at: textView.selectedRange(), in: NoteLinks.links(in: textView.string))
+        }
+
+        func applyPendingEdit(to textView: NoteTextView) {
+            guard let pending = parent.pendingEdit, pending.id != appliedEditID else { return }
+            appliedEditID = pending.id
+            DispatchQueue.main.async { [weak self, weak textView] in // not during a view update
+                guard let self, let textView else { return }
+                let edit = pending.edit
+                if NSMaxRange(edit.range) <= (textView.string as NSString).length {
+                    textView.applyEdit(range: edit.range, replacement: edit.replacement, selection: edit.selection, actionName: "Link")
+                    textView.scrollRangeToVisible(edit.selection)
+                }
+                self.parent.onEditApplied(pending.id)
+            }
+        }
+
+        func observeScrolling(of scrollView: NSScrollView) {
+            self.scrollView = scrollView
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, let textView = self.textViewForFocus else { return }
+                    self.reportLink(textView)
+                }
+            }
+        }
+
+        /// Reports the link at the caret (or the chip selected whole) while focused, with the
+        /// chip's frame in the editor (nil for a bare URL or a chip scrolled out of view).
+        func reportLink(_ textView: NSTextView) {
+            var anchor: NoteLinkAnchor?
+            let selection = textView.selectedRange()
+            if parent.isFocused, textView.window?.firstResponder === textView, !textView.hasMarkedText(),
+               let link = link(in: textView), selection.length == 0 || selection == link.range {
+                anchor = NoteLinkAnchor(link: link, frame: link.isChip ? frame(of: link.range, in: textView) : nil)
+            }
+            guard anchor != reportedLink else { return }
+            reportedLink = anchor
+            DispatchQueue.main.async { [weak self] in self?.parent.onLinkChange(anchor) } // not during a view update
+        }
+
+        /// A character range's frame in the scroll view (top-left origin), if it is in view.
+        private func frame(of range: NSRange, in textView: NSTextView) -> CGRect? {
+            guard let scrollView, let rect = (textView as? NoteTextView)?.rect(forCharacters: range),
+                  scrollView.contentView.documentVisibleRect.intersects(rect) else { return nil }
+            let converted = scrollView.convert(rect, from: textView)
+            return scrollView.isFlipped
+                ? converted
+                : CGRect(x: converted.minX, y: scrollView.bounds.height - converted.maxY, width: converted.width, height: converted.height)
         }
 
         /// The pointer is over this character (nil: outside the text).
@@ -248,6 +361,7 @@ struct MarkdownNoteEditor: NSViewRepresentable {
                     self.caretReference = nil
                     self.reportReference()
                 }
+                self.reportLink(textView)
             }
         }
     }
@@ -282,6 +396,10 @@ final class NoteTextView: NSTextView {
                 toggleChecklist()
                 return true
             }
+            if flags == .command, key == "o" || key == "e", !hasMarkedText(), let link = coordinator?.link(in: self) {
+                if key == "o" { coordinator?.parent.onOpenLink(link) } else { coordinator?.parent.onEditLink(link) }
+                return true
+            }
         }
         return super.performKeyEquivalent(with: event)
     }
@@ -293,17 +411,17 @@ final class NoteTextView: NSTextView {
     /// ⇧⌘L: lines become checklist items, or their boxes are ticked / unticked (`MarkdownTaskToggle`).
     private func toggleChecklist() {
         guard !hasMarkedText(), let edit = MarkdownTaskToggle.toggle(in: string, selection: selectedRange()) else { return }
-        applyChecklistEdit(edit, selection: edit.selection)
+        applyEdit(range: edit.range, replacement: edit.replacement, selection: edit.selection, actionName: Self.checklistUndoName)
     }
 
     /// Replaces as one undo step through the normal text-change path (binding, restyle).
-    private func applyChecklistEdit(_ edit: MarkdownTaskToggle.Edit, selection: NSRange) {
-        guard let storage = textStorage, shouldChangeText(in: edit.range, replacementString: edit.replacement) else { return }
+    func applyEdit(range: NSRange, replacement: String, selection: NSRange, actionName: String) {
+        guard let storage = textStorage, shouldChangeText(in: range, replacementString: replacement) else { return }
         breakUndoCoalescing() // not merged into the typing before it
-        storage.replaceCharacters(in: edit.range, with: edit.replacement)
+        storage.replaceCharacters(in: range, with: replacement)
         didChangeText()
         breakUndoCoalescing() // nor into the typing after it
-        undoManager?.setActionName(Self.checklistUndoName)
+        undoManager?.setActionName(actionName)
         setSelectedRange(selection)
     }
 
@@ -319,24 +437,39 @@ final class NoteTextView: NSTextView {
     }
 
     /// The bounding rect of a character range in view coordinates (TextKit 2).
-    private func rect(forCharacters range: NSRange) -> NSRect? {
+    func rect(forCharacters range: NSRange) -> NSRect? {
+        segmentRects(forCharacters: range).reduce(nil) { union, rect in union.map { $0.union(rect) } ?? rect }
+    }
+
+    /// The rects a character range covers, one per line, in view coordinates (TextKit 2).
+    private func segmentRects(forCharacters range: NSRange) -> [NSRect] {
         guard let layout = textLayoutManager, let content = layout.textContentManager,
               let start = content.location(content.documentRange.location, offsetBy: range.location),
               let end = content.location(start, offsetBy: range.length),
-              let textRange = NSTextRange(location: start, end: end) else { return nil }
+              let textRange = NSTextRange(location: start, end: end) else { return [] }
         layout.ensureLayout(for: textRange)
-        var union: NSRect?
+        var rects: [NSRect] = []
         layout.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
-            union = union.map { $0.union(frame) } ?? frame
+            rects.append(frame)
             return true
         }
         let origin = textContainerOrigin
-        return union.map { $0.offsetBy(dx: origin.x, dy: origin.y) }
+        return rects.map { $0.offsetBy(dx: origin.x, dy: origin.y) }
     }
 
-    /// A click on a box ticks or unticks it, leaving the selection where it was.
+    /// A click on a box ticks or unticks it, leaving the selection where it was. A click on a
+    /// chip puts the caret after it (its popover opens), a ⌘-click opens its link.
     override func mouseDown(with event: NSEvent) {
         let point = convert(event.locationInWindow, from: nil)
+        if !hasMarkedText(), let chip = chip(at: point) {
+            if window?.firstResponder !== self { window?.makeFirstResponder(self) }
+            if event.modifierFlags.contains(.command) {
+                if let link = NoteLinks.links(in: string).first(where: { $0.range == chip }) { coordinator?.parent.onOpenLink(link) }
+            } else {
+                setSelectedRange(NSRange(location: NSMaxRange(chip), length: 0))
+            }
+            return
+        }
         guard !hasMarkedText(), let box = taskBox(at: point) else {
             super.mouseDown(with: event)
             return
@@ -345,7 +478,8 @@ final class NoteTextView: NSTextView {
         let selection = selectedRange()
         if window?.firstResponder !== self { window?.makeFirstResponder(self) }
         if let edit = MarkdownTaskToggle.toggleBox(in: string, at: box.range) {
-            applyChecklistEdit(edit, selection: selection) // same length: the selection stays valid
+            // Same length: the selection stays valid.
+            applyEdit(range: edit.range, replacement: edit.replacement, selection: selection, actionName: Self.checklistUndoName)
         }
         // The text changed (the highlight was cleared): show it again under the pointer.
         updateTaskHover(at: point)
@@ -358,7 +492,8 @@ final class NoteTextView: NSTextView {
 
     /// A soft rounded rect behind the box under the pointer. A plain subview below the text,
     /// so it scrolls with the text and never takes clicks.
-    private var boxHighlight: BoxHighlightView?
+    private var boxHighlight: RoundedHighlightView?
+    private static let boxColor = NSColor.controlAccentColor.withAlphaComponent(0.18)
     private var hoveredBox: NSRange?
 
     /// Highlights the box under `point` (view coordinates) and shows the pointing hand over it.
@@ -368,7 +503,7 @@ final class NoteTextView: NSTextView {
         let box = point.flatMap { taskBox(at: $0) }
         if let box {
             let highlight = boxHighlight ?? {
-                let view = BoxHighlightView(cornerRadius: Self.boxCornerRadius)
+                let view = RoundedHighlightView(color: Self.boxColor, cornerRadius: Self.boxCornerRadius)
                 addSubview(view, positioned: .below, relativeTo: nil)
                 boxHighlight = view
                 return view
@@ -394,17 +529,121 @@ final class NoteTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         clearTaskHover()
+        setNeedsChipUpdate()
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
         clearTaskHover() // a new width rewraps the lines
+        setNeedsChipUpdate()
     }
 
-    /// ⌘V: files copied in Finder, or an image (a screenshot) without text, become attachments.
+    // MARK: Link chips
+
+    /// The rounded backgrounds behind the chips, one per line a chip covers (reused).
+    private var chipViews: [RoundedHighlightView] = []
+    /// The link icons at the start of the chips, one per chip (reused).
+    private var chipIcons: [ChipIconView] = []
+    /// Each chip's range and its rects, for clicks and the pointer.
+    private var chipFrames: [(range: NSRange, rects: [NSRect])] = []
+    private var chipUpdateScheduled = false
+    private var chipScale: CGFloat = 0
+    private static let chipColor = NSColor.linkColor.withAlphaComponent(0.13)
+
+    /// TextKit lays the text out again later (a restyle, a zoom, the panel growing), which can move
+    /// the lines under the chip backgrounds; they follow.
+    override func textViewportLayoutControllerDidLayout(_ controller: NSTextViewportLayoutController) {
+        super.textViewportLayoutControllerDidLayout(controller)
+        setNeedsChipUpdate()
+    }
+
+    /// Redraws the chip backgrounds once the current layout pass is done.
+    func setNeedsChipUpdate() {
+        guard !chipUpdateScheduled else { return }
+        chipUpdateScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.chipUpdateScheduled = false
+            self.updateChips()
+        }
+    }
+
+    private func updateChips() {
+        let chips = string.isEmpty ? [] : NoteLinks.links(in: string).filter(\.isChip)
+        let frames = chips.map { (range: $0.range, rects: segmentRects(forCharacters: $0.range)) }
+        let scale = (font?.pointSize ?? NSFont.systemFontSize) / NSFont.systemFontSize
+        // Every layout pass asks; only a change moves the views.
+        guard !frames.elementsEqual(chipFrames, by: { $0.range == $1.range && $0.rects == $1.rects }) || scale != chipScale
+        else { return }
+        chipFrames = frames
+        chipScale = scale
+        let rects = chipFrames.flatMap(\.rects)
+        let radius = (font?.pointSize ?? NSFont.systemFontSize) * 0.35
+        while chipViews.count < rects.count {
+            let view = RoundedHighlightView(color: Self.chipColor, cornerRadius: radius)
+            addSubview(view, positioned: .below, relativeTo: nil)
+            chipViews.append(view)
+        }
+        for (index, view) in chipViews.enumerated() {
+            view.isHidden = index >= rects.count
+            guard index < rects.count else { continue }
+            view.frame = rects[index].insetBy(dx: 0, dy: 1).integral
+            view.layer?.cornerRadius = radius
+        }
+        updateChipIcons(in: chipFrames.compactMap(\.rects.first))
+    }
+
+    /// A link icon in the space the kerning of `[` leaves at the start of each chip.
+    private func updateChipIcons(in starts: [NSRect]) {
+        let scale = chipScale
+        let size = MarkdownStyler.chipIconSize * scale
+        while chipIcons.count < starts.count {
+            let icon = ChipIconView()
+            addSubview(icon, positioned: .above, relativeTo: nil)
+            chipIcons.append(icon)
+        }
+        for (index, icon) in chipIcons.enumerated() {
+            icon.isHidden = index >= starts.count
+            guard index < starts.count else { continue }
+            icon.setSize(size)
+            let start = starts[index]
+            icon.frame = NSRect(
+                x: start.minX + MarkdownStyler.chipPadding * scale, y: start.midY - size / 2, width: size, height: size
+            ).integral
+        }
+    }
+
+    /// The range of the chip under `point` (view coordinates).
+    private func chip(at point: NSPoint) -> NSRange? {
+        chipFrames.first { $0.rects.contains { $0.contains(point) } }?.range
+    }
+
+    /// The first ⌫ after a chip selects it; the next one deletes it.
+    override func deleteBackward(_ sender: Any?) {
+        if !hasMarkedText(), let chip = NoteLinks.deleteBackward(in: string, selection: selectedRange()) {
+            setSelectedRange(chip)
+        } else {
+            super.deleteBackward(sender)
+        }
+    }
+
+    /// The first ⌦ before a chip selects it; the next one deletes it.
+    override func deleteForward(_ sender: Any?) {
+        if !hasMarkedText(), let chip = NoteLinks.deleteForward(in: string, selection: selectedRange()) {
+            setSelectedRange(chip)
+        } else {
+            super.deleteForward(sender)
+        }
+    }
+
+    /// ⌘V: files copied in Finder, or an image (a screenshot) without text, become attachments;
+    /// a single web address becomes a link (`Coordinator.pasteURL`).
     override func paste(_ sender: Any?) {
         let pasteboard = NSPasteboard.general
-        if let urls = Self.fileURLs(on: pasteboard), !urls.isEmpty {
+        if !hasMarkedText(), let text = pasteboard.string(forType: .string), let url = NoteLinks.pastedURL(text),
+           Self.fileURLs(on: pasteboard)?.isEmpty ?? true {
+            coordinator?.pasteURL(url, in: self)
+        } else if let urls = Self.fileURLs(on: pasteboard), !urls.isEmpty {
             coordinator?.attach(urls.map { .file($0) }, in: self)
         } else if !(pasteboard.types ?? []).contains(.string), let png = Self.pngData(on: pasteboard) {
             coordinator?.attach([.image(png)], in: self)
@@ -450,6 +689,7 @@ final class NoteTextView: NSTextView {
         let index = string.isEmpty ? nil : characterIndexForInsertion(at: point)
         coordinator?.pointerMoved(to: index, in: self)
         updateTaskHover(at: point) // the pointing hand over a box
+        if chip(at: point) != nil { NSCursor.pointingHand.set() }
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -464,12 +704,20 @@ final class NoteTextView: NSTextView {
     }
 }
 
-/// The soft rounded background behind a hovered task box. Never takes the mouse: clicks go to
-/// the text view, which hit-tests the boxes itself.
-private final class BoxHighlightView: NSView {
-    private static let color = NSColor.controlAccentColor.withAlphaComponent(0.18)
+/// The link at the caret and its chip's frame in the editor (top-left origin; nil for a bare URL
+/// or a chip out of view), for the popover.
+struct NoteLinkAnchor: Equatable {
+    let link: NoteLink
+    let frame: CGRect?
+}
 
-    init(cornerRadius: CGFloat) {
+/// A soft rounded background behind a hovered task box or a link chip. Never takes the mouse:
+/// clicks go to the text view, which hit-tests boxes and chips itself.
+private final class RoundedHighlightView: NSView {
+    private let color: NSColor
+
+    init(color: NSColor, cornerRadius: CGFloat) {
+        self.color = color
         super.init(frame: .zero)
         wantsLayer = true
         layer?.cornerRadius = cornerRadius
@@ -483,7 +731,30 @@ private final class BoxHighlightView: NSView {
 
     override func updateLayer() {
         // Resolved here, so it follows light / dark mode and the accent colour.
-        layer?.backgroundColor = Self.color.cgColor
+        layer?.backgroundColor = color.cgColor
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+/// The link symbol at the start of a chip. Never takes the mouse, like the chip's background.
+private final class ChipIconView: NSImageView {
+    private var size: CGFloat = 0
+
+    init() {
+        super.init(frame: .zero)
+        imageScaling = .scaleProportionallyUpOrDown
+        contentTintColor = .linkColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    func setSize(_ size: CGFloat) {
+        guard size != self.size else { return }
+        self.size = size
+        image = NSImage(systemSymbolName: "link", accessibilityDescription: nil)?
+            .withSymbolConfiguration(.init(pointSize: size, weight: .medium))
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
@@ -530,6 +801,7 @@ enum MarkdownStyler {
         storage.beginEditing()
         storage.setAttributes(base, range: full)
         for span in spans { apply(span, to: storage, scale: scale) }
+        for link in NoteLinks.links(in: storage.string) where link.isChip { applyChip(link, to: storage, scale: scale) }
         if let highlightedName, names.contains(highlightedName) {
             for match in AttachmentReference.matches(in: storage.string, names: [highlightedName]) {
                 storage.addAttribute(.backgroundColor, value: referenceHighlight, range: match.range)
@@ -537,7 +809,30 @@ enum MarkdownStyler {
         }
         storage.endEditing()
         textView.typingAttributes = base
+        (textView as? NoteTextView)?.setNeedsChipUpdate()
     }
+
+    /// A chip: the title in the link colour, `[` and `](url)` invisible and next to no width, their
+    /// kerning the chip's padding, and before the title the room for its link icon
+    /// (`NoteTextView` draws the rounded background and the icon).
+    private static func applyChip(_ link: NoteLink, to storage: NSTextStorage, scale: CGFloat) {
+        let title = link.titleRange
+        let open = NSRange(location: link.range.location, length: 1)
+        let close = NSRange(location: NSMaxRange(title), length: NSMaxRange(link.range) - NSMaxRange(title))
+        let hidden: [NSAttributedString.Key: Any] = [.font: NSFont.systemFont(ofSize: 0.01), .foregroundColor: NSColor.clear]
+        storage.addAttributes(hidden, range: open)
+        storage.addAttributes(hidden, range: close)
+        storage.addAttribute(.kern, value: (chipPadding + chipIconSize + chipIconGap) * scale, range: open)
+        storage.addAttribute(.kern, value: chipPadding * scale, range: NSRange(location: NSMaxRange(link.range) - 1, length: 1))
+        storage.removeAttribute(.underlineStyle, range: title)
+        storage.addAttribute(.foregroundColor, value: NSColor.linkColor, range: title)
+    }
+
+    /// The space inside a chip at each end, at 100 %.
+    static let chipPadding: CGFloat = 5
+    /// The link icon at the start of a chip, and the space between it and the title, at 100 %.
+    static let chipIconSize: CGFloat = 11
+    private static let chipIconGap: CGFloat = 3
 
     /// Blocks first, inline styles on top, dimming last; a task box and its check last of all.
     /// A ticked item's grey and strike-through go right after the inline styles: its bold and
