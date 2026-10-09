@@ -19,6 +19,9 @@ final class QuickEntryModel {
     let flow: QuickEntryFlow
     @ObservationIgnored private let store: TodoStore
     @ObservationIgnored var close: () -> Void = {}
+    /// Esc goes back to the screen this was opened from (Browse, an Overview tile's list, the
+    /// launcher) instead of closing the panel; the key hints say "back" then (set by the opener).
+    @ObservationIgnored var escapeReturns = false
     /// Runs once the flow has finished (saved, cancelled, deleted), e.g. to clear unused staged files.
     @ObservationIgnored var didFinish: () -> Void = {}
     /// Opens attachments and file pickers for this panel (set by the app controller).
@@ -469,11 +472,19 @@ final class BrowseModel {
 
     /// ⌘↩ / ⌘D / Save / Done in the tile editor wrote the todo: back to the tile's list with the
     /// new data, the todo (or the row now in its place) selected. A new todo: focus moves to the
-    /// tile it was saved into, with it selected.
+    /// tile it was saved into, with it selected. The write is done; when the list can't be read
+    /// back (so a new todo would silently be missing from it), say so.
     private func tileEditorSaved(_ editor: QuickEntryModel) {
         withAnimation(.snappy(duration: 0.22)) {
-            if let todos = try? store.openSnapshots() { flow.reload(todos) }
-            flow.closeEditor(created: editor.createdTodoID)
+            var refreshed = true
+            do {
+                flow.reload(try store.openSnapshots())
+            } catch {
+                log.error("Browse refresh after save failed: \(error, privacy: .public)")
+                refreshed = false
+            }
+            let shown = flow.closeEditor(created: editor.createdTodoID)
+            errorMessage = refreshed && shown ? nil : "Saved, but the list couldn't be refreshed."
             tileEditor = nil
         }
     }

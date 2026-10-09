@@ -194,7 +194,8 @@ struct QuickEntryView: View {
 
     /// The hints in a tile, when the full ones don't fit.
     private var shortHint: String {
-        shownPhase == .pickingQuadrant ? "1–4 choose · esc cancel" : "⌘↩ save · esc cancel"
+        let esc = flow.isEditing ? "cancel" : closeWord
+        return shownPhase == .pickingQuadrant ? "1–4 choose · esc \(esc)" : "⌘↩ save · esc \(esc)"
     }
 
     private var hint: String {
@@ -208,8 +209,10 @@ struct QuickEntryView: View {
         }
     }
 
-    /// What Esc does to a new todo: closes the panel, or, in an Overview tile, goes back to its list.
-    private var closeWord: String { inTile ? "back" : "close" }
+    /// What Esc does to a new todo: closes the panel, or goes back to where it was opened from
+    /// (Browse's list, an Overview tile's list, the launcher). An edit says "cancel" either way:
+    /// Esc discards it.
+    private var closeWord: String { model.escapeReturns ? "back" : "close" }
 }
 
 /// `QuickEntryView`'s measured heights in an Overview tile.

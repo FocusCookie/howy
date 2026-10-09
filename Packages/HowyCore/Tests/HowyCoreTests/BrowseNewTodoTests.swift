@@ -66,29 +66,112 @@ import Testing
         #expect(flow.movePicker != nil)
     }
 
-    @Test func comingBackAfterSavingSelectsTheNewTodoOnTop() {
+    // MARK: Coming back from the create screen (BrowseReturn)
+
+    /// `n` in the list of `quadrant` with `title` selected: the return point the create screen gets.
+    func openCreate(_ flow: BrowseFlow, in quadrant: Quadrant, selecting title: String) throws -> BrowseReturn {
+        flow.handle(.digit(quadrant.shortcutNumber))
+        flow.select(id: try id(flow, title))
+        #expect(flow.handle(.letter(BrowseFlow.newKey)) == .newTodo(quadrant))
+        return flow.returnPoint(viaLauncher: false)
+    }
+
+    @Test func theReturnPointIsTheShownListAndItsSelection() throws {
         let flow = make()
-        let new = TodoSnapshot(id: UUID(), title: "new", quadrant: .urgentUnimportant)
-        // The create screen saved into another quadrant (⇧⇥) than the one browsed.
+        let back = try openCreate(flow, in: .notUrgentImportant, selecting: "q")
+        #expect(back == BrowseReturn(quadrant: .notUrgentImportant, todoID: try id(flow, "q"), index: 1, viaLauncher: false))
+        #expect(flow.returnPoint(viaLauncher: true).viaLauncher)
+    }
+
+    @Test func savingIntoTheBrowsedQuadrantComesBackWithTheNewTodoSelectedOnTop() throws {
+        let flow = make()
+        let back = try openCreate(flow, in: .urgentImportant, selecting: "b")
+        let new = TodoSnapshot(id: UUID(), title: "new", quadrant: .urgentImportant)
         let resumed = BrowseFlow(todos: adding(new, to: flow))
-        resumed.resumeListing(.urgentUnimportant, selecting: new.id, fallbackIndex: 0)
+        resumed.resume(at: back.afterCreate(new.id, savedInto: .urgentImportant))
         #expect(resumed.phase == .listing)
+        #expect(resumed.quadrant == .urgentImportant)
+        #expect(resumed.rows.map(\.title) == ["new", "c", "b", "a"])
+        #expect(resumed.selectedIndex == 0)
+        #expect(resumed.selectedTodo?.id == new.id)
+    }
+
+    @Test func savingIntoAnotherQuadrantComesBackListingThatOne() throws {
+        let flow = make()
+        // Browsing 2 with "q" selected; ⇧⇥ in the create screen picked 3.
+        let back = try openCreate(flow, in: .notUrgentImportant, selecting: "q")
+        let new = TodoSnapshot(id: UUID(), title: "new", quadrant: .urgentUnimportant)
+        let resumed = BrowseFlow(todos: adding(new, to: flow))
+        resumed.resume(at: back.afterCreate(new.id, savedInto: .urgentUnimportant))
         #expect(resumed.quadrant == .urgentUnimportant)
         #expect(resumed.rows.map(\.title) == ["new", "x"])
         #expect(resumed.selectedTodo?.id == new.id)
     }
 
-    @Test func comingBackAfterEscKeepsTheEarlierSelection() throws {
+    @Test func aSavedTodoMissingFromTheDataSelectsTheTopRow() throws {
+        let flow = make()
+        let back = try openCreate(flow, in: .urgentImportant, selecting: "a")
+        // Saved into 2, but the fresh data doesn't have it (yet).
+        let resumed = BrowseFlow(todos: adding(TodoSnapshot(id: UUID(), title: "other", quadrant: .notUrgentImportant), to: flow))
+        resumed.resume(at: back.afterCreate(UUID(), savedInto: .notUrgentImportant))
+        #expect(resumed.quadrant == .notUrgentImportant)
+        #expect(resumed.selectedIndex == 0)
+        #expect(resumed.selectedTodo?.title == "other")
+    }
+
+    @Test func escComesBackToTheEarlierQuadrantAndSelection() throws {
+        let flow = make()
+        let back = try openCreate(flow, in: .urgentImportant, selecting: "b")
+        let b = try id(flow, "b")
+        // Nothing saved: no id, no saved quadrant.
+        let way = back.afterCreate(nil, savedInto: nil)
+        #expect(way == back)
+        let resumed = BrowseFlow(todos: adding(TodoSnapshot(id: UUID(), title: "elsewhere", quadrant: .notUrgentUnimportant), to: flow))
+        resumed.resume(at: way)
+        #expect(resumed.quadrant == .urgentImportant)
+        #expect(resumed.selectedTodo?.id == b)
+        #expect(resumed.selectedIndex == 1)
+    }
+
+    @Test func escAfterTheSelectedTodoWentKeepsTheEarlierIndex() throws {
+        let flow = make()
+        let back = try openCreate(flow, in: .urgentImportant, selecting: "b")
+        // Meanwhile "b" was completed from the widget.
+        var data = adding(TodoSnapshot(id: UUID(), title: "z", quadrant: .notUrgentUnimportant), to: flow)
+        data[.urgentImportant]?.removeAll { $0.title == "b" }
+        let resumed = BrowseFlow(todos: data)
+        resumed.resume(at: back.afterCreate(nil, savedInto: nil))
+        #expect(resumed.quadrant == .urgentImportant)
+        #expect(resumed.selectedTodo?.title == "a", "the row now at b's place")
+    }
+
+    @Test func escFromAnEmptyQuadrantComesBackToIt() throws {
+        let flow = make()
+        flow.handle(.digit(4))
+        #expect(flow.handle(.letter("n")) == .newTodo(.notUrgentUnimportant))
+        let back = flow.returnPoint(viaLauncher: true)
+        #expect(back.todoID == nil && back.index == nil)
+        let resumed = BrowseFlow(todos: adding(TodoSnapshot(id: UUID(), title: "z", quadrant: .urgentImportant), to: flow))
+        resumed.resume(at: back.afterCreate(nil, savedInto: .notUrgentUnimportant))
+        #expect(resumed.quadrant == .notUrgentUnimportant)
+        #expect(resumed.selectedTodo == nil)
+    }
+
+    @Test func theWayBackKeepsViaLauncher() throws {
+        let flow = make()
+        flow.handle(.digit(1))
+        let back = flow.returnPoint(viaLauncher: true)
+        #expect(back.afterCreate(UUID(), savedInto: .notUrgentImportant).viaLauncher)
+        #expect(back.afterCreate(nil, savedInto: nil).viaLauncher)
+    }
+
+    @Test func openingATodoReturnsToItAtTheSelectedRow() throws {
         let flow = make()
         flow.handle(.digit(1))
         flow.handle(.down)
-        let b = try id(flow, "b")
-        #expect(flow.handle(.letter("n")) == .newTodo(.urgentImportant))
-        // Esc on the create screen: Browse comes back from the same data and selection.
-        let resumed = BrowseFlow(todos: adding(TodoSnapshot(id: UUID(), title: "-", quadrant: .urgentImportant), to: flow))
-        resumed.reload([.urgentImportant: flow.rows(in: .urgentImportant)])
-        resumed.resumeListing(.urgentImportant, selecting: b, fallbackIndex: flow.selectedIndex)
-        #expect(resumed.selectedTodo?.id == b)
+        let a = try id(flow, "a")
+        let back = flow.returnPoint(opening: a, viaLauncher: false)
+        #expect(back == BrowseReturn(quadrant: .urgentImportant, todoID: a, index: 1, viaLauncher: false))
     }
 
     // MARK: Overview
@@ -210,6 +293,103 @@ import Testing
         flow.handle(.letter("n"))
         #expect(flow.toggleOverview() == .hideOverview)
         #expect(flow.tileEditor == nil)
+    }
+
+    @Test func nInTheOverviewWithTheMovePickerOpenDoesNothing() {
+        let flow = make()
+        flow.toggleOverview()
+        flow.handle(.letter("m"))
+        #expect(flow.handle(.letter("n")) == .handled)
+        #expect(flow.tileEditor == nil)
+        #expect(flow.movePicker?.todo.title == "c")
+    }
+
+    @Test func editorKeysWhileCreatingDontReachBrowse() throws {
+        let flow = make()
+        flow.toggleOverview()
+        flow.handle(.down)
+        // An earlier completion that ⌘Z could take back.
+        let b = try id(flow, "b")
+        #expect(flow.handle(.letter("d")) == .complete(b))
+        #expect(flow.canUndo)
+        flow.handle(.letter("n"))
+        let before = Quadrant.allCases.map { flow.rows(in: $0).map(\.title) }
+        for key: QuickEntryKey in [.undo, .tab, .shiftTab, .moveUp, .moveDown] {
+            #expect(flow.handle(key) == .ignored, "\(key) is the editor's")
+        }
+        #expect(Quadrant.allCases.map { flow.rows(in: $0).map(\.title) } == before, "nothing undone or reordered")
+        #expect(flow.rows(in: .urgentImportant).map(\.title) == ["c", "a"])
+        #expect(flow.canUndo)
+        #expect(flow.quadrant == .urgentImportant)
+        #expect(flow.selectedTodo?.title == "a")
+        #expect(flow.tileEditor == .create(.urgentImportant))
+    }
+
+    @Test func nudgingInTheTileBeingCreatedInIsRefused() throws {
+        let flow = make()
+        flow.toggleOverview()
+        flow.handle(.letter("n"))
+        #expect(flow.nudge(id: try id(flow, "c"), by: 1) == .ignored)
+        #expect(flow.rows(in: .urgentImportant).map(\.title) == ["c", "b", "a"])
+        // Another tile still takes it, and focus stays here.
+        #expect(flow.nudge(id: try id(flow, "p"), by: 1) == .reorder(.notUrgentImportant))
+        #expect(flow.quadrant == .urgentImportant)
+        #expect(flow.tileEditor == .create(.urgentImportant))
+    }
+
+    @Test func closingTheFlowClearsTheCreateEditor() {
+        let flow = make()
+        flow.toggleOverview()
+        flow.handle(.letter("n"))
+        #expect(flow.close() == .close)
+        #expect(flow.tileEditor == nil)
+        #expect(flow.handle(.letter("n")) == .ignored)
+    }
+
+    @Test func toggleOverviewClearsTheCreateEditorAndComesBackWithout() {
+        let flow = make()
+        flow.toggleOverview()
+        flow.handle(.digit(2))
+        flow.handle(.letter("n"))
+        #expect(flow.toggleOverview() == .hideOverview)
+        #expect(flow.tileEditor == nil)
+        #expect(flow.toggleOverview() == .showOverview)
+        #expect(flow.tileEditor == nil)
+        #expect(flow.quadrant == .notUrgentImportant)
+    }
+
+    @Test func closingACreateEditorWithoutASaveKeepsTheEarlierSelection() throws {
+        let flow = make()
+        flow.toggleOverview()
+        flow.handle(.digit(2))
+        flow.handle(.down)
+        flow.handle(.letter("n"))
+        #expect(flow.closeEditor(created: nil))
+        #expect(flow.tileEditor == nil)
+        #expect(flow.quadrant == .notUrgentImportant)
+        #expect(try flow.selectedTodo?.id == id(flow, "q"))
+    }
+
+    @Test func closingWithACreatedIdThatIsNotInTheDataReportsIt() throws {
+        let flow = make()
+        flow.toggleOverview()
+        flow.handle(.down)
+        flow.handle(.letter("n"))
+        // The save went through but reading the list back failed: the data is the old one.
+        #expect(flow.closeEditor(created: UUID()) == false)
+        #expect(flow.tileEditor == nil)
+        #expect(flow.quadrant == .urgentImportant)
+        #expect(try flow.selectedTodo?.id == id(flow, "b"), "the tile keeps its earlier selection")
+    }
+
+    @Test func closingWithACreatedIdInTheDataReportsIt() {
+        let flow = make()
+        flow.toggleOverview()
+        flow.handle(.letter("n"))
+        let new = TodoSnapshot(id: UUID(), title: "new", quadrant: .urgentUnimportant)
+        flow.reload(adding(new, to: flow))
+        #expect(flow.closeEditor(created: new.id))
+        #expect(flow.selectedTodo?.id == new.id)
     }
 }
 

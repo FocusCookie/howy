@@ -20,7 +20,9 @@ final class AppController {
     /// all panels, saved on every change and applied to an open panel right away.
     private(set) var panelZoom = PanelZoom.load()
 
-    private enum PanelKind { case launcher, quickEntry, edit, archive, browse, error }
+    /// `browseCreate`: the create screen `n` opens from Browse's list. Like `edit`, the Quick Add
+    /// hotkey replaces it (its draft stashed first) instead of toggling it closed.
+    private enum PanelKind { case launcher, quickEntry, browseCreate, edit, archive, browse, error }
 
     @ObservationIgnored private var panel: FloatingPanel?
     @ObservationIgnored private var panelKind: PanelKind?
@@ -160,7 +162,8 @@ final class AppController {
     }
 
     func toggleQuickEntry() {
-        // Only a quick-entry panel toggles closed; an edit or archive panel is replaced by Quick Add.
+        // Only a quick-entry panel toggles closed; an edit, Browse create or archive panel is
+        // replaced by Quick Add.
         if panel != nil, panelKind == .quickEntry {
             panel?.dismiss()
         } else {
@@ -179,16 +182,6 @@ final class AppController {
         } else {
             showBrowse()
         }
-    }
-
-    /// Where an edit or a new todo opened from Browse returns to.
-    private struct BrowseReturn {
-        let quadrant: Quadrant
-        /// The todo to select; `nil` (an empty list) selects nothing.
-        let todoID: UUID?
-        let index: Int?
-        /// Browse itself was opened from the launcher, so leaving it goes back there.
-        let viaLauncher: Bool
     }
 
     func showBrowse(activate: Bool = false) {
@@ -211,7 +204,7 @@ final class AppController {
             return
         }
         let flow = BrowseFlow(todos: todos)
-        if let back { flow.resumeListing(back.quadrant, selecting: back.todoID, fallbackIndex: back.index) }
+        if let back { flow.resume(at: back) }
         if fromArchive { flow.highlightArchive() }
         let model = BrowseModel(flow: flow, store: store)
         let panel = present(.browse, activate: activate) { BrowseView(model: model) }
@@ -223,17 +216,11 @@ final class AppController {
             if viaLauncher { self?.showLauncher(highlighting: .browse) } else { panel?.dismiss() }
         }
         model.openTodo = { [weak self, weak flow] id in
-            let back = flow.map {
-                BrowseReturn(quadrant: $0.quadrant, todoID: id, index: $0.selectedIndex, viaLauncher: viaLauncher)
-            }
-            self?.showEdit(id: id, returningTo: back)
+            self?.showEdit(id: id, returningTo: flow?.returnPoint(opening: id, viaLauncher: viaLauncher))
         }
         model.createTodo = { [weak self, weak flow] quadrant in
             guard let flow else { return }
-            let back = BrowseReturn(
-                quadrant: flow.quadrant, todoID: flow.selectedTodo?.id, index: flow.selectedIndex, viaLauncher: viaLauncher
-            )
-            self?.showCreate(in: quadrant, returningTo: back)
+            self?.showCreate(in: quadrant, returningTo: flow.returnPoint(viaLauncher: viaLauncher))
         }
         model.openArchive = { [weak self] in
             self?.showArchive(returning: { [weak self] in
@@ -268,6 +255,7 @@ final class AppController {
             flow = createFlow(in: quadrant)
         }
         let model = QuickEntryModel(flow: flow, store: store)
+        model.escapeReturns = true // back to the tile's list
         if let panel {
             model.presenter = AttachmentPresenter(panel: panel) { [weak self] in self?.activateForPanel() }
         }
@@ -283,12 +271,16 @@ final class AppController {
         viaLauncher: Bool = false, activate: Bool = false
     ) {
         guard let store = freshStore(activate: activate) else { return }
+        // A create screen or tile editor being replaced stashes its text now, so this flow
+        // restores it (the shared create draft) instead of the one stashed before.
+        stashOpenDraft()
         let flow = QuickEntryFlow(
             mode: .create(preselected: preselected, startingInTitle: startingInTitle),
             lastUsed: lastUsed, drafts: drafts,
             startQuadrant: NewTodoQuadrant.load()
         )
         let model = QuickEntryModel(flow: flow, store: store)
+        model.escapeReturns = viaLauncher
         presentQuickEntry(model, kind: .quickEntry, activate: activate)
         if viaLauncher {
             model.close = { [weak self, weak model] in
@@ -317,18 +309,13 @@ final class AppController {
     /// `back` (the draft is stashed); losing focus still closes.
     private func showCreate(in quadrant: Quadrant, returningTo back: BrowseReturn) {
         guard let store = freshStore() else { return }
+        stashOpenDraft()
         let model = QuickEntryModel(flow: createFlow(in: quadrant), store: store)
-        presentQuickEntry(model, kind: .quickEntry, activate: false)
+        model.escapeReturns = true
+        presentQuickEntry(model, kind: .browseCreate, activate: false)
         model.close = { [weak self, weak model] in
             guard let self, let model else { return }
-            if let id = model.createdTodoID, let saved = model.flow.savedDraft {
-                // New todos go on top of their quadrant.
-                self.showBrowse(resuming: BrowseReturn(
-                    quadrant: saved.quadrant, todoID: id, index: 0, viaLauncher: back.viaLauncher
-                ))
-            } else {
-                self.showBrowse(resuming: back)
-            }
+            self.showBrowse(resuming: back.afterCreate(model.createdTodoID, savedInto: model.flow.savedDraft?.quadrant))
         }
     }
 
@@ -392,6 +379,13 @@ final class AppController {
         // Focus loss, the hotkey, or another panel replacing this one: keep what was typed.
         // (No-op after Esc / save / delete, which finished the flow already.)
         panel.willClose = { model.flow.abandon() }
+    }
+
+    /// Runs the open screen's `willClose` now (stashing its draft) instead of when it is replaced,
+    /// for a screen about to read the drafts.
+    private func stashOpenDraft() {
+        panel?.willClose?()
+        panel?.willClose = nil
     }
 
     /// Makes Howy the active app for the open panel (Quick Look, a file picker need it), remembering

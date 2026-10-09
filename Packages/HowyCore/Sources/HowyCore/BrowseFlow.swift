@@ -42,8 +42,9 @@ import Observation
 ///   focuses there (`.dismissEditor(_, stash: true)`).
 /// - Closed: every key is `.ignored`.
 ///
-/// An opened todo's edit modal comes back here (`resumeListing`) on Esc, save or delete; so does
-/// the create screen `n` opens from the list (selecting the new todo after a save).
+/// An opened todo's edit modal comes back here (`resume(at:)`, with the `BrowseReturn` taken by
+/// `returnPoint`) on Esc, save or delete; so does the create screen `n` opens from the list
+/// (`BrowseReturn.afterCreate`: the new todo selected after a save).
 ///
 /// Rows keep the order they are given in (the store's order), until moved here.
 @MainActor
@@ -379,17 +380,23 @@ public final class BrowseFlow {
     /// place. A new todo: pass its id (`created`) once saved, and focus moves to the tile it was
     /// saved into with it selected; without one (discarded, stashed) the tile keeps its earlier
     /// selection. Call `reload` with the new data first when the save changed it.
-    public func closeEditor(created id: UUID? = nil) {
-        guard let editor = tileEditor else { return }
+    /// Returns `false` when `created` is not in the data (the reload failed or missed it, so the
+    /// new todo isn't shown; the tile keeps its earlier selection), `true` otherwise.
+    @discardableResult
+    public func closeEditor(created id: UUID? = nil) -> Bool {
+        let target = id.flatMap { quadrant(of: $0) }
+        let found = id == nil || target != nil
+        guard let editor = tileEditor else { return found }
         tileEditor = nil
         switch editor {
         case .edit(let id):
             select(id: id)
         case .create:
-            guard let id, let target = quadrant(of: id) else { return }
+            guard let id, let target else { return found }
             _ = focus(target)
             select(id: id)
         }
+        return found
     }
 
     /// Overview drag and drop: whether `target`'s tile takes drops. Not the focused tile while
