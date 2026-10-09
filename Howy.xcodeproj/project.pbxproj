@@ -25,6 +25,7 @@
 		7B8617FF23F33CDA934FF17B /* WidgetData.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */; };
 		87597DDB9BF1C8A5DB3B686C /* Shortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8CA0B7EB52C029E60626C72D /* Shortcuts.swift */; };
 		882E6D310D0C467DF5D54791 /* QuickEntryView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 863690EEA21F9E6873E85406 /* QuickEntryView.swift */; };
+		8CC3A0D4DE3D54EC2A48BC07 /* NotificationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6954A62D6557861C23C1905F /* NotificationCoordinator.swift */; };
 		90CAB29D5AFA6A47AD728A80 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1849ED8A8D6DAF74152C550F /* WidgetKit.framework */; };
 		97DAF4E1F5C8FFDFDE99EF36 /* QuadrantGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */; };
 		98988958D07DD7B453ECF9BD /* QuadrantWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF7864E63A309407B19B6FBB /* QuadrantWidget.swift */; };
@@ -90,6 +91,7 @@
 		5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelEffects.swift; sourceTree = "<group>"; };
 		5D8838F23A0C476077574AA5 /* HowyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowyApp.swift; sourceTree = "<group>"; };
 		63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
+		6954A62D6557861C23C1905F /* NotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCoordinator.swift; sourceTree = "<group>"; };
 		7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
 		7F9104238927E773B54C4668 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		82DDD24CA1511C11CC068778 /* HowyCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = HowyCore; path = Packages/HowyCore; sourceTree = SOURCE_ROOT; };
@@ -188,6 +190,7 @@
 				C36129D26F9300D8846BDBF0 /* LauncherView.swift */,
 				F7A6B40B88A0280CF3C3DC4C /* LinkDialogView.swift */,
 				84290BBDBCD49A56EEA94F7B /* MarkdownNoteEditor.swift */,
+				6954A62D6557861C23C1905F /* NotificationCoordinator.swift */,
 				010CD0FEE36D7BBC57C87D57 /* OverviewView.swift */,
 				5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */,
 				E8DCC0EBC32977CBF8994EC2 /* PanelScale.swift */,
@@ -335,6 +338,7 @@
 				EB8D902146CAB44DDD4BC4FC /* LauncherView.swift in Sources */,
 				6753D169D26BE04DE5E8480C /* LinkDialogView.swift in Sources */,
 				B78F79856B67B0C7107B52B4 /* MarkdownNoteEditor.swift in Sources */,
+				8CC3A0D4DE3D54EC2A48BC07 /* NotificationCoordinator.swift in Sources */,
 				671AA6B198F1606C750DB690 /* OverviewView.swift in Sources */,
 				FF3F3E4AB4EB81E4BE20CD3B /* PanelEffects.swift in Sources */,
 				B2C9D747286103DD16C2CC3F /* PanelScale.swift in Sources */,

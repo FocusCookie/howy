@@ -15,8 +15,8 @@ public enum TodoStoreError: Error, Equatable, Sendable {
 
 /// All reads and writes of todos. Main-actor bound because it owns a `ModelContext`.
 ///
-/// Every successful write saves the context and then calls `didWrite`
-/// (by default, for the shared store, `TodoStore.reloadWidgetTimelines`).
+/// Every successful write saves the context and then calls `didWrite` (by default, for the
+/// shared store, `TodoStore.reloadWidgetTimelines` and `StoreChangeSignal.post`).
 @MainActor
 public final class TodoStore {
     /// File name of the SQLite store inside the App Group container.
@@ -45,9 +45,13 @@ public final class TodoStore {
     // MARK: Factories
 
     /// The on-disk store in the App Group container, shared by the app and the widget extension.
+    /// By default every write reloads the widgets and posts `StoreChangeSignal`.
     public static func shared(
         now: @escaping @Sendable () -> Date = { Date() },
-        didWrite: (@MainActor () -> Void)? = { TodoStore.reloadWidgetTimelines() }
+        didWrite: (@MainActor () -> Void)? = {
+            TodoStore.reloadWidgetTimelines()
+            StoreChangeSignal.post()
+        }
     ) throws -> TodoStore {
         try TodoStore(
             modelContainer: makeContainer(url: sharedStoreURL()), attachments: AttachmentStore.shared(),

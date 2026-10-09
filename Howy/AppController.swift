@@ -68,15 +68,24 @@ final class AppController {
             }
         }
         launchesAtLogin = SMAppService.mainApp.status == .enabled
+        // The notification delegate must be in place before launching finishes.
+        NotificationCoordinator.shared.start { [weak self] id in self?.showEdit(id: id, activate: true) }
         purgeTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.purgeArchive() }
+            MainActor.assumeIsolated {
+                self?.purgeArchive()
+                NotificationCoordinator.shared.requestSync()
+            }
         }
         purgeTimer?.tolerance = 60 * 60
-        // Timers don't advance while the Mac sleeps, so also purge on wake.
+        // Timers don't advance while the Mac sleeps, so also purge (and catch up on due dates
+        // that passed meanwhile) on wake.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.didWakeNotification, object: nil, queue: .main
         ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.purgeArchive() }
+            MainActor.assumeIsolated {
+                self?.purgeArchive()
+                NotificationCoordinator.shared.requestSync()
+            }
         }
         // Keep the hotkey responsive: the slow launch work (login item, store open) runs after launch.
         Task { @MainActor [weak self] in
