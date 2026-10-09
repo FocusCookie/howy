@@ -46,7 +46,7 @@ struct QuadrantWidgetView: View {
                 if entry.readFailed {
                     WidgetErrorView()
                 } else {
-                    QuadrantSectionView(content: section)
+                    QuadrantSectionView(content: section, date: entry.date)
                 }
             }
                 // In the small family the whole widget is one tap target and Links inside are

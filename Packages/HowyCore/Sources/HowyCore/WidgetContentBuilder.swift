@@ -78,4 +78,17 @@ public enum WidgetContentBuilder {
             )
         })
     }
+
+    /// The earliest due date after `now` among the open todos (the moment a clock turns red).
+    public static func nextDueDate(openTodos: [Quadrant: [TodoSnapshot]], after now: Date) -> Date? {
+        openTodos.values.joined().compactMap(\.due).filter { $0 > now }.min()
+    }
+
+    /// When the timeline should be reloaded: at the next due moment, so a row turns overdue right
+    /// then, or after `fallback` (the hourly safety net), whichever comes first. Rows draw their
+    /// clock from `TodoSnapshot.dueState(at:)` with the entry's date.
+    public static func nextRefreshDate(openTodos: [Quadrant: [TodoSnapshot]], now: Date, fallback: TimeInterval) -> Date {
+        let latest = now.addingTimeInterval(fallback)
+        return min(nextDueDate(openTodos: openTodos, after: now) ?? latest, latest)
+    }
 }

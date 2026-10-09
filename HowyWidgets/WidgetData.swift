@@ -57,12 +57,22 @@ enum WidgetData {
         )
     }
 
+    /// One entry now and, when a todo falls due before the hourly refresh, one at that moment (its
+    /// clock turns red then); the timeline reloads at that moment too, for the next one.
     static func timeline(family: WidgetFamily, quadrant: Quadrant?) async -> Timeline<HowyEntry> {
         let now = Date.now
-        let entry = entry(from: await openTodos(), family: family, quadrant: quadrant, date: now)
+        let todos = await openTodos()
+        let entry = entry(from: todos, family: family, quadrant: quadrant, date: now)
         // Retry sooner after a failure.
-        let next = entry.readFailed ? 5 * 60 : refreshInterval
-        return Timeline(entries: [entry], policy: .after(now.addingTimeInterval(next)))
+        guard let todos, !entry.readFailed else {
+            return Timeline(entries: [entry], policy: .after(now.addingTimeInterval(5 * 60)))
+        }
+        let refresh = WidgetContentBuilder.nextRefreshDate(openTodos: todos, now: now, fallback: refreshInterval)
+        var entries = [entry]
+        if let due = WidgetContentBuilder.nextDueDate(openTodos: todos, after: now), due <= refresh {
+            entries.append(HowyEntry(date: due, content: entry.content))
+        }
+        return Timeline(entries: entries, policy: .after(refresh))
     }
 }
 
@@ -72,7 +82,7 @@ enum SampleData {
         .urgentImportant: make(.urgentImportant, [
             "Send invoice to client", "Fix login bug in production", "Call the landlord",
             "Renew passport", "Prepare board slides", "Pay electricity bill", "Book dentist",
-        ]),
+        ], due: [1: -2 * 60 * 60, 2: 3 * 24 * 60 * 60]),
         .notUrgentImportant: make(.notUrgentImportant, [
             "Plan Q4 roadmap", "Read “Deep Work”", "Weekly review",
         ]),
@@ -93,7 +103,10 @@ enum SampleData {
         )
     }
 
-    private static func make(_ quadrant: Quadrant, _ titles: [String]) -> [TodoSnapshot] {
-        titles.map { TodoSnapshot(id: UUID(), title: $0, quadrant: quadrant) }
+    /// `due`: seconds from now by title index, for a few sample clocks (one overdue).
+    private static func make(_ quadrant: Quadrant, _ titles: [String], due: [Int: TimeInterval] = [:]) -> [TodoSnapshot] {
+        titles.enumerated().map { index, title in
+            TodoSnapshot(id: UUID(), title: title, quadrant: quadrant, due: due[index].map { Date.now.addingTimeInterval($0) })
+        }
     }
 }

@@ -92,7 +92,7 @@ struct MatrixWidgetView: View {
             ForEach(rows, id: \.self) { row in
                 GridRow {
                     ForEach(row, id: \.quadrant) { section in
-                        QuadrantSectionView(content: section)
+                        QuadrantSectionView(content: section, date: entry.date)
                             .quadrantTile(section.quadrant)
                     }
                 }

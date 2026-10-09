@@ -13,8 +13,10 @@ enum WidgetMetrics {
 }
 
 /// One quadrant: coloured label (→ quick add), rows (checkbox + title → edit), "+N more", or a quiet empty state.
+/// `date` is the timeline entry's: a row's clock is red once its due date is at or before it.
 struct QuadrantSectionView: View {
     let content: QuadrantContent
+    let date: Date
 
     var body: some View {
         VStack(alignment: .leading, spacing: WidgetMetrics.labelSpacing) {
@@ -25,7 +27,7 @@ struct QuadrantSectionView: View {
             } else {
                 VStack(alignment: .leading, spacing: WidgetMetrics.rowSpacing) {
                     ForEach(content.visible) { todo in
-                        TodoRow(todo: todo)
+                        TodoRow(todo: todo, date: date)
                     }
                     if content.overflowCount > 0 {
                         Text("+\(content.overflowCount) more")
@@ -66,6 +68,7 @@ struct QuadrantLabel: View {
 
 struct TodoRow: View {
     let todo: TodoSnapshot
+    let date: Date
 
     var body: some View {
         HStack(spacing: 6) {
@@ -97,11 +100,27 @@ struct TodoRow: View {
                         .layoutPriority(1)
                         .accessibilityLabel("with attachments")
                     }
+                    switch todo.dueState(at: date) {
+                    case .none: EmptyView()
+                    case .upcoming:
+                        dueClock.foregroundStyle(.secondary).accessibilityLabel("with a due date")
+                    case .overdue:
+                        dueClock.foregroundStyle(.red).accessibilityLabel("overdue")
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .contentShape(Rectangle())
             }
         }
+    }
+}
+
+extension TodoRow {
+    /// A small clock after the title (like the paperclip): grey while due later, red once overdue.
+    fileprivate var dueClock: some View {
+        Image(systemName: "clock")
+            .font(.system(size: 9, weight: .medium))
+            .layoutPriority(1)
     }
 }
 
