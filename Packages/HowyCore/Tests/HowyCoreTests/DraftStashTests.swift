@@ -123,23 +123,6 @@ import Testing
         #expect(next.phase == .editingTitle)
     }
 
-    @Test(arguments: [QuickEntryFlow.Phase.pickingQuadrant, .editingTitle, .editingNote])
-    func commandDeleteInCreateModeClearsTheDraftAndReturnsToPicker(phase: QuickEntryFlow.Phase) {
-        let first = makeCreate()
-        first.title = "T"
-        first.note = "N"
-        first.abandon()
-        let flow = makeCreate()
-        flow.focus(phase)
-        #expect(flow.handle(.commandDelete))
-        #expect(flow.title == "")
-        #expect(flow.note == "")
-        #expect(flow.phase == .pickingQuadrant)
-        #expect(!flow.isRestoredDraft)
-        #expect(!flow.isConfirmingDelete, "no confirmation in create mode")
-        #expect(drafts.createDraft() == nil)
-    }
-
     @Test func restoredHintNeedsText() {
         let first = makeCreate()
         first.title = "T"
@@ -201,7 +184,7 @@ import Testing
         #expect(makeEdit(source(id)).title == "Original")
     }
 
-    @Test func savingOrDeletingAnEditClearsItsStash() {
+    @Test func savingOrCompletingAnEditClearsItsStash() {
         let id = UUID()
         let flow = makeEdit(source(id))
         flow.title = "Changed"
@@ -212,18 +195,10 @@ import Testing
         let again = makeEdit(source(id))
         again.title = "Changed again"
         again.abandon()
-        let deleting = makeEdit(source(id))
-        deleting.handle(.commandDelete)
-        deleting.handle(.enter)
-        #expect(deleting.phase == .deleted)
+        let completing = makeEdit(source(id))
+        completing.handle(.commandDone)
+        #expect(completing.phase == .completed)
         #expect(drafts.editDraft(for: id) == nil)
-    }
-
-    @Test func commandDeleteInEditModeStillAsksToDelete() {
-        let flow = makeEdit(source())
-        flow.handle(.commandDelete)
-        #expect(flow.isConfirmingDelete)
-        #expect(flow.title == "Original")
     }
 
     // MARK: persistence

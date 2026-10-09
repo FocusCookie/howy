@@ -1,4 +1,5 @@
 import AppKit
+import HowyCore
 import Quartz
 import SwiftUI
 
@@ -130,10 +131,24 @@ final class FloatingPanel: NSPanel {
 
     override func sendEvent(_ event: NSEvent) {
         if didClose { return } // fading out: nothing may change behind the fade
-        if event.type == .keyDown, !isComposingText, keyHandler?(event) == true {
-            return
+        if event.type == .keyDown, !isComposingText {
+            if closeOnShortcut(event) { return }
+            if keyHandler?(event) == true { return }
         }
         super.sendEvent(event)
+    }
+
+    /// ⌘ keys are offered as key equivalents before `sendEvent`, so ⌘W / ⌘Esc are caught here too.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if closeOnShortcut(event) { return true }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// ⌘W (or ⌘Esc) closes the panel from any screen; a draft is kept as on focus loss (`willClose`).
+    private func closeOnShortcut(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, QuickEntryKey(event: event) == .closePanel else { return false }
+        dismiss()
+        return true
     }
 
     /// Keeps the panel open while another window (Quick Look, a file picker) has key status.

@@ -21,7 +21,7 @@ extension QuickEntryKey {
 
         switch keyCode {
         case 53: // Esc
-            self = .escape
+            self = modifiers == .command ? .closePanel : .escape
         case 36, 76: // Return, keypad Enter
             if command, modifiers == .command {
                 self = .commandEnter
@@ -45,10 +45,14 @@ extension QuickEntryKey {
         case 125 where plain: self = .down
         case 126 where plain: self = .up
         default:
-            if modifiers == .command, characters?.lowercased() == "k" {
+            if modifiers == .command, characters?.lowercased() == "w" {
+                self = .closePanel
+            } else if modifiers == .command, characters?.lowercased() == "k" {
                 self = .moveUp
             } else if modifiers == .command, characters?.lowercased() == "j" {
                 self = .moveDown
+            } else if modifiers == .command, characters?.lowercased() == "d" {
+                self = .commandDone
             } else if modifiers == .command, characters?.lowercased() == "z" {
                 self = .undo
             } else if modifiers == .command, let characters, characters.count == 1, let digit = Int(characters) {

@@ -6,9 +6,18 @@ import Testing
         QuickEntryKey(keyCode: code, modifiers: modifiers, characters: chars)
     }
 
-    @Test func escapeWithAnyModifiers() {
+    @Test func escapeWithAnyOtherModifiers() {
         #expect(key(53) == .escape)
-        #expect(key(53, .command) == .escape)
+        #expect(key(53, .shift) == .escape)
+        #expect(key(53, [.command, .shift]) == .escape)
+    }
+
+    @Test func commandWOrCommandEscapeClosesThePanel() {
+        #expect(key(13, .command, "w") == .closePanel)
+        #expect(key(13, .command, "W") == .closePanel)
+        #expect(key(53, .command) == .closePanel)
+        #expect(key(13, [.command, .shift], "w") == nil)
+        #expect(key(13, [], "w") == .letter("w"))
     }
 
     @Test(arguments: [UInt16(36), 76])
@@ -38,6 +47,12 @@ import Testing
         #expect(key(51, .command) == .commandDelete)
         #expect(key(51) == .backspace)
         #expect(key(51, [.command, .shift]) == nil)
+    }
+
+    @Test func commandDIsDone() {
+        #expect(key(2, .command, "d") == .commandDone)
+        #expect(key(2, [], "d") == .letter("d"))
+        #expect(key(2, [.command, .shift], "d") == nil)
     }
 
     @Test func arrowsNeedNoModifiers() {

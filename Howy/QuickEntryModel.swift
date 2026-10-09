@@ -129,11 +129,8 @@ final class QuickEntryModel {
         finishIfNeeded()
     }
 
-    func requestDelete() { flow.requestDelete() }
-    func cancelDelete() { flow.cancelDelete() }
-
-    func confirmDelete() {
-        flow.confirmDelete()
+    func complete() {
+        flow.complete()
         finishIfNeeded()
     }
 
@@ -141,8 +138,8 @@ final class QuickEntryModel {
         switch flow.phase {
         case .saved:
             if persist() { close() } else { flow.reopen() }
-        case .deleted:
-            if deleteTodo() { close() } else { flow.reopen() }
+        case .completed:
+            if persist(), completeTodo() { close() } else { flow.reopen() }
         case .cancelled:
             close()
         default:
@@ -177,15 +174,15 @@ final class QuickEntryModel {
         }
     }
 
-    private func deleteTodo() -> Bool {
+    private func completeTodo() -> Bool {
         guard let id = flow.todoID else { return true }
         do {
-            try store.delete(id: id)
+            try store.complete(id: id)
             errorMessage = nil
             return true
         } catch {
-            log.error("Delete failed: \(error, privacy: .public)")
-            errorMessage = "Couldn't delete this todo."
+            log.error("Complete failed: \(error, privacy: .public)")
+            errorMessage = "Couldn't mark this todo done."
             return false
         }
     }

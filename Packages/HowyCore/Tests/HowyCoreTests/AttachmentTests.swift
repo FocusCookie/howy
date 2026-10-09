@@ -326,9 +326,9 @@ import Testing
 
         let next = QuickEntryFlow(mode: .create(), lastUsed: MemoryLastQuadrantStore(), drafts: drafts)
         #expect(next.attachments == [png])
-        next.clearDraft()
-        #expect(next.attachments.isEmpty)
-        #expect(drafts.stashedAttachmentIDs().isEmpty)
+        next.title = "T"
+        next.save()
+        #expect(drafts.stashedAttachmentIDs().isEmpty, "saving clears the stash")
     }
 
     @Test func anEditOnlyChangingAttachmentsIsStashed() {
