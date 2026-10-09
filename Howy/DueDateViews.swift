@@ -301,3 +301,49 @@ private struct HostWindowReader: NSViewRepresentable {
         DispatchQueue.main.async { [weak view] in onWindow(view?.window) }
     }
 }
+
+extension View {
+    /// Shows `dialog` over this screen, the rest dimmed (a click beside it runs `onDismiss`), and
+    /// makes the card tall enough for it: the card clips its content, so on a short screen (Browse
+    /// with one todo) the dialog would otherwise be cut off at the card's bottom edge. The dialog
+    /// stays in the panel's own window, so the keyboard and the close-on-focus-loss rule are
+    /// unaffected; the card goes back to its height when the dialog closes.
+    func dueDialogOverlay<Dialog: View>(
+        isPresented: Bool, topInset: CGFloat, onDismiss: @escaping () -> Void, @ViewBuilder dialog: @escaping () -> Dialog
+    ) -> some View {
+        modifier(DueDialogOverlay(isPresented: isPresented, topInset: topInset, onDismiss: onDismiss, dialog: dialog))
+    }
+}
+
+private struct DueDialogOverlay<Dialog: View>: ViewModifier {
+    let isPresented: Bool
+    let topInset: CGFloat
+    let onDismiss: () -> Void
+    @ViewBuilder let dialog: () -> Dialog
+    /// The dialog's own height, measured (it doesn't depend on the card's).
+    @State private var dialogHeight: CGFloat = 0
+    @Environment(\.panelScale) private var scale
+
+    /// Room kept under the dialog inside the card.
+    private static var bottomGap: CGFloat { 16 }
+
+    func body(content: Content) -> some View {
+        content
+            .frame(minHeight: isPresented ? topInset + dialogHeight + Self.bottomGap * scale : nil, alignment: .top)
+            .overlay {
+                if isPresented {
+                    ZStack(alignment: .top) {
+                        Color.black.opacity(0.12)
+                            .contentShape(Rectangle())
+                            .onTapGesture(perform: onDismiss)
+                        dialog()
+                            .fixedSize(horizontal: false, vertical: true)
+                            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { dialogHeight = $0 }
+                            .padding(.top, topInset)
+                            .padding(.horizontal, 16 * scale)
+                    }
+                    .transition(.opacity)
+                }
+            }
+    }
+}

@@ -62,7 +62,9 @@ struct BrowseView: View {
                 footer
             }
             .frame(maxHeight: model.morph.isExpandedLayout ? .infinity : nil, alignment: .top)
-            .overlay { dueDialog }
+            .dueDialogOverlay(isPresented: flow.dueDialog != nil, topInset: 24 * scale, onDismiss: { model.cancelDue() }) {
+                dueDialog
+            }
             .onChange(of: model.lastMove) { _, event in
                 guard let event else { return }
                 panelEffects?.launchBadge(event.isUndo ? "Back to" : "Moved to", quadrant: event.quadrant)
@@ -264,25 +266,17 @@ struct BrowseView: View {
 
     // MARK: Due date
 
-    /// The due-date dialog over the list (or the Overview), the rest dimmed; a click beside it cancels.
+    /// The due-date dialog over the list or the Overview (`dueDialogOverlay` dims the rest and makes room).
     @ViewBuilder private var dueDialog: some View {
         if let dialog = flow.dueDialog {
-            ZStack(alignment: .top) {
-                Color.black.opacity(0.12)
-                    .contentShape(Rectangle())
-                    .onTapGesture { model.cancelDue() }
-                DueDateDialogView(dialog: dialog, now: flow.now, actions: DueDateDialogActions(
-                    setText: { flow.setDueText($0) },
-                    confirm: { model.confirmDue() },
-                    cancel: { model.cancelDue() },
-                    remove: { model.removeDue() },
-                    toggleExamples: { flow.toggleDueExamples() },
-                    pickExample: { flow.pickDueExample($0) }
-                ))
-                .padding(.top, 24 * scale)
-                .padding(.horizontal, 16 * scale)
-            }
-            .transition(.opacity)
+            DueDateDialogView(dialog: dialog, now: flow.now, actions: DueDateDialogActions(
+                setText: { flow.setDueText($0) },
+                confirm: { model.confirmDue() },
+                cancel: { model.cancelDue() },
+                remove: { model.removeDue() },
+                toggleExamples: { flow.toggleDueExamples() },
+                pickExample: { flow.pickDueExample($0) }
+            ))
         }
     }
 

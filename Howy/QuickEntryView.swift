@@ -40,7 +40,9 @@ struct QuickEntryView: View {
             }
         }
         .overlay { linkDialog }
-        .overlay { dueDialog }
+        .dueDialogOverlay(isPresented: flow.dueDialog != nil, topInset: 40 * scale, onDismiss: { flow.cancelDue() }) {
+            dueDialog
+        }
         .background(WindowReader { panel.window = $0 as? FloatingPanel })
         .onChange(of: flow.dueDialog == nil) { _, closed in
             // Back from the due-date dialog: the field under it gets the keyboard again.
@@ -194,25 +196,17 @@ struct QuickEntryView: View {
     /// The width kept free for the popover at the editor's right edge, at 100 %.
     private static let popoverRoom: CGFloat = 330
 
-    /// The due-date dialog over the whole card, the rest dimmed; a click beside it cancels.
+    /// The due-date dialog over the whole card (`dueDialogOverlay` dims the rest and makes room).
     @ViewBuilder private var dueDialog: some View {
         if let dialog = flow.dueDialog {
-            ZStack(alignment: .top) {
-                Color.black.opacity(0.12)
-                    .contentShape(Rectangle())
-                    .onTapGesture { flow.cancelDue() }
-                DueDateDialogView(dialog: dialog, now: flow.now, actions: DueDateDialogActions(
-                    setText: { flow.setDueText($0) },
-                    confirm: { flow.confirmDue() },
-                    cancel: { flow.cancelDue() },
-                    remove: { flow.removeDue() },
-                    toggleExamples: { flow.toggleDueExamples() },
-                    pickExample: { flow.pickDueExample($0) }
-                ))
-                .padding(.top, 40 * scale)
-                .padding(.horizontal, 16 * scale)
-            }
-            .transition(.opacity)
+            DueDateDialogView(dialog: dialog, now: flow.now, actions: DueDateDialogActions(
+                setText: { flow.setDueText($0) },
+                confirm: { flow.confirmDue() },
+                cancel: { flow.cancelDue() },
+                remove: { flow.removeDue() },
+                toggleExamples: { flow.toggleDueExamples() },
+                pickExample: { flow.pickDueExample($0) }
+            ))
         }
     }
 
