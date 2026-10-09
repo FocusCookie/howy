@@ -16,6 +16,9 @@ final class AppController {
     private(set) var launchesAtLogin = false
     /// One launcher shortcut, or separate Quick Add and Browse shortcuts (Settings).
     private(set) var shortcutMode = ShortcutMode.load()
+    /// How big the panels are drawn (⌘+ / ⌘- / ⌘0 in a panel, the Settings slider). One value for
+    /// all panels, saved on every change and applied to an open panel right away.
+    private(set) var panelZoom = PanelZoom.load()
 
     private enum PanelKind { case launcher, quickEntry, edit, archive, browse, error }
 
@@ -92,6 +95,29 @@ final class AppController {
         case .quickAdd(let quadrant): showQuickEntry(preselected: quadrant, activate: true)
         case .archive: showArchive(activate: true)
         }
+    }
+
+    // MARK: Panel zoom
+
+    /// Sets the panel zoom (the Settings slider), saves it and applies it to the open panel.
+    func setPanelZoom(_ zoom: PanelZoom) {
+        guard zoom != panelZoom else { return }
+        panelZoom = zoom
+        zoom.save()
+        panel?.setScale(zoom.scale)
+    }
+
+    /// ⌘+ / ⌘= / ⌘- / ⌘0 in a panel. Beeps when the zoom is already at that end (⌘0 at 100 % just
+    /// does nothing: there is no limit to hit).
+    private func handleZoomKey(_ key: QuickEntryKey) {
+        var zoom = panelZoom
+        switch key {
+        case .zoomIn: if !zoom.zoomIn() { NSSound.beep() }
+        case .zoomOut: if !zoom.zoomOut() { NSSound.beep() }
+        case .zoomReset: zoom.reset()
+        default: return
+        }
+        setPanelZoom(zoom)
     }
 
     // MARK: Panels
@@ -366,7 +392,8 @@ final class AppController {
             }
             return current
         }
-        let newPanel = FloatingPanel(width: Self.panelWidth, content: content)
+        let newPanel = FloatingPanel(width: Self.panelWidth, scale: panelZoom.scale, content: content)
+        newPanel.zoomHandler = { [weak self] key in self?.handleZoomKey(key) }
         present(newPanel, kind: kind, activate: activate)
         return newPanel
     }

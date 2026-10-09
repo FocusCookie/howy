@@ -136,3 +136,48 @@ import Testing
         #expect(key(31, .option, "ø") == nil)
     }
 }
+
+@Suite struct ZoomKeyMappingTests {
+    func key(_ code: UInt16, _ modifiers: QuickEntryModifiers = [], _ chars: String? = nil) -> QuickEntryKey? {
+        QuickEntryKey(keyCode: code, modifiers: modifiers, characters: chars)
+    }
+
+    @Test func commandEqualsAndCommandPlusZoomIn() {
+        #expect(key(24, .command, "=") == .zoomIn, "US ⌘=")
+        #expect(key(24, [.command, .shift], "+") == .zoomIn, "US ⌘+ is ⌘⇧=")
+        #expect(key(24, [.command, .shift], "=") == .zoomIn, "⌘⇧= when the characters stay unshifted")
+        #expect(key(30, .command, "+") == .zoomIn, "German ⌘+ (own key)")
+        #expect(key(29, [.command, .shift], "=") == .zoomIn, "German ⌘= is ⌘⇧0")
+        #expect(key(69, .command, "+") == .zoomIn, "keypad +")
+        #expect(key(24, .command, nil) == .zoomIn, "no characters: by the US key code")
+    }
+
+    @Test func commandMinusZoomsOut() {
+        #expect(key(27, .command, "-") == .zoomOut, "US ⌘-")
+        #expect(key(44, .command, "-") == .zoomOut, "German ⌘-")
+        #expect(key(78, .command, "-") == .zoomOut, "keypad -")
+        #expect(key(27, .command, nil) == .zoomOut, "no characters: by the US key code")
+    }
+
+    @Test func commandZeroResetsTheZoom() {
+        #expect(key(29, .command, "0") == .zoomReset)
+        #expect(key(82, .command, "0") == .zoomReset, "keypad 0")
+        #expect(key(29, .command, nil) == .zoomReset, "no characters: by the US key code")
+    }
+
+    @Test(arguments: [(UInt16(18), 1), (19, 2), (20, 3), (21, 4)])
+    func commandOneToFourStillMoveToQuadrants(code: UInt16, digit: Int) {
+        #expect(key(code, .command, String(digit)) == .commandDigit(digit))
+    }
+
+    @Test func zoomKeysNeedCommand() {
+        #expect(key(24, [], "=") == .other, "plain = types")
+        #expect(key(27, [], "-") == .other, "plain - types")
+        #expect(key(24, .shift, "+") == .other)
+        #expect(key(29, [], "0") == .digit(0))
+        #expect(key(24, [.command, .option], "=") == nil)
+        #expect(key(27, [.command, .control], "-") == nil)
+        #expect(key(27, [.command, .shift], "_") == nil, "⌘⇧- (⌘_) is not zoom out")
+        #expect(key(29, [.command, .shift], ")") == nil, "⌘⇧0 on US is not reset")
+    }
+}

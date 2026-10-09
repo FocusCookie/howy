@@ -137,6 +137,7 @@ struct MoveBadgeView: View {
     static let restingHeight: CGFloat = 30
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.panelScale) private var panelScale
     @State private var launched = false
 
     private struct Motion {
@@ -183,20 +184,22 @@ struct MoveBadgeView: View {
 
     private var isDark: Bool { colorScheme == .dark }
 
+    /// The badge is text, so it follows the panel zoom (unlike the done emoji, an effect that
+    /// keeps its size); its flight path stays the same.
     private var badge: some View {
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        return HStack(spacing: 6) {
+        let shape = RoundedRectangle(cornerRadius: 8 * panelScale, style: .continuous)
+        return HStack(spacing: 6 * panelScale) {
             Text("↗").foregroundStyle(.secondary)
             Text(verb)
-            Circle().fill(quadrant.color).frame(width: 8, height: 8)
+            Circle().fill(quadrant.color).frame(width: 8 * panelScale, height: 8 * panelScale)
             Text(quadrant.displayName)
         }
-        .font(.system(size: 12, weight: .medium))
+        .panelFont(size: 12, weight: .medium)
         .foregroundStyle(.primary)
         .lineLimit(1)
         .fixedSize()
-        .padding(.horizontal, 10)
-        .padding(.vertical, 5)
+        .padding(.horizontal, 10 * panelScale)
+        .padding(.vertical, 5 * panelScale)
         .background {
             ZStack {
                 shape.fill(.ultraThinMaterial)

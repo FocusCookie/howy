@@ -8,13 +8,14 @@ import UniformTypeIdentifiers
 /// caret-referenced attachment's name in its middle (`──── attachment-1.png ────`).
 struct AttachmentDivider: View {
     let name: String?
+    @Environment(\.panelScale) private var scale
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 8 * scale) {
             line
             if let name {
                 Text(name)
-                    .font(.caption)
+                    .panelFont(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -23,7 +24,7 @@ struct AttachmentDivider: View {
                 line
             }
         }
-        .frame(height: 14)
+        .frame(height: 14 * scale)
         .animation(.easeOut(duration: 0.12), value: name)
     }
 
@@ -37,14 +38,15 @@ struct AttachmentDivider: View {
 struct AttachmentStrip: View {
     let model: QuickEntryModel
     @State private var isTargeted = false
+    @Environment(\.panelScale) private var scale
 
     private var flow: QuickEntryFlow { model.flow }
     private var isActive: Bool { flow.phase == .browsingAttachments }
     private var isAddSelected: Bool { flow.isAddSelected }
-    private static let shape = RoundedRectangle(cornerRadius: 10, style: .continuous)
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 10 * scale, style: .continuous) }
 
     var body: some View {
-        WrapLayout(spacing: 8) {
+        WrapLayout(spacing: 8 * scale) {
             ForEach(flow.attachments) { attachment in
                 AttachmentTile(
                     attachment: attachment,
@@ -57,16 +59,16 @@ struct AttachmentStrip: View {
             }
             addButton
         }
-        .padding(8)
-        .frame(maxWidth: .infinity, minHeight: 56 + 16, alignment: .leading)
-        .background(Color.accentColor.opacity(isTargeted ? 0.12 : 0), in: Self.shape)
+        .padding(8 * scale)
+        .frame(maxWidth: .infinity, minHeight: (56 + 16) * scale, alignment: .leading)
+        .background(Color.accentColor.opacity(isTargeted ? 0.12 : 0), in: shape)
         .overlay {
-            Self.shape.strokeBorder(
+            shape.strokeBorder(
                 isTargeted || isActive ? Color.accentColor.opacity(0.5) : Color.primary.opacity(0.15),
                 style: StrokeStyle(lineWidth: isTargeted || isActive ? 1.5 : 1, dash: isActive ? [] : [5, 4])
             )
         }
-        .contentShape(Self.shape)
+        .contentShape(shape)
         .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
             load(providers)
             return true
@@ -77,19 +79,19 @@ struct AttachmentStrip: View {
 
     @ViewBuilder private var addButton: some View {
         Button { model.chooseFiles() } label: {
-            HStack(spacing: 6) {
+            HStack(spacing: 6 * scale) {
                 Image(systemName: "paperclip")
                 Text(flow.attachments.isEmpty ? "Drop files here or click to add" : "Add")
             }
-            .font(.caption)
+            .panelFont(.caption)
             .foregroundStyle(isAddSelected ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
-            .padding(.horizontal, 8)
-            .frame(minHeight: flow.attachments.isEmpty ? 40 : 56)
+            .padding(.horizontal, 8 * scale)
+            .frame(minHeight: (flow.attachments.isEmpty ? 40 : 56) * scale)
             .background {
                 // Selected with the keyboard (→ past the last file): ↩ opens the picker.
                 // Not drawn when there are no files: the whole area already shows it's active.
                 if isAddSelected, !flow.attachments.isEmpty {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
                         .fill(Color.accentColor.opacity(0.12))
                         .strokeBorder(Color.accentColor, lineWidth: 3.5)
                 }
@@ -120,37 +122,39 @@ private struct AttachmentTile: View {
     let model: QuickEntryModel
 
     @State private var isHovered = false
+    @Environment(\.panelScale) private var scale
+    /// At 100 %; the panel zoom multiplies it.
     private static let size: CGFloat = 56
-    private static let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
+    private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 8 * scale, style: .continuous) }
 
     var body: some View {
         AttachmentThumbnail(url: url, isImage: attachment.isImage, name: attachment.name)
-            .frame(width: Self.size, height: Self.size)
-            .clipShape(Self.shape)
-            .overlay { Self.shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 1) }
+            .frame(width: Self.size * scale, height: Self.size * scale)
+            .clipShape(shape)
+            .overlay { shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 1) }
             .overlay {
                 if isSelected || isLinked {
-                    Self.shape.strokeBorder(Color.accentColor, lineWidth: isSelected ? 3.5 : 2)
+                    shape.strokeBorder(Color.accentColor, lineWidth: isSelected ? 3.5 : 2)
                 }
             }
             .overlay(alignment: .topTrailing) {
                 if isHovered {
                     Button { model.remove(attachment) } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 8, weight: .bold))
+                            .panelFont(size: 8, weight: .bold)
                             .foregroundStyle(.white)
-                            .frame(width: 16, height: 16)
+                            .frame(width: 16 * scale, height: 16 * scale)
                             .background(.black.opacity(0.65), in: Circle())
                     }
                     .buttonStyle(.plain)
-                    .padding(3)
+                    .padding(3 * scale)
                     .help("Remove")
                     .transition(.opacity)
                 }
             }
             .scaleEffect(isLinked && !isSelected ? 1.06 : 1)
             .animation(.snappy(duration: 0.15), value: isLinked)
-            .contentShape(Self.shape)
+            .contentShape(shape)
             .onTapGesture {
                 model.open(attachment, alternate: NSEvent.modifierFlags.contains(.option))
             }
@@ -262,14 +266,15 @@ struct WrapLayout: Layout {
 /// A paperclip with the count when above one (Browse and archive rows).
 struct AttachmentBadge: View {
     let count: Int
+    @Environment(\.panelScale) private var scale
 
     var body: some View {
         if count > 0 {
-            HStack(spacing: 1) {
+            HStack(spacing: 1 * scale) {
                 Image(systemName: "paperclip")
                 if count > 1 { Text("\(count)").monospacedDigit() }
             }
-            .font(.caption)
+            .panelFont(.caption)
             .foregroundStyle(.secondary)
             .accessibilityLabel(count == 1 ? "1 attachment" : "\(count) attachments")
         }

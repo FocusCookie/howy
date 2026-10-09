@@ -32,6 +32,12 @@ public enum QuickEntryKey: Hashable, Sendable {
     case undo
     /// ⌥↩: into the attachments (title, note); open the other way (attachments).
     case optionEnter
+    /// ⌘+ or ⌘= (also ⌘⇧=): make the panel bigger. The panel handles it before any flow does.
+    case zoomIn
+    /// ⌘-: make the panel smaller. The panel handles it before any flow does.
+    case zoomOut
+    /// ⌘0: the panel back to 100 %. The panel handles it before any flow does.
+    case zoomReset
     /// A plain ⌫. Deletes text in the fields; removes the selected attachment.
     case backspace
     /// A plain letter key, lower-cased. Typing in the fields; a shortcut where there is nothing
@@ -273,6 +279,7 @@ public final class QuickEntryFlow {
             case .other, .letter, .space, .optionEnter, .optionDigit, .backspace, .commandDelete, .undo:
                 break // nothing to type into
             case .escape, .closePanel, .commandEnter, .commandDone: break
+            case .zoomIn, .zoomOut, .zoomReset: return false // the panel's, not the flow's
             }
             return true
         case .editingTitle:

@@ -26,6 +26,9 @@ Everything happens from a shortcut.
   between _New Todo_ and _Browse_.
 - **Esc** never loses your typing. Unsaved text is kept as a draft, even across
   restarts. **⌘W** closes the Howy panel from any screen.
+- **Panel zoom**: **⌘+** / **⌘-** make a panel's text and layout bigger or
+  smaller in four steps (100–150 %), and **⌘0** goes back to 100 %. The size is
+  remembered.
 - **Live Markdown** in notes: headings, bold, lists and links are styled as you
   type, and lists continue when you press ↩.
 - **Attachments**: paste or drop screenshots and files into a todo. You get
@@ -53,7 +56,7 @@ Everything happens from a shortcut.
 
 - The menu has Quick Add, Browse, Archive, _Add to Quadrant_, Settings… and
   Quit.
-- In Settings you can record your own shortcuts, choose which quadrant new todos
+- In Settings you can set the panel size, record your own shortcuts, choose which quadrant new todos
   start on, choose how attachments open, set the done animation, size the
   Overview, set how long
   the archive keeps todos, and turn on start at login.

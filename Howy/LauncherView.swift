@@ -9,12 +9,13 @@ struct LauncherView: View {
 
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.panelScale) private var scale
 
     private var isDark: Bool { colorScheme == .dark }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 12 * scale) {
+            HStack(spacing: 10 * scale) {
                 ForEach(LauncherChoice.allCases, id: \.self) { tile($0) }
             }
             HStack {
@@ -26,23 +27,23 @@ struct LauncherView: View {
 
     private func tile(_ choice: LauncherChoice) -> some View {
         let isHighlighted = flow.highlighted == choice
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        return HStack(alignment: .center, spacing: 12) {
+        let shape = RoundedRectangle(cornerRadius: 12 * scale, style: .continuous)
+        return HStack(alignment: .center, spacing: 12 * scale) {
             Image(systemName: choice.symbol)
-                .font(.system(size: 20, weight: .medium))
+                .panelFont(size: 20, weight: .medium)
                 .foregroundStyle(isHighlighted ? Color.accentColor : .secondary)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(choice.title).font(.headline)
+                .frame(width: 28 * scale)
+            VStack(alignment: .leading, spacing: 2 * scale) {
+                Text(choice.title).panelFont(.headline)
                 Text(choice.subtitle)
-                    .font(.caption)
+                    .panelFont(.caption)
                     .foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             KeyCap(text: "\(choice.shortcutNumber)")
         }
-        .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 72)
+        .padding(14 * scale)
+        .frame(maxWidth: .infinity, minHeight: 72 * scale)
         .background(fill(isHighlighted), in: shape)
         .overlay(shape.strokeBorder(Color.accentColor.opacity(isHighlighted ? 0.7 : 0), lineWidth: 1.5))
         .scaleEffect(isHighlighted && !reduceMotion ? 1.015 : 1)

@@ -28,6 +28,7 @@
 		97DAF4E1F5C8FFDFDE99EF36 /* QuadrantGrid.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */; };
 		98988958D07DD7B453ECF9BD /* QuadrantWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF7864E63A309407B19B6FBB /* QuadrantWidget.swift */; };
 		9B761ADAED73A65DF3F6BE2B /* FloatingPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1FFCC700EF1E05B8C1E3D8BD /* FloatingPanel.swift */; };
+		B2C9D747286103DD16C2CC3F /* PanelScale.swift in Sources */ = {isa = PBXBuildFile; fileRef = E8DCC0EBC32977CBF8994EC2 /* PanelScale.swift */; };
 		B43A9308E89E286F488BAA7E /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 592A97D5AAA1C221E9A3CB09 /* SwiftUI.framework */; };
 		B77C098ACFE28CB2EC6E5A8F /* QuadrantOption.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C9E76EDAD31A9A47FC7ACF /* QuadrantOption.swift */; };
 		B78F79856B67B0C7107B52B4 /* MarkdownNoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84290BBDBCD49A56EEA94F7B /* MarkdownNoteEditor.swift */; };
@@ -104,6 +105,7 @@
 		CF04576165DFE642A2F8A439 /* KeyCaps.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyCaps.swift; sourceTree = "<group>"; };
 		CF7864E63A309407B19B6FBB /* QuadrantWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantWidget.swift; sourceTree = "<group>"; };
 		D1C9E76EDAD31A9A47FC7ACF /* QuadrantOption.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QuadrantOption.swift; sourceTree = "<group>"; };
+		E8DCC0EBC32977CBF8994EC2 /* PanelScale.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelScale.swift; sourceTree = "<group>"; };
 		E9FE3030E07090E9F8BC6F18 /* HowyWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = HowyWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -185,6 +187,7 @@
 				84290BBDBCD49A56EEA94F7B /* MarkdownNoteEditor.swift */,
 				010CD0FEE36D7BBC57C87D57 /* OverviewView.swift */,
 				5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */,
+				E8DCC0EBC32977CBF8994EC2 /* PanelScale.swift */,
 				9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */,
 				4C67371D1BD06CC98E9938C2 /* QuickEntryModel.swift */,
 				863690EEA21F9E6873E85406 /* QuickEntryView.swift */,
@@ -330,6 +333,7 @@
 				B78F79856B67B0C7107B52B4 /* MarkdownNoteEditor.swift in Sources */,
 				671AA6B198F1606C750DB690 /* OverviewView.swift in Sources */,
 				FF3F3E4AB4EB81E4BE20CD3B /* PanelEffects.swift in Sources */,
+				B2C9D747286103DD16C2CC3F /* PanelScale.swift in Sources */,
 				97DAF4E1F5C8FFDFDE99EF36 /* QuadrantGrid.swift in Sources */,
 				382DA95CE190BB17CDE95C7D /* QuickEntryModel.swift in Sources */,
 				882E6D310D0C467DF5D54791 /* QuickEntryView.swift in Sources */,
@@ -417,7 +421,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -486,7 +490,7 @@
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 1.2.0;
+				MARKETING_VERSION = 1.3.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

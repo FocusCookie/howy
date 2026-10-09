@@ -6,8 +6,20 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-09
+
 ### Added
 
+- **Panel zoom.** Make everything in Howy's panels bigger: **⌘+** (or **⌘=**)
+  zooms in, **⌘-** zooms out and **⌘0** goes back to 100 %. There are four
+  steps (100, 115, 130 and 150 %); 100 % is the size you know and the smallest.
+  The keys work in every panel, also while you type a title or a note, and Howy
+  beeps when you're already at the smallest or largest step. Text, rows, icons,
+  key caps and the panel's width all grow together, the lists stay within the
+  screen, and the Overview keeps its size while its content zooms. The level is
+  kept across restarts. Widgets, Settings and Import/Export don't change.
+- **Appearance in Settings.** A _Panel size_ slider with the same four steps,
+  showing the current percentage. It changes the same setting as the keys.
 - **Overview in Browse.** Press **O** (or click the small button in the gap
   where the four quadrants meet) and the panel grows into a large view with all
   four quadrants side by side, each listing its open todos. The counts fade out,
@@ -30,6 +42,10 @@ All notable changes to Howy are documented here. The format follows
   screen, 80 % by default) with a live preview of the Overview on your display.
 - **Hover on quadrant cards.** The four cards in Browse and in quick entry get a
   touch brighter under the pointer, so you can see what a click opens.
+
+### Changed
+
+- **Settings window uses two columns** so it fits on smaller screens.
 
 ## [1.2.0] - 2026-10-09
 

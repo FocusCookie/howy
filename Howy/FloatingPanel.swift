@@ -30,6 +30,10 @@ import SwiftUI
 final class FloatingPanel: NSPanel {
     /// Called for every key-down before the focused control sees it. Return `true` to consume it.
     var keyHandler: ((NSEvent) -> Bool)?
+    /// Called for ⌘+ / ⌘= / ⌘- / ⌘0 (`.zoomIn`, `.zoomOut`, `.zoomReset`), before the focused
+    /// control and `keyHandler` see them; the keys are always consumed while it is set. Unlike
+    /// `keyHandler` it stays set when the content is replaced: zooming is the panel's, not a screen's.
+    var zoomHandler: ((QuickEntryKey) -> Void)?
     /// Called once when the panel goes away (Esc, save, resign key, or replaced by another panel).
     var onClose: (() -> Void)?
     /// Called once just before `onClose`, while the content's model is still current
@@ -61,6 +65,10 @@ final class FloatingPanel: NSPanel {
     private static let fadeOutDuration: TimeInterval = 0.12
 
     private let presentation = PanelPresentation()
+    /// The card's width at 100 %; `scale` (the panel zoom) multiplies it.
+    private let baseWidth: CGFloat
+    /// The panel zoom's current factor (`PanelZoom.scale`).
+    private(set) var scale: CGFloat
     /// The window's frame before the Overview grew it, and the grown frame (to follow a drag of
     /// the panel while the Overview is open); `nil` while the window has its normal size.
     private var compactWindowFrame: NSRect?
@@ -75,10 +83,15 @@ final class FloatingPanel: NSPanel {
     /// The `completion` of the latest `setOverview`, until it has run.
     private var overviewCompletion: (() -> Void)?
 
-    /// `width` is the card's width; the window is that plus the margin on both sides.
-    init<Content: View>(width: CGFloat, @ViewBuilder content: () -> Content) {
+    /// `width` is the card's width at 100 %, `scale` the panel zoom's factor; the window is the
+    /// scaled width plus the margin on both sides.
+    init<Content: View>(width: CGFloat, scale: CGFloat, @ViewBuilder content: () -> Content) {
+        baseWidth = width
+        self.scale = scale
+        presentation.scale = scale
+        presentation.cardWidth = width * scale
         super.init(
-            contentRect: NSRect(x: 0, y: 0, width: width + 2 * Self.margin, height: 200),
+            contentRect: NSRect(x: 0, y: 0, width: width * scale + 2 * Self.margin, height: 200),
             styleMask: [.borderless, .nonactivatingPanel, .fullSizeContentView],
             backing: .buffered,
             defer: false
@@ -95,7 +108,7 @@ final class FloatingPanel: NSPanel {
         animationBehavior = .none // PanelRoot animates in and out
 
         presentation.content = AnyView(content())
-        let host = NSHostingView(rootView: PanelRoot(presentation: presentation, width: width))
+        let host = NSHostingView(rootView: PanelRoot(presentation: presentation))
         host.sizingOptions = [] // the window keeps its frame; the card inside changes height
         // The hosting view must not be the window's content view. In an app that runs the SwiftUI
         // `App` lifecycle, an `NSHostingView` that *is* the content view animates the window's
@@ -121,7 +134,9 @@ final class FloatingPanel: NSPanel {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
         if let visible = screen?.visibleFrame {
-            let width = frame.width
+            let cardWidth = cardWidth(in: visible)
+            withTransaction(Self.noAnimation) { presentation.cardWidth = cardWidth }
+            let width = cardWidth + 2 * Self.margin
             let cardTop = OverviewSize.compactCardTop(in: visible)
             let windowTop = cardTop + Self.margin
             let rect = NSRect(x: visible.midX - width / 2, y: visible.minY, width: width, height: windowTop - visible.minY)
@@ -152,6 +167,7 @@ final class FloatingPanel: NSPanel {
         if didClose { return } // fading out: nothing may change behind the fade
         if event.type == .keyDown, !isComposingText {
             if closeOnShortcut(event) { return }
+            if zoomOnShortcut(event) { return }
             if keyHandler?(event) == true { return }
         }
         super.sendEvent(event)
@@ -160,6 +176,7 @@ final class FloatingPanel: NSPanel {
     /// ⌘ keys are offered as key equivalents before `sendEvent`, so ⌘W / ⌘Esc are caught here too.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if closeOnShortcut(event) { return true }
+        if !didClose, !isComposingText, zoomOnShortcut(event) { return true }
         return super.performKeyEquivalent(with: event)
     }
 
@@ -168,6 +185,55 @@ final class FloatingPanel: NSPanel {
         guard event.type == .keyDown, QuickEntryKey(event: event) == .closePanel else { return false }
         dismiss()
         return true
+    }
+
+    /// ⌘+ / ⌘= / ⌘- / ⌘0 go to `zoomHandler` from any screen and any focused control (the title
+    /// field, the note editor), so no flow or text view ever sees them.
+    private func zoomOnShortcut(_ event: NSEvent) -> Bool {
+        guard event.type == .keyDown, let zoomHandler, let key = QuickEntryKey(event: event) else { return false }
+        switch key {
+        case .zoomIn, .zoomOut, .zoomReset:
+            zoomHandler(key)
+            return true
+        default:
+            return false
+        }
+    }
+
+    // MARK: Zoom
+
+    /// The card's width at the current zoom, at most as wide as the visible screen.
+    private func cardWidth(in visible: NSRect) -> CGFloat {
+        min(baseWidth * scale, visible.width).rounded()
+    }
+
+    /// Applies a new zoom factor right away, without animation: the content is laid out again at
+    /// the new size and the card gets its new width, centred where it was. The card's top edge
+    /// stays put (the card is pinned to the top of the window; only the window's width changes).
+    /// While the Overview has grown the card, only the content scales; the normal size it shrinks
+    /// back to gets the new width.
+    func setScale(_ newScale: CGFloat) {
+        guard newScale != scale, !didClose else { return }
+        scale = newScale
+        let visible = (screen ?? NSScreen.main)?.visibleFrame ?? frame
+        let newCardWidth = cardWidth(in: visible)
+        let delta = newCardWidth - presentation.cardWidth
+        withTransaction(Self.noAnimation) {
+            presentation.scale = newScale
+            presentation.cardWidth = newCardWidth
+            if compactWindowFrame != nil {
+                // Grown for the Overview: the window keeps its frame; the normal card (and the
+                // window it goes back to) widens around the same centre.
+                presentation.compactOrigin.x -= delta / 2
+            }
+        }
+        if let compact = compactWindowFrame {
+            compactWindowFrame = compact.insetBy(dx: -delta / 2, dy: 0).integral
+        } else if delta != 0 {
+            setFrame(frame.insetBy(dx: -delta / 2, dy: 0).integral, display: false)
+        }
+        contentView?.layoutSubtreeIfNeeded()
+        contentView?.displayIfNeeded()
     }
 
     /// Keeps the panel open while another window (Quick Look, a file picker) has key status.
@@ -418,7 +484,7 @@ final class FloatingPanel: NSPanel {
     /// The card's frame on screen at its normal size: its top-left corner from the window's frame
     /// and `compactOrigin`, its height as laid out.
     private var compactCardFrame: NSRect {
-        let width = frame.width - 2 * Self.margin
+        let width = presentation.cardWidth
         let height = presentation.cardFrame.height
         let origin = presentation.compactOrigin
         return NSRect(x: frame.minX + origin.x, y: frame.maxY - origin.y - height, width: width, height: height)
@@ -499,6 +565,7 @@ final class FloatingPanel: NSPanel {
         guard !didClose else { return }
         didClose = true
         keyHandler = nil
+        zoomHandler = nil
         stopWatchingMouse()
         if previewSource != nil, QLPreviewPanel.sharedPreviewPanelExists() {
             QLPreviewPanel.shared()?.orderOut(nil)
@@ -552,6 +619,10 @@ final class PanelPresentation {
     var compactOrigin = PanelPresentation.defaultCompactOrigin
     /// The Overview's frame in SwiftUI's window space while the card has that size, else `nil`.
     var expandedFrame: CGRect?
+    /// The panel zoom's factor (`PanelZoom.scale`), handed to the screens as `\.panelScale`.
+    var scale: CGFloat = 1
+    /// The card's width at its normal size (the zoomed width, at most the screen's).
+    var cardWidth: CGFloat = 0
 
     static let defaultCompactOrigin = CGPoint(x: FloatingPanel.margin, y: FloatingPanel.margin)
     /// Decorations drawn over the window, outside the card (the done emoji).
@@ -570,8 +641,10 @@ extension EnvironmentValues {
 /// For the Overview the card takes `expandedFrame` instead (the window has grown around it).
 private struct PanelRoot: View {
     let presentation: PanelPresentation
-    let width: CGFloat
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    /// The window's height: the card may reach from its top edge down to the window's bottom
+    /// (the bottom of the screen).
+    @State private var windowHeight = CGFloat.infinity
 
     var body: some View {
         PanelCard {
@@ -585,8 +658,9 @@ private struct PanelRoot: View {
             }
             .frame(maxWidth: .infinity, maxHeight: expanded == nil ? nil : .infinity, alignment: .top)
         }
-            .frame(width: expanded?.width ?? width, height: expanded?.height)
+            .frame(width: expanded?.width ?? presentation.cardWidth, height: expanded?.height)
             .environment(\.panelState, presentation.state)
+            .environment(\.panelHeightLimit, max(windowHeight - presentation.compactOrigin.y - Self.bottomGap, 0))
             .environment(\.panelEffects, presentation.effects)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
                 presentation.cardFrame = frame
@@ -598,7 +672,15 @@ private struct PanelRoot: View {
             .padding(.top, origin.y)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .overlay { PanelEffectsLayer(effects: presentation.effects, card: presentation.effectsCardFrame) } // window space, unclipped
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { windowHeight = $0 }
+            // The zoom reaches every screen and the effects (the move badge; the done emoji keeps its size).
+            .environment(\.panelScale, presentation.scale)
+            // Text without a font of its own (titles, buttons, messages) is body text, zoomed too.
+            .font(.panel(.body, scale: presentation.scale))
     }
+
+    /// Room kept free between the card's bottom and the screen's.
+    private static let bottomGap: CGFloat = 16
 
     private var expanded: CGRect? { presentation.expandedFrame }
     private var origin: CGPoint { expanded?.origin ?? presentation.compactOrigin }
@@ -621,12 +703,13 @@ private struct PanelRoot: View {
 /// panel still shows through it as colour and shading.
 struct PanelCard<Content: View>: View {
     @ViewBuilder var content: Content
+    @Environment(\.panelScale) private var scale
 
     static var shape: RoundedRectangle { RoundedRectangle(cornerRadius: FloatingPanel.cardCornerRadius, style: .continuous) }
 
     var body: some View {
         content
-            .padding(16)
+            .padding(16 * scale)
             // While the card grows to a taller screen, the new screen is laid out at its full height
             // already; without this it would show below the card's edge until the card catches up.
             .clipShape(Self.shape)

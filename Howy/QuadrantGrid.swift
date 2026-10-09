@@ -11,13 +11,14 @@ struct QuadrantGrid: View {
 
     @Environment(\.panelState) private var panelState
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.panelScale) private var scale
     @State private var hovered: Quadrant?
 
     /// How far tiles start outside their grid position when the panel opens.
     private static let entranceOffset: CGFloat = 4
 
     var body: some View {
-        Grid(horizontalSpacing: TileNotch.spacing, verticalSpacing: TileNotch.spacing) {
+        Grid(horizontalSpacing: TileNotch.spacing * scale, verticalSpacing: TileNotch.spacing * scale) {
             ForEach(0..<2, id: \.self) { row in
                 GridRow {
                     ForEach(0..<2, id: \.self) { column in
@@ -32,18 +33,18 @@ struct QuadrantGrid: View {
 
     private func tile(_ quadrant: Quadrant) -> some View {
         let isHighlighted = highlighted == quadrant
-        let shape = RoundedRectangle(cornerRadius: TileNotch.cornerRadius, style: .continuous)
-        return VStack(alignment: .leading, spacing: 6) {
+        let shape = RoundedRectangle(cornerRadius: TileNotch.cornerRadius * scale, style: .continuous)
+        return VStack(alignment: .leading, spacing: 6 * scale) {
             HStack(alignment: .top) {
                 Text(quadrant.displayName)
-                    .font(.headline)
+                    .panelFont(.headline)
                     .foregroundStyle(.primary)
                 Spacer()
                 KeyCap(text: "\(quadrant.shortcutNumber)")
             }
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, minHeight: 72, alignment: .topLeading)
+        .padding(12 * scale)
+        .frame(maxWidth: .infinity, minHeight: 72 * scale, alignment: .topLeading)
         .modifier(QuadrantTileBackground(
             quadrant: quadrant, isHighlighted: isHighlighted, shape: shape, isHovered: hovered == quadrant
         ))
@@ -63,7 +64,7 @@ struct QuadrantGrid: View {
     private func entranceOffset(for quadrant: Quadrant) -> CGSize {
         guard panelState == .hidden, !reduceMotion else { return .zero }
         let position = quadrant.gridPosition
-        let d = Self.entranceOffset
+        let d = Self.entranceOffset * scale
         return CGSize(width: position.column == 0 ? -d : d, height: position.row == 0 ? -d : d)
     }
 }
@@ -152,18 +153,26 @@ struct QuadrantTileBackground<S: InsettableShape>: ViewModifier {
 /// same gap around it as between the tiles. Shared by the small grid's cards and the Overview's
 /// tiles, which use the same spacing, so the cut-outs line up while they morph.
 struct TileNotch {
-    /// The gap between tiles, in both the small grid and the Overview.
+    /// The gap between tiles, in both the small grid and the Overview, at 100 % (`scale` multiplies it).
     nonisolated static let spacing: CGFloat = 10
+    /// The tiles' corner radius at 100 %.
     nonisolated static let cornerRadius: CGFloat = 12
-    /// The cut-out's radius around the middle: the button's radius plus the gap around it.
-    nonisolated static let radius = OverviewToggleButton.size / 2 + spacing
-    /// How far the cut-out reaches into the tile along each edge from its inner corner (the tile
-    /// sits half a gap away from the middle in both directions).
-    nonisolated static let size = (radius * radius - spacing * spacing / 4).squareRoot() - spacing / 2
 
     let corner: NotchedTileShape.Corner
+    /// The panel zoom's factor: the gap, the corners and the middle button all grow with it.
+    let scale: CGFloat
 
-    init(_ quadrant: Quadrant) {
+    /// The gap between tiles at this zoom.
+    var spacing: CGFloat { Self.spacing * scale }
+    var cornerRadius: CGFloat { Self.cornerRadius * scale }
+    /// The cut-out's radius around the middle: the button's radius plus the gap around it.
+    var radius: CGFloat { OverviewToggleButton.size * scale / 2 + spacing }
+    /// How far the cut-out reaches into the tile along each edge from its inner corner (the tile
+    /// sits half a gap away from the middle in both directions).
+    var size: CGFloat { (radius * radius - spacing * spacing / 4).squareRoot() - spacing / 2 }
+
+    init(_ quadrant: Quadrant, scale: CGFloat = 1) {
+        self.scale = scale
         let position = quadrant.gridPosition
         corner = switch (position.row, position.column) {
         case (0, 0): .bottomTrailing
@@ -175,10 +184,10 @@ struct TileNotch {
 
     var shape: NotchedTileShape {
         NotchedTileShape(
-            cornerRadius: Self.cornerRadius,
+            cornerRadius: cornerRadius,
             notch: corner,
-            notchRadius: Self.radius,
-            notchCenterOffset: Self.spacing / 2
+            notchRadius: radius,
+            notchCenterOffset: spacing / 2
         )
     }
 
@@ -194,16 +203,16 @@ struct TileNotch {
 
     /// Keeps a tile's header (top row) clear of a cut-out at the top: extra room on that side,
     /// beyond the tile's 12 pt padding.
-    var headerClearance: HeaderClearance { HeaderClearance(corner: corner) }
+    var headerClearance: HeaderClearance { HeaderClearance(corner: corner, extra: size - cornerRadius + 4 * scale) }
 
     /// Keeps a tile's bottom content (the Overview's list) clear of a cut-out at the bottom.
     var bottomClearance: CGFloat {
-        corner == .bottomLeading || corner == .bottomTrailing ? max(Self.size - Self.cornerRadius, 0) : 0
+        corner == .bottomLeading || corner == .bottomTrailing ? max(size - cornerRadius, 0) : 0
     }
 
     struct HeaderClearance: ViewModifier {
         let corner: NotchedTileShape.Corner
-        private var extra: CGFloat { TileNotch.size - TileNotch.cornerRadius + 4 }
+        let extra: CGFloat
 
         func body(content: Content) -> some View {
             switch corner {
@@ -317,19 +326,21 @@ struct MoveQuadrantPicker: View {
     let onChoose: (Quadrant) -> Void
 
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.panelScale) private var scale
 
+    /// At 100 %; the panel zoom multiplies it.
     static let width: CGFloat = 270
 
     var body: some View {
-        let shape = RoundedRectangle(cornerRadius: 12, style: .continuous)
-        VStack(alignment: .leading, spacing: 6) {
+        let shape = RoundedRectangle(cornerRadius: 12 * scale, style: .continuous)
+        VStack(alignment: .leading, spacing: 6 * scale) {
             Text("Move “\(picker.todo.title)” to…")
-                .font(.caption)
+                .panelFont(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-                .padding(.horizontal, 2)
-            Grid(horizontalSpacing: 6, verticalSpacing: 6) {
+                .padding(.horizontal, 2 * scale)
+            Grid(horizontalSpacing: 6 * scale, verticalSpacing: 6 * scale) {
                 ForEach(0..<2, id: \.self) { row in
                     GridRow {
                         ForEach(0..<2, id: \.self) { column in
@@ -341,8 +352,8 @@ struct MoveQuadrantPicker: View {
                 }
             }
         }
-        .padding(8)
-        .frame(width: Self.width)
+        .padding(8 * scale)
+        .frame(width: Self.width * scale)
         .background {
             ZStack {
                 shape.fill(.regularMaterial)
@@ -358,27 +369,27 @@ struct MoveQuadrantPicker: View {
     private func tile(_ quadrant: Quadrant) -> some View {
         let isCurrent = quadrant == picker.todo.quadrant
         let isHighlighted = quadrant == picker.highlighted && !isCurrent
-        let shape = RoundedRectangle(cornerRadius: 8, style: .continuous)
-        return VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 6) {
-                Circle().fill(quadrant.color).frame(width: 8, height: 8)
+        let shape = RoundedRectangle(cornerRadius: 8 * scale, style: .continuous)
+        return VStack(alignment: .leading, spacing: 3 * scale) {
+            HStack(spacing: 6 * scale) {
+                Circle().fill(quadrant.color).frame(width: 8 * scale, height: 8 * scale)
                 KeyCap(text: "\(quadrant.shortcutNumber)", minSize: 16)
                 Spacer(minLength: 0)
                 if isCurrent {
                     Text("current")
-                        .font(.caption2)
+                        .panelFont(.caption2)
                         .foregroundStyle(.secondary)
                 }
             }
             Text(quadrant.displayName)
-                .font(.caption2.weight(.medium))
+                .panelFont(.caption2, weight: .medium)
                 .foregroundStyle(.primary)
                 .lineLimit(1)
                 .minimumScaleFactor(0.85)
         }
-        .padding(7)
-        .frame(maxWidth: .infinity, minHeight: 48, alignment: .topLeading)
-        .modifier(QuadrantTileBackground(quadrant: quadrant, isHighlighted: isHighlighted, shape: shape, glowRadius: 6))
+        .padding(7 * scale)
+        .frame(maxWidth: .infinity, minHeight: 48 * scale, alignment: .topLeading)
+        .modifier(QuadrantTileBackground(quadrant: quadrant, isHighlighted: isHighlighted, shape: shape, glowRadius: 6 * scale))
         // The current quadrant is the one the highlight can rest on without a move; a neutral ring shows it.
         .overlay(shape.strokeBorder(Color.primary.opacity(isCurrent && quadrant == picker.highlighted ? 0.35 : 0), lineWidth: 1.5))
         .opacity(isCurrent ? 0.45 : 1)
@@ -394,15 +405,16 @@ struct MoveQuadrantPicker: View {
 
 struct QuadrantChip: View {
     let quadrant: Quadrant
+    @Environment(\.panelScale) private var scale
 
     var body: some View {
-        HStack(spacing: 6) {
-            Circle().fill(quadrant.color).frame(width: 8, height: 8)
+        HStack(spacing: 6 * scale) {
+            Circle().fill(quadrant.color).frame(width: 8 * scale, height: 8 * scale)
             Text(quadrant.displayName)
         }
-        .font(.caption.weight(.medium))
-        .padding(.horizontal, 8)
-        .padding(.vertical, 3)
+        .panelFont(.caption, weight: .medium)
+        .padding(.horizontal, 8 * scale)
+        .padding(.vertical, 3 * scale)
         .background(quadrant.color.opacity(0.15), in: Capsule())
     }
 }
