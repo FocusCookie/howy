@@ -46,9 +46,12 @@ HowyWidgets/             WidgetKit extension: Matrix + Quadrant widgets, Complet
 Packages/HowyCore/       Swift package with all logic and state machines, plus its tests
   Sources/HowyCore/      TodoStore (SwiftData), flows, drafts, attachments, Markdown, deep links
   Tests/HowyCoreTests/   Swift Testing suites
-docs/PRD.md              Product requirements and implementation decisions. Read it first
-docs/REVIEW.md           Earlier code review findings
+README.md                What Howy does and how to use it (features, keys, settings)
+CHANGELOG.md             Release history; Unreleased lists what changed since the last release
 ```
+
+There is no separate spec. The behaviour is described in `README.md`,
+`CHANGELOG.md` and the doc comments of the flows in `HowyCore`.
 
 ### Architecture rules
 
@@ -106,8 +109,8 @@ xcodebuild -project Howy.xcodeproj -scheme Howy -configuration Release \
   with a `FakeClock` and check what comes out. Don't assert on private helpers,
   view hierarchies or SwiftData internals.
 - New behaviour goes into `HowyCore` with a test, written test-first when
-  practical. The app and widget targets have no unit tests. Their UI is checked
-  by hand against the manual checklist in `docs/PRD.md` ("Testing Decisions").
+  practical. The app and widget targets have no unit tests. Check their UI by
+  hand: run the app and try the changed screens and keys.
 - Before you call a change done, `swift test` must pass and the `Howy` scheme
   must build with **no new warnings**.
 
@@ -120,7 +123,8 @@ xcodebuild -project Howy.xcodeproj -scheme Howy -configuration Release \
 - Update `CHANGELOG.md` (Keep a Changelog format) under **Unreleased** for every
   user-visible change. Bump `MARKETING_VERSION` in `project.yml` when you
   release, then regenerate.
-- When behaviour changes, update `docs/PRD.md` so it stays the spec.
+- When behaviour changes, update `README.md` where it describes that behaviour,
+  and the doc comments of the flow involved.
 
 ## Gotchas
 

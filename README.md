@@ -91,6 +91,5 @@ cd Packages/HowyCore && swift test
 ## Project docs
 
 - [`CHANGELOG.md`](CHANGELOG.md): release history
-- [`docs/PRD.md`](docs/PRD.md): product requirements and design decisions
 - [`AGENTS.md`](AGENTS.md): project structure and conventions for contributors
   and AI agents
