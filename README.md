@@ -63,7 +63,8 @@ Everything happens from a shortcut.
   set), **Esc** cancels, **⌘⌫** (or _Remove_) removes the date. In the editor
   the date is saved with the todo.
 - **What you can type** (English, 24-hour or am/pm times; the **?** button
-  shows clickable examples in a small panel beside Howy's):
+  or **⇥** shows examples in a small panel beside Howy's: click one, or pick it
+  with **↑↓** and **↩**):
   - Relative: `in 30 min`, `in 12h`, `in an hour`, `in 3 days`, `in a week`,
     `in 2 months`. Days, weeks and months keep the current time of day.
   - Days: `today`, `tomorrow` (typos like `tomorow` work), `day after tomorrow`,

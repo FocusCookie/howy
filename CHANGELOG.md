@@ -16,8 +16,8 @@ All notable changes to Howy are documented here. The format follows
   - Type it in words: `in 30 min`, `in a week`, `tomorrow 10am`, `tonight`,
     `fri`, `next friday`, `next week`, `weekend`, `24.12.`, `10.10.2026 at
     10am`, `3 nov 5pm`, `14:30`, `noon`… A date without a time means 9:00 (a
-    new Settings choice). The **?** button shows clickable examples in a panel
-    beside Howy's.
+    new Settings choice). The **?** button (or **⇥**) shows examples in a panel
+    beside Howy's; click one or pick it with **↑↓** and **↩**.
   - Browse shows a grey clock and a short time on dated todos, and a red bell
     with _Overdue · 2 h_ on late ones; the bell wiggles when the list opens.
   - A notification at the due time with **Done**, **Snooze 1 h** and
