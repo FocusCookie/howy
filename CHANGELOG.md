@@ -8,6 +8,10 @@ All notable changes to Howy are documented here. The format follows
 
 ### Added
 
+- **⌘W closes the Howy panel from any screen.** Esc still steps back (for
+  example from the archive to Browse), and ⌘W closes it all at once (⌘Esc does
+  the same where macOS lets it through). As when you click away, anything you
+  typed is kept as a draft.
 - **⌘D marks a todo done from the edit window.** It saves your edits and moves
   the todo to the archive. A **Done** button does the same with the mouse.
 

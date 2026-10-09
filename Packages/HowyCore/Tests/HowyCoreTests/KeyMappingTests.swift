@@ -6,9 +6,18 @@ import Testing
         QuickEntryKey(keyCode: code, modifiers: modifiers, characters: chars)
     }
 
-    @Test func escapeWithAnyModifiers() {
+    @Test func escapeWithAnyOtherModifiers() {
         #expect(key(53) == .escape)
-        #expect(key(53, .command) == .escape)
+        #expect(key(53, .shift) == .escape)
+        #expect(key(53, [.command, .shift]) == .escape)
+    }
+
+    @Test func commandWOrCommandEscapeClosesThePanel() {
+        #expect(key(13, .command, "w") == .closePanel)
+        #expect(key(13, .command, "W") == .closePanel)
+        #expect(key(53, .command) == .closePanel)
+        #expect(key(13, [.command, .shift], "w") == nil)
+        #expect(key(13, [], "w") == .letter("w"))
     }
 
     @Test(arguments: [UInt16(36), 76])

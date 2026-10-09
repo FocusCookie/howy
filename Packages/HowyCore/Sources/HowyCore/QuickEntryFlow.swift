@@ -17,6 +17,8 @@ public enum QuickEntryKey: Hashable, Sendable {
     /// ⌘D: mark the edited todo done (edit mode only), which moves it to the archive.
     case commandDone
     case escape
+    /// ⌘W (or ⌘Esc): close the whole panel from any screen. The panel handles it before any flow does.
+    case closePanel
     /// A plain Space. Text in the fields; "open" in the attachments.
     case space
     /// ⌘↑ or ⌘K: move the selected row up (browse list). Text fields keep their own meaning.
@@ -266,7 +268,7 @@ public final class QuickEntryFlow {
             case .enter, .tab: phase = .editingTitle
             case .shiftTab, .moveUp, .moveDown, .commandDigit: return false
             case .other, .letter, .space, .optionEnter, .backspace, .commandDelete, .undo: break // nothing to type into
-            case .escape, .commandEnter, .commandDone: break
+            case .escape, .closePanel, .commandEnter, .commandDone: break
             }
             return true
         case .editingTitle:

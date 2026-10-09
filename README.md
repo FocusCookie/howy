@@ -22,7 +22,7 @@ Everything happens from a shortcut.
 - **One-shortcut mode** (optional): a single shortcut opens a small chooser
   between _New Todo_ and _Browse_.
 - **Esc** never loses your typing. Unsaved text is kept as a draft, even across
-  restarts.
+  restarts. **⌘W** closes the Howy panel from any screen.
 - **Live Markdown** in notes: headings, bold, lists and links are styled as you
   type, and lists continue when you press ↩.
 - **Attachments**: paste or drop screenshots and files into a todo. You get
