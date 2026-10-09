@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-10-09
+
 ### Added
 
 - **Move a todo to another quadrant from Browse.** In the list, ⌘1–4 sends the
