@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-10-09
+
 ### Added
 
 - **Checklists in notes.** Markdown task items (`- [ ] todo`, `- [x] done`)
