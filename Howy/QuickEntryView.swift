@@ -3,13 +3,19 @@ import SwiftUI
 
 /// The quick-entry and edit modal: a thin view over `QuickEntryFlow`.
 /// Keys arrive via `FloatingPanel.keyHandler`; this view only renders the flow and keeps focus in sync.
+/// `inTile`: inside an Overview tile, where the note takes the height the tile has left and the
+/// key hints shorten to fit.
 struct QuickEntryView: View {
     let model: QuickEntryModel
+    var inTile = false
 
     /// Only the title is a SwiftUI focus target; the note editor (AppKit) focuses itself from the phase.
     private enum Field: Hashable { case title }
     @FocusState private var focus: Field?
     @State private var panel = PanelBox()
+    /// Heights measured in an Overview tile: the room above the footer, the fields above the note,
+    /// and the attachment divider and strip (the last height they had while shown).
+    @State private var tileSpace = TileSpace()
     /// The last unfinished phase, so the layout doesn't flip while the panel fades out after Esc/save.
     @State private var activePhase: QuickEntryFlow.Phase?
 
@@ -22,10 +28,12 @@ struct QuickEntryView: View {
     var body: some View {
         Group { // the card is drawn once by the panel (PanelRoot)
             VStack(alignment: .leading, spacing: 12) {
-                if shownPhase == .pickingQuadrant {
-                    QuadrantGrid(highlighted: flow.quadrant) { flow.choose($0) }
+                if inTile {
+                    tileContent
+                } else if shownPhase == .pickingQuadrant {
+                    picker
                 } else {
-                    fields
+                    fields()
                 }
                 footer
             }
@@ -60,20 +68,59 @@ struct QuickEntryView: View {
         }
     }
 
-    @ViewBuilder private var fields: some View {
-        @Bindable var bindable = flow
-        Button { flow.focus(.pickingQuadrant) } label: {
-            QuadrantChip(quadrant: flow.quadrant)
+    private var picker: some View {
+        QuadrantGrid(highlighted: flow.quadrant) { flow.choose($0) }
+    }
+
+    /// In an Overview tile, which may be low: the note takes the height left. When even its
+    /// smallest height doesn't fit, the attachment strip goes first, then everything above the
+    /// footer scrolls; the footer (Save, Done) stays pinned below. Worked out from measured
+    /// heights (one copy of the fields, so the text views and their focus stay single).
+    @ViewBuilder private var tileContent: some View {
+        Group {
+            if shownPhase == .pickingQuadrant {
+                if tileSpace.available < Self.pickerHeight {
+                    ScrollView { picker }
+                } else {
+                    picker
+                }
+            } else if tileSpace.available < tileSpace.head + 12 + MarkdownNoteEditor.minHeight {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) { fields(fillsHeight: false, showsAttachments: false) }
+                }
+            } else {
+                let full = tileSpace.head + 12 + MarkdownNoteEditor.minHeight + 12 + tileSpace.attachments
+                VStack(alignment: .leading, spacing: 12) {
+                    fields(fillsHeight: true, showsAttachments: tileSpace.available >= full)
+                }
+            }
         }
-        .buttonStyle(.plain)
-        .help("Change quadrant (⇧⇥)")
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { tileSpace.available = $0 }
+    }
 
-        TextField("Title", text: $bindable.title)
-            .textFieldStyle(.plain)
-            .font(.title2)
-            .focused($focus, equals: .title)
+    /// The quadrant picker's lowest height: two rows of 72 pt cards and the gap.
+    private static let pickerHeight: CGFloat = 2 * 72 + 10
 
-        Divider()
+    /// `fillsHeight`: the note takes the height offered (in a tile). `showsAttachments`: the
+    /// attachment divider and strip below the note.
+    @ViewBuilder private func fields(fillsHeight: Bool = false, showsAttachments: Bool = true) -> some View {
+        @Bindable var bindable = flow
+        VStack(alignment: .leading, spacing: 12) {
+            Button { flow.focus(.pickingQuadrant) } label: {
+                QuadrantChip(quadrant: flow.quadrant)
+            }
+            .buttonStyle(.plain)
+            .help("Change quadrant (⇧⇥)")
+
+            TextField("Title", text: $bindable.title)
+                .textFieldStyle(.plain)
+                .font(.title2)
+                .focused($focus, equals: .title)
+
+            Divider()
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if inTile { tileSpace.head = $0 } }
 
         MarkdownNoteEditor(
             text: flow.note,
@@ -83,8 +130,10 @@ struct QuickEntryView: View {
             attachmentNames: Set(flow.attachmentNames),
             highlightedName: model.highlightedName,
             onAttach: { model.attach($0) },
-            onReferenceChange: { model.noteReferenceName = $0 }
+            onReferenceChange: { model.noteReferenceName = $0 },
+            fillsHeight: fillsHeight
         )
+        .frame(maxHeight: fillsHeight ? .infinity : nil)
         .overlay(alignment: .topLeading) {
             if flow.note.isEmpty {
                 Text("Note (Markdown)")
@@ -94,8 +143,13 @@ struct QuickEntryView: View {
             }
         }
 
-        AttachmentDivider(name: model.spotlightName)
-        AttachmentStrip(model: model)
+        if showsAttachments {
+            VStack(alignment: .leading, spacing: 12) {
+                AttachmentDivider(name: model.spotlightName)
+                AttachmentStrip(model: model)
+            }
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if inTile { tileSpace.attachments = $0 } }
+        }
     }
 
     private var footer: some View {
@@ -114,7 +168,7 @@ struct QuickEntryView: View {
                 .foregroundStyle(.secondary)
             }
             Spacer()
-            KeyHints(hint)
+            KeyHints(hint, short: inTile ? shortHint : nil)
             // Real buttons for the mouse: the key hints alone were easy to miss.
             if shownPhase != .pickingQuadrant {
                 if flow.isEditing {
@@ -134,6 +188,11 @@ struct QuickEntryView: View {
         .lineLimit(1)
     }
 
+    /// The hints in a tile, when the full ones don't fit.
+    private var shortHint: String {
+        shownPhase == .pickingQuadrant ? "1–4 choose · esc cancel" : "⌘↩ save · esc cancel"
+    }
+
     private var hint: String {
         switch shownPhase {
         case .pickingQuadrant: "←↑↓→ or 1–4 · ↩ choose · esc " + (flow.isEditing ? "cancel" : "close")
@@ -144,6 +203,13 @@ struct QuickEntryView: View {
         default: "⌘↩ save · ⌥↩ files · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘D done" : "close")
         }
     }
+}
+
+/// `QuickEntryView`'s measured heights in an Overview tile.
+private struct TileSpace {
+    var available: CGFloat = .infinity
+    var head: CGFloat = 0
+    var attachments: CGFloat = 14 + 12 + 72
 }
 
 /// Holds the panel found by `WindowReader` without triggering view updates.

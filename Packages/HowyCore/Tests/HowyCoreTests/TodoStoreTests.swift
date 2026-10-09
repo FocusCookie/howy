@@ -152,6 +152,129 @@ final class FakeClock: @unchecked Sendable {
         #expect(try store.todo(id: middle.id)?.sortDate == oldSortDate)
     }
 
+    // MARK: move at a position (Overview drag and drop)
+
+    /// Three todos in `quadrant`, newest first: [c, b, a].
+    func three(in quadrant: Quadrant, _ prefix: String) throws -> [Todo] {
+        var made: [Todo] = []
+        for name in ["a", "b", "c"] {
+            made.append(try store.add(title: prefix + name, note: "", quadrant: quadrant))
+            clock.advance(by: 10)
+        }
+        return made.reversed()
+    }
+
+    @Test func moveAtIndexLandsAtThatPositionAndReturnsTheOldSortDate() throws {
+        let source = try three(in: .urgentImportant, "s")
+        let target = try three(in: .notUrgentImportant, "t")
+        let moved = source[1]
+        let oldSortDate = moved.sortDate
+        let writesBefore = writes.count
+
+        let returned = try store.move(id: moved.id, to: .notUrgentImportant, at: 2)
+
+        #expect(returned == oldSortDate)
+        #expect(try store.openTodos(in: .notUrgentImportant).map(\.id) == [target[0].id, target[1].id, moved.id, target[2].id])
+        #expect(try store.openTodos(in: .urgentImportant).map(\.id) == [source[0].id, source[2].id])
+        #expect(try store.todo(id: moved.id)?.quadrant == .notUrgentImportant)
+        #expect(writes.count == writesBefore + 1)
+    }
+
+    @Test func moveAtIndexZeroIsOnTopAndPastTheEndIsLast() throws {
+        let source = try three(in: .urgentImportant, "s")
+        let target = try three(in: .notUrgentImportant, "t")
+
+        try store.move(id: source[2].id, to: .notUrgentImportant, at: 0)
+        try store.move(id: source[0].id, to: .notUrgentImportant, at: 99)
+
+        #expect(try store.openTodos(in: .notUrgentImportant).map(\.id)
+            == [source[2].id, target[0].id, target[1].id, target[2].id, source[0].id])
+    }
+
+    @Test func moveAtIndexIntoAnEmptyQuadrant() throws {
+        let source = try three(in: .urgentImportant, "s")
+        try store.move(id: source[1].id, to: .notUrgentUnimportant, at: 3)
+        #expect(try store.openTodos(in: .notUrgentUnimportant).map(\.id) == [source[1].id])
+    }
+
+    @Test func newTodosStillLandOnTopAfterADrop() throws {
+        let source = try three(in: .urgentImportant, "s")
+        let target = try three(in: .notUrgentImportant, "t")
+        try store.move(id: source[0].id, to: .notUrgentImportant, at: 0)
+        clock.advance(by: 10)
+        let fresh = try store.add(title: "fresh", note: "", quadrant: .notUrgentImportant)
+        #expect(try store.openTodos(in: .notUrgentImportant).map(\.id)
+            == [fresh.id, source[0].id, target[0].id, target[1].id, target[2].id])
+    }
+
+    @Test func moveBackTakesBackAMoveAtIndex() throws {
+        let source = try three(in: .urgentImportant, "s")
+        let target = try three(in: .notUrgentImportant, "t")
+        let oldSortDate = try store.move(id: source[1].id, to: .notUrgentImportant, at: 1)
+        clock.advance(by: 10)
+
+        try store.moveBack(id: source[1].id, to: .urgentImportant, sortDate: oldSortDate)
+
+        #expect(try store.openTodos(in: .urgentImportant).map(\.id) == source.map(\.id))
+        #expect(try store.openTodos(in: .notUrgentImportant).map(\.id) == target.map(\.id))
+    }
+
+    @Test func moveAtIndexWithinItsOwnQuadrantReorders() throws {
+        let source = try three(in: .urgentImportant, "s")
+        try store.move(id: source[0].id, to: .urgentImportant, at: 2)
+        #expect(try store.openTodos(in: .urgentImportant).map(\.id) == [source[1].id, source[2].id, source[0].id])
+        let writesBefore = writes.count
+        try store.move(id: source[1].id, to: .urgentImportant, at: 0)
+        #expect(writes.count == writesBefore, "already there: no write")
+    }
+
+    @Test func moveAtIndexWhenTheClockIsBehindTheTopTodoStillKeepsTheOrder() throws {
+        let source = try three(in: .urgentImportant, "s")
+        let target = try three(in: .notUrgentImportant, "t")
+        clock.advance(by: -3600) // now() is older than every sortDate there
+        try store.move(id: source[0].id, to: .notUrgentImportant, at: 0)
+        try store.move(id: source[1].id, to: .notUrgentImportant, at: 2)
+        #expect(try store.openTodos(in: .notUrgentImportant).map(\.id)
+            == [source[0].id, target[0].id, source[1].id, target[1].id, target[2].id])
+    }
+
+    @Test func moveAtIndexLeavesArchivedTodosInTheTargetAlone() throws {
+        let source = try three(in: .urgentImportant, "s")
+        let target = try three(in: .notUrgentImportant, "t")
+        try store.complete(id: target[1].id)
+        let archived = try #require(try store.todo(id: target[1].id))
+        let archivedSortDate = archived.sortDate
+        let completedAt = archived.completedAt
+        try store.move(id: source[0].id, to: .notUrgentImportant, at: 1)
+        #expect(try store.openTodos(in: .notUrgentImportant).map(\.id) == [target[0].id, source[0].id, target[2].id])
+        let after = try #require(try store.todo(id: target[1].id))
+        #expect(after.sortDate == archivedSortDate)
+        #expect(after.completedAt == completedAt)
+        #expect(after.quadrant == .notUrgentImportant)
+    }
+
+    @Test func moveAtANegativeIndexIsTheTop() throws {
+        let source = try three(in: .urgentImportant, "s")
+        let target = try three(in: .notUrgentImportant, "t")
+        try store.move(id: source[2].id, to: .notUrgentImportant, at: -5)
+        #expect(try store.openTodos(in: .notUrgentImportant).map(\.id).first == source[2].id)
+        #expect(try store.openTodos(in: .notUrgentImportant).count == target.count + 1)
+    }
+
+    @Test func reorderPutsBackAnOrderThatMoveAtIndexRewrote() throws {
+        let source = try three(in: .urgentImportant, "s")
+        let before = source.map(\.id)
+        try store.move(id: source[0].id, to: .urgentImportant, at: 2)
+        #expect(try store.openTodos(in: .urgentImportant).map(\.id) != before)
+        try store.reorder(before, in: .urgentImportant)
+        #expect(try store.openTodos(in: .urgentImportant).map(\.id) == before)
+    }
+
+    @Test func moveAtIndexOnUnknownIDThrowsNotFound() {
+        let id = UUID()
+        #expect(throws: TodoStoreError.notFound(id)) { try store.move(id: id, to: .urgentImportant, at: 0) }
+    }
+
     @Test func moveOnUnknownIDThrowsNotFound() {
         let id = UUID()
         #expect(throws: TodoStoreError.notFound(id)) { try store.move(id: id, to: .urgentImportant) }

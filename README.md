@@ -19,6 +19,9 @@ Everything happens from a shortcut.
   counts. Open a quadrant, go through its todos with **↑/↓**, edit with **↩**,
   mark done with **D**, undo with **⌘Z**, and reorder with **⌘↑/⌘↓** (or drag).
   In the edit window, **⌘D** saves and marks the todo done.
+- **Overview**: press **O** in Browse (or click the button between the
+  quadrants) to see all four quadrants side by side. Focus one with **1–4** or
+  **⌥1–4**, edit todos right in their tile, and drag todos between quadrants.
 - **One-shortcut mode** (optional): a single shortcut opens a small chooser
   between _New Todo_ and _Browse_.
 - **Esc** never loses your typing. Unsaved text is kept as a draft, even across
@@ -51,7 +54,8 @@ Everything happens from a shortcut.
 - The menu has Quick Add, Browse, Archive, _Add to Quadrant_, Settings… and
   Quit.
 - In Settings you can record your own shortcuts, choose which quadrant new todos
-  start on, choose how attachments open, set the done animation, set how long
+  start on, choose how attachments open, set the done animation, size the
+  Overview, set how long
   the archive keeps todos, and turn on start at login.
 
 All data stays on your Mac (SwiftData in a sandboxed App Group container). Howy

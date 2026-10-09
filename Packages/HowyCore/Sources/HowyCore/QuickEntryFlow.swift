@@ -8,6 +8,9 @@ public enum QuickEntryKey: Hashable, Sendable {
     case digit(Int)
     /// ⌘ + a digit key (0–9): move the selected todo to that quadrant (Browse list, 1–4 only).
     case commandDigit(Int)
+    /// ⌥1–4 (mapped by key code): focus that quadrant in Browse's Overview, also from its tile
+    /// editor. Everywhere else it is plain typing (the Option character) for the text fields.
+    case optionDigit(Int)
     case enter
     case tab
     case shiftTab
@@ -267,7 +270,8 @@ public final class QuickEntryFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .enter, .tab: phase = .editingTitle
             case .shiftTab, .moveUp, .moveDown, .commandDigit: return false
-            case .other, .letter, .space, .optionEnter, .backspace, .commandDelete, .undo: break // nothing to type into
+            case .other, .letter, .space, .optionEnter, .optionDigit, .backspace, .commandDelete, .undo:
+                break // nothing to type into
             case .escape, .closePanel, .commandEnter, .commandDone: break
             }
             return true

@@ -28,6 +28,9 @@ struct MarkdownNoteEditor: NSViewRepresentable {
     var onAttach: ([QuickEntryModel.AttachmentSource]) -> [String] = { _ in [] }
     /// The attachment referenced under the caret (while focused) or the pointer changed.
     var onReferenceChange: (String?) -> Void = { _ in }
+    /// Take all the height offered (an Overview tile's editor) instead of growing with the text
+    /// up to `maxHeight`.
+    var fillsHeight = false
 
     static let minHeight: CGFloat = 60
     static let maxHeight: CGFloat = 260
@@ -98,8 +101,11 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         let height = ceil(measured + trailingLine) + textView.textContainerInset.height * 2
         // A scroller only when the note is taller than the editor: while the editor first appears it
         // is briefly laid out smaller than its text, which would flash an overlay scroller.
-        let overflows = height > Self.maxHeight
+        let offered = proposal.height.flatMap { $0.isFinite ? $0 : nil }
+        let limit = fillsHeight ? max(offered ?? Self.maxHeight, Self.minHeight) : Self.maxHeight
+        let overflows = height > limit
         if nsView.hasVerticalScroller != overflows { nsView.hasVerticalScroller = overflows }
+        if fillsHeight, offered != nil { return CGSize(width: width, height: limit) }
         return CGSize(width: width, height: min(max(height, Self.minHeight), Self.maxHeight))
     }
 

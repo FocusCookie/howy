@@ -69,7 +69,8 @@ import Testing
         #expect(key(18, [], "1") == .digit(1))
         #expect(key(29, [], "0") == .digit(0))
         #expect(key(18, .shift, "!") == .other)
-        #expect(key(18, .option, "1") == nil)
+        #expect(key(18, .option, "¡") == .optionDigit(1), "⌥1–4 are their own key (Overview focus)")
+        #expect(key(23, .option, "[") == nil)
     }
 
     @Test func commandDigitIsItsOwnKey() {
@@ -112,5 +113,26 @@ import Testing
         #expect(key(40, [.command, .shift], "K") == nil)
         #expect(key(40, [], "k") == .letter("k"), "plain K types")
         #expect(key(126, [.command, .option]) == nil)
+    }
+
+    @Test(arguments: [(UInt16(18), 1), (19, 2), (20, 3), (21, 4)])
+    func optionDigitsMapByKeyCode(code: UInt16, digit: Int) {
+        // charactersIgnoringModifiers gives the Option character (German: ¡ “ ¶ ¢), not the digit.
+        #expect(key(code, .option, "¡") == .optionDigit(digit))
+        #expect(key(code, .option, nil) == .optionDigit(digit))
+        #expect(key(code, [.option, .shift], "⁄") == nil)
+        #expect(key(code, [.option, .command], "¡") == nil)
+        #expect(key(code, [.option, .control], "¡") == nil, "⌥⌃ digits aren't ours")
+        #expect(key(code, [], String(digit)) == .digit(digit), "without modifiers still the plain digit")
+    }
+
+    @Test func optionWithOtherDigitsIsNotOurs() {
+        #expect(key(23, .option, "[") == nil) // ⌥5
+        #expect(key(29, .option, "≠") == nil) // ⌥0
+    }
+
+    @Test func plainOIsALetter() {
+        #expect(key(31, [], "o") == .letter("o"))
+        #expect(key(31, .option, "ø") == nil)
     }
 }
