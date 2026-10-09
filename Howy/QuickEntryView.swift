@@ -39,6 +39,7 @@ struct QuickEntryView: View {
                 footer
             }
         }
+        .overlay { linkDialog }
         .background(WindowReader { panel.window = $0 as? FloatingPanel })
         .onChange(of: flow.phase) { _, phase in
             if !flow.isFinished { activePhase = phase }
@@ -128,16 +129,23 @@ struct QuickEntryView: View {
 
         MarkdownNoteEditor(
             text: flow.note,
-            isFocused: flow.phase == .editingNote,
+            isFocused: flow.phase == .editingNote && flow.linkDialog == nil,
             onChange: { flow.note = $0 },
             onFocus: { flow.focus(.editingNote) },
             attachmentNames: Set(flow.attachmentNames),
             highlightedName: model.highlightedName,
             onAttach: { model.attach($0) },
             onReferenceChange: { model.noteReferenceName = $0 },
+            pendingEdit: flow.pendingNoteEdit,
+            onEditApplied: { flow.noteEditApplied(id: $0) },
+            onPasteURL: { flow.beginAddingLink(url: $0, replacing: $1) },
+            onEditLink: { flow.beginEditingLink($0) },
+            onOpenLink: { model.openLink($0) },
+            onLinkChange: { model.noteLink = $0 },
             fillsHeight: fillsHeight
         )
         .frame(maxHeight: fillsHeight ? .infinity : nil)
+        .overlay(alignment: .topLeading) { linkPopover }
         .overlay(alignment: .topLeading) {
             if flow.note.isEmpty {
                 Text("Note (Markdown)")
@@ -153,6 +161,40 @@ struct QuickEntryView: View {
                 AttachmentStrip(model: model)
             }
             .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { if inTile { tileSpace.attachments = $0 } }
+        }
+    }
+
+    /// Under the chip at the caret: its URL, Open and Edit.
+    @ViewBuilder private var linkPopover: some View {
+        if let anchor = model.noteLink, anchor.link.isChip, let frame = anchor.frame,
+           flow.phase == .editingNote, flow.linkDialog == nil {
+            GeometryReader { editor in
+                LinkPopover(
+                    link: anchor.link,
+                    onOpen: { model.openLink(anchor.link) },
+                    onEdit: { flow.beginEditingLink(anchor.link) }
+                )
+                // Starts under the chip, but not so far right that it leaves the card.
+                .offset(x: max(0, min(frame.minX, editor.size.width - Self.popoverRoom * scale)), y: frame.maxY + 4 * scale)
+            }
+        }
+    }
+
+    /// The width kept free for the popover at the editor's right edge, at 100 %.
+    private static let popoverRoom: CGFloat = 330
+
+    /// The link dialog over the whole card, the rest dimmed; a click beside it cancels.
+    @ViewBuilder private var linkDialog: some View {
+        if let dialog = flow.linkDialog {
+            ZStack(alignment: .top) {
+                Color.black.opacity(0.12)
+                    .contentShape(Rectangle())
+                    .onTapGesture { flow.cancelLink() }
+                LinkDialogView(flow: flow, dialog: dialog)
+                    .padding(.top, 40 * scale)
+                    .padding(.horizontal, 16 * scale)
+            }
+            .transition(.opacity)
         }
     }
 
@@ -200,8 +242,10 @@ struct QuickEntryView: View {
 
     /// ⇧⌘L (checklist items) only while the note has focus; it is the first hint to go when the
     /// footer is too narrow.
+    /// With the caret on a link, its keys take the checklist's place.
     private var hint: String {
-        shownPhase == .editingNote ? baseHint + KeyHint.separator + Self.checklistHint : baseHint
+        guard shownPhase == .editingNote else { return baseHint }
+        return baseHint + KeyHint.separator + (model.noteLink != nil ? Self.linkHint : Self.checklistHint)
     }
 
     private var hintWithoutChecklist: String? {
@@ -209,6 +253,7 @@ struct QuickEntryView: View {
     }
 
     private static let checklistHint = "⇧⌘L checklist"
+    private static let linkHint = "⌘O open · ⌘E edit link"
 
     private var baseHint: String {
         switch shownPhase {

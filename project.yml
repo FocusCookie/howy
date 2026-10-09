@@ -14,7 +14,7 @@ settings:
     SWIFT_VERSION: "6.0"
     ENABLE_HARDENED_RUNTIME: YES
     ENABLE_USER_SCRIPT_SANDBOXING: YES
-    MARKETING_VERSION: "1.5.0"
+    MARKETING_VERSION: "1.6.0"
     CURRENT_PROJECT_VERSION: "1"
 packages:
   HowyCore:
@@ -60,6 +60,8 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.files.user-selected.read-write: true
+        # Fetches a pasted link's page title (the note's link dialog).
+        com.apple.security.network.client: true
         com.apple.security.application-groups:
           - $(TeamIdentifierPrefix)io.lichtwart.howy
   HowyWidgets:

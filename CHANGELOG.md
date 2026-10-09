@@ -6,6 +6,29 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-10-09
+
+### Added
+
+- **Links in notes.** Paste a web address into the note and a small dialog
+  asks for its title.
+  - The title starts as the site's domain (`github.com`) and is replaced by the
+    page's own title once Howy has fetched it, unless you've started typing.
+    **↩** adds the link, **Esc** cancels the paste. An empty title pastes the
+    plain address.
+  - **Paste over selected text** and that text becomes the link, no dialog.
+  - A link shows as a **chip** with a link icon and its title; the note still
+    stores Markdown, `[title](url)`. The cursor steps over a chip like one
+    character, and the first **⌫** (or **⌦**) next to one selects it, the next
+    deletes it. Click a chip to put the cursor after it.
+  - With the cursor on a chip, a **popover** shows its address with **Open** and
+    **Edit**. **⌘O** (or **⌘-click**) opens the link in your browser, **⌘E**
+    edits its title and address; **⌘⌫** in that dialog turns it back into
+    plain text. Both keys also work on a bare address, so ⌘E gives one a title.
+    The key hints show them while the cursor is on a link.
+- Howy now has the network permission (outgoing connections only) to fetch a
+  pasted link's page title.
+
 ## [1.5.0] - 2026-10-09
 
 ### Added

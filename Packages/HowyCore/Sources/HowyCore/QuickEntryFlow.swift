@@ -108,7 +108,8 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 /// - Title: Enter/Tab go to the note; Shift+Tab goes back to the picker.
 /// - Note: Enter is a line break (not consumed); Tab not consumed; Shift+Tab goes to the title.
 ///   ⇧⌘L never reaches the flow (`KeyMapping` leaves it unmapped): the note editor toggles
-///   checklist items with it (`MarkdownTaskToggle`).
+///   checklist items with it (`MarkdownTaskToggle`). ⌘O and ⌘E don't either: the editor opens /
+///   edits the link at the caret (`NoteLinks`), the latter through `beginEditingLink`.
 /// - Title, note: ⌥Enter goes to the attachments.
 /// - Attachments: ←/→ select (clamped); Space/Enter ask to open the selected one, ⌥Enter to open
 ///   it the other way (`takeRequest()`); Enter with none asks to pick files; ⌫ removes the
@@ -120,6 +121,15 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 /// - Edit mode: ⌘D (any phase) saves the edits and marks the todo done (phase `.completed`), so it
 ///   goes to the archive. Like ⌘Enter it needs a non-empty title. Ignored in create mode.
 /// - Once saved, completed or cancelled, every key is ignored.
+///
+/// Links (`linkDialog`, in the note): pasting a URL asks for its title (`beginAddingLink`), ⌘E on
+/// a link edits its title and URL (`beginEditingLink`). While the dialog is open its keys come
+/// first: ↩ (or ⌘↩) inserts / saves the link, Esc cancels and inserts nothing, ⇥ / ⇧⇥ switch
+/// between title and URL, ⌘⌫ (editing) turns the link back into plain text. ⌘D and ⌥↩ are
+/// swallowed; other keys type into the field. The result is handed to the note editor as
+/// `pendingNoteEdit` (it applies it as one undo step and calls `noteEditApplied`), unless the
+/// note changed in the meantime. A new link's title starts as the site's domain; with a
+/// `LinkTitleLookup` the page's own title replaces it when it arrives, unless the user typed first.
 ///
 /// Modes: `.create` starts in the picker on the preselected / last-used quadrant and records the
 /// chosen quadrant as last-used on save. With `startingInTitle` it starts in the title instead,
@@ -178,6 +188,14 @@ public final class QuickEntryFlow {
     public private(set) var isRestoredDraft = false
     /// `abandon()` ran: the modal is gone.
     @ObservationIgnored private var isAbandoned = false
+    /// The link dialog over the note, while it is open.
+    public private(set) var linkDialog: LinkDialog?
+    /// A finished link dialog's change to the note, for the note editor to apply.
+    public private(set) var pendingNoteEdit: PendingNoteEdit?
+    @ObservationIgnored private var nextDialogID = 0
+    @ObservationIgnored private let linkTitles: (any LinkTitleLookup)?
+    /// The running page-title lookup (tests await it).
+    @ObservationIgnored private(set) var titleLookupTask: Task<Void, Never>?
 
     /// A save was attempted with an empty title and it is still empty.
     public var showsEmptyTitleHint: Bool { saveAttempted && !canSave }
@@ -189,15 +207,18 @@ public final class QuickEntryFlow {
     @ObservationIgnored private let drafts: (any DraftStore)?
 
     /// `startQuadrant` (Settings) decides where a fresh create flow starts when nothing is preselected.
+    /// `linkTitles` looks up the page title for a pasted link (none: the domain stays).
     public init(
         mode: Mode,
         lastUsed: any LastQuadrantStore,
         drafts: (any DraftStore)? = nil,
-        startQuadrant: NewTodoQuadrant = .lastUsed
+        startQuadrant: NewTodoQuadrant = .lastUsed,
+        linkTitles: (any LinkTitleLookup)? = nil
     ) {
         self.mode = mode
         self.lastUsed = lastUsed
         self.drafts = drafts
+        self.linkTitles = linkTitles
         switch mode {
         case .create(let preselected, let startingInTitle):
             if let stashed = drafts?.createDraft() {
@@ -253,6 +274,7 @@ public final class QuickEntryFlow {
     @discardableResult
     public func handle(_ key: QuickEntryKey) -> Bool {
         guard !isFinished, !isAbandoned else { return false }
+        if linkDialog != nil { return handleLinkDialogKey(key) }
         switch key {
         case .escape:
             cancel()
@@ -422,6 +444,7 @@ public final class QuickEntryFlow {
             saveAttempted = true
             return false
         }
+        closeLinkDialog()
         savedDraft = QuickEntryDraft(
             todoID: todoID,
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -446,6 +469,7 @@ public final class QuickEntryFlow {
     /// Esc: create mode keeps the draft for next time, edit mode discards the changes.
     public func cancel() {
         guard !isFinished else { return }
+        closeLinkDialog()
         if isEditing { setStash(nil) } else { stashCurrent() }
         phase = .cancelled
     }
@@ -498,6 +522,156 @@ public final class QuickEntryFlow {
         case .title: .editingTitle
         case .note: .editingNote
         }
+    }
+
+    // MARK: Links
+
+    /// The dialog for a new link's title or an existing link's title and URL.
+    public struct LinkDialog: Hashable, Sendable {
+        public enum Kind: Hashable, Sendable {
+            /// A pasted URL: only the title is asked for.
+            case add
+            /// ⌘E on a link: title and URL.
+            case edit(NoteLink)
+        }
+
+        public enum Field: Hashable, Sendable { case title, url }
+
+        public let kind: Kind
+        public fileprivate(set) var title: String
+        public fileprivate(set) var url: String
+        /// The field with focus (only `.title` when adding).
+        public fileprivate(set) var field: Field = .title
+        /// The page title is being looked up (the domain is in the field meanwhile).
+        public fileprivate(set) var isLookingUpTitle = false
+        /// The note range the link goes into (the paste's selection, the edited link).
+        let range: NSRange
+        /// The note when the dialog opened; if it differs on confirm, nothing is applied.
+        let note: String
+        let id: Int
+        fileprivate var titleWasTyped = false
+
+        public var isEditing: Bool {
+            if case .edit = kind { true } else { false }
+        }
+    }
+
+    /// A change to the note from the link dialog. `id` tells one from the next.
+    public struct PendingNoteEdit: Hashable, Sendable {
+        public let id: Int
+        public let edit: NoteLinks.Edit
+    }
+
+    /// A URL was pasted over `range` (the selection) in the note: ask for its title.
+    public func beginAddingLink(url: String, replacing range: NSRange) {
+        guard canOpenLinkDialog else { return }
+        nextDialogID += 1
+        let id = nextDialogID
+        var dialog = LinkDialog(kind: .add, title: NoteLinks.domain(of: url), url: url, range: range, note: note, id: id)
+        if let linkTitles, let pageURL = URL(string: url) {
+            dialog.isLookingUpTitle = true
+            titleLookupTask = Task { [weak self] in
+                let title = await linkTitles.title(for: pageURL)
+                self?.receiveLookedUpTitle(title, dialogID: id)
+            }
+        }
+        linkDialog = dialog
+    }
+
+    /// ⌘E (or the popover's Edit) on a link in the note.
+    public func beginEditingLink(_ link: NoteLink) {
+        guard canOpenLinkDialog else { return }
+        nextDialogID += 1
+        linkDialog = LinkDialog(
+            kind: .edit(link), title: link.isBare ? "" : link.title, url: link.url,
+            range: link.range, note: note, id: nextDialogID
+        )
+    }
+
+    private var canOpenLinkDialog: Bool {
+        !isFinished && !isAbandoned && phase == .editingNote && linkDialog == nil
+    }
+
+    public func setLinkTitle(_ title: String) {
+        guard var dialog = linkDialog, dialog.title != title else { return }
+        dialog.title = title
+        dialog.titleWasTyped = true
+        linkDialog = dialog
+    }
+
+    public func setLinkURL(_ url: String) {
+        guard linkDialog?.isEditing == true, linkDialog?.url != url else { return }
+        linkDialog?.url = url
+    }
+
+    /// A click into a field of the dialog.
+    public func focusLinkField(_ field: LinkDialog.Field) {
+        guard let dialog = linkDialog, field == .title || dialog.isEditing else { return }
+        linkDialog?.field = field
+    }
+
+    /// ↩: inserts the new link or saves the edited one. A blank URL (editing) removes the link.
+    public func confirmLink() {
+        guard let dialog = linkDialog else { return }
+        switch dialog.kind {
+        case .add:
+            finishLinkDialog(NoteLinks.insert(title: dialog.title, url: dialog.url, replacing: dialog.range))
+        case .edit(let link):
+            let url = dialog.url.trimmingCharacters(in: .whitespacesAndNewlines)
+            finishLinkDialog(url.isEmpty ? NoteLinks.unlink(link) : NoteLinks.replace(link, title: dialog.title, url: url))
+        }
+    }
+
+    /// ⌘⌫ while editing: the link becomes its title as plain text.
+    public func removeLink() {
+        guard let dialog = linkDialog, case .edit(let link) = dialog.kind else { return }
+        finishLinkDialog(NoteLinks.unlink(link))
+    }
+
+    /// Esc: closes the dialog without touching the note.
+    public func cancelLink() {
+        closeLinkDialog()
+    }
+
+    /// The note editor applied `pendingNoteEdit` with this id.
+    public func noteEditApplied(id: Int) {
+        if pendingNoteEdit?.id == id { pendingNoteEdit = nil }
+    }
+
+    private func finishLinkDialog(_ edit: NoteLinks.Edit) {
+        guard let dialog = linkDialog else { return }
+        closeLinkDialog()
+        // The editor's text is the dialog's base only while the note is unchanged.
+        guard note == dialog.note else { return }
+        pendingNoteEdit = PendingNoteEdit(id: dialog.id, edit: edit)
+    }
+
+    private func closeLinkDialog() {
+        titleLookupTask?.cancel()
+        titleLookupTask = nil
+        linkDialog = nil
+    }
+
+    private func receiveLookedUpTitle(_ title: String?, dialogID: Int) {
+        guard var dialog = linkDialog, dialog.id == dialogID else { return }
+        dialog.isLookingUpTitle = false
+        if let title, !dialog.titleWasTyped { dialog.title = title }
+        linkDialog = dialog
+    }
+
+    private func handleLinkDialogKey(_ key: QuickEntryKey) -> Bool {
+        switch key {
+        case .escape: cancelLink()
+        case .enter, .commandEnter: confirmLink()
+        case .tab, .shiftTab:
+            if let field = linkDialog?.field, linkDialog?.isEditing == true { linkDialog?.field = field == .title ? .url : .title }
+        case .commandDelete:
+            guard linkDialog?.isEditing == true else { return false } // the field deletes to the line start
+            removeLink()
+        case .commandDone, .optionEnter: break
+        default: return false
+        }
+        return true
     }
 
     private func move(rows: Int, columns: Int) {

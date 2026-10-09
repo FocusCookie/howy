@@ -36,6 +36,17 @@ Everything happens from a shortcut.
   `- [ ]` items, and pressed again it ticks or unticks them. Click a box to
   tick or untick it. Ticked items are crossed out and greyed. **⌘Z** undoes
   either. The key hints show **⇧⌘L checklist** while you're in the note.
+- **Links** in notes: paste a web address and a small dialog asks for its
+  title. It starts with the site's domain and switches to the page's own title
+  once Howy has looked it up (unless you've started typing). **↩** adds the
+  link, **Esc** cancels the paste. Paste over selected text and that text
+  becomes the link right away. A link shows as a chip with a link icon and its
+  title: the cursor steps over it, and the first **⌫** selects it before the
+  next deletes it. With the cursor next to a chip a popover shows its address.
+  **⌘O** (or **⌘-click**) opens the link, and **⌘E** edits its title and
+  address (**⌘⌫** in that dialog turns it back into plain text). ⌘O and ⌘E also
+  work on a bare address. In the file the note keeps plain Markdown,
+  `[title](url)`.
 - **Attachments**: paste or drop screenshots and files into a todo. You get
   thumbnails, and files open in Quick Look.
 - A small emoji and confetti burst when you finish something. You can turn it

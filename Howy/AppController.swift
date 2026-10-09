@@ -33,6 +33,8 @@ final class AppController {
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored private let lastUsed = UserDefaultsLastQuadrantStore()
     @ObservationIgnored private let drafts = UserDefaultsDraftStore()
+    /// Fetches a pasted link's page title for the link dialog.
+    @ObservationIgnored private let linkTitles = WebPageTitleLookup()
     @ObservationIgnored private let settingsWindow = SettingsWindowController()
     @ObservationIgnored private let transferWindow = TransferWindowController()
 
@@ -249,7 +251,7 @@ final class AppController {
             guard let todo = try? store.todo(id: id), todo.completedAt == nil else { return nil }
             flow = QuickEntryFlow(
                 mode: .edit(QuickEntryDraft(todo: todo, attachments: store.attachmentList(for: id))),
-                lastUsed: lastUsed, drafts: drafts
+                lastUsed: lastUsed, drafts: drafts, linkTitles: linkTitles
             )
         case .create(let quadrant):
             flow = createFlow(in: quadrant)
@@ -277,7 +279,7 @@ final class AppController {
         let flow = QuickEntryFlow(
             mode: .create(preselected: preselected, startingInTitle: startingInTitle),
             lastUsed: lastUsed, drafts: drafts,
-            startQuadrant: NewTodoQuadrant.load()
+            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles
         )
         let model = QuickEntryModel(flow: flow, store: store)
         model.escapeReturns = viaLauncher
@@ -300,7 +302,7 @@ final class AppController {
         QuickEntryFlow(
             mode: .create(preselected: quadrant, startingInTitle: true),
             lastUsed: lastUsed, drafts: drafts,
-            startQuadrant: NewTodoQuadrant.load()
+            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles
         )
     }
 
@@ -337,7 +339,7 @@ final class AppController {
         }
         let flow = QuickEntryFlow(
             mode: .edit(QuickEntryDraft(todo: todo, attachments: store.attachmentList(for: id))),
-            lastUsed: lastUsed, drafts: drafts
+            lastUsed: lastUsed, drafts: drafts, linkTitles: linkTitles
         )
         let model = QuickEntryModel(flow: flow, store: store)
         presentQuickEntry(model, kind: .edit, activate: activate)
