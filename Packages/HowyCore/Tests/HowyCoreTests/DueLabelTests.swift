@@ -19,7 +19,9 @@ import Testing
         ("2026-10-13 09:00", "Tue 09:00"),
         ("2026-10-14 09:00", "14 Oct"),
         ("2026-10-21 09:00", "21 Oct"),
-        ("2027-01-03 09:00", "3 Jan"),
+        ("2027-01-03 09:00", "3 Jan 2027"),
+        ("2027-10-10 09:00", "10 Oct 2027"),
+        ("2026-12-31 09:00", "31 Dec"),
         ("2026-10-07 08:00", "Overdue · 2 h"),
         ("2026-10-07 09:50", "Overdue · 10 min"),
         ("2026-10-05 10:00", "Overdue · 2 days"),
@@ -27,6 +29,22 @@ import Testing
     ])
     func shortLabel(due: String, label: String) {
         #expect(Self.format().short(DueFixture.date(due), now: Self.now) == label, "\(due)")
+    }
+
+    /// Around New Year: within six days it's a weekday; further, a date in another year has its year.
+    @Test(arguments: [
+        ("2027-01-03 10:00", "Sun 10:00"),
+        ("2027-01-20 09:00", "20 Jan 2027"),
+        ("2026-12-31 09:00", "Thu 09:00"),
+    ])
+    func aroundNewYear(due: String, label: String) {
+        let now = DueFixture.date("2026-12-28 12:00")
+        #expect(Self.format().short(DueFixture.date(due), now: now) == label, "\(due)")
+    }
+
+    @Test func overdueLabelsCountTimeAndShowNoDate() {
+        let now = DueFixture.date("2027-01-02 12:00")
+        #expect(Self.format().short(DueFixture.date("2026-12-20 12:00"), now: now) == "Overdue · 13 days")
     }
 
     @Test func longLabel() {

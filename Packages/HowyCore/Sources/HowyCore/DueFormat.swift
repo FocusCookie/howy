@@ -18,7 +18,7 @@ public enum DueState: Hashable, Sendable, Codable {
 ///
 /// Short label rules: overdue → "Overdue · N min / h / days"; under an hour → "in N min"; later
 /// today → "16:00"; tomorrow → "Tomorrow 10:00"; within six days → "Fri 10:00"; further →
-/// "21 Oct".
+/// "21 Oct", with the year when it isn't `now`'s ("10 Oct 2027").
 public struct DueFormat: Sendable {
     public var calendar: Calendar
 
@@ -74,8 +74,9 @@ public struct DueFormat: Sendable {
             let weekday = calendar.component(.weekday, from: due)
             return "\(Self.weekdays[weekday - 1]) \(time(due))"
         default:
-            let c = calendar.dateComponents([.day, .month], from: due)
-            return "\(c.day ?? 0) \(Self.months[(c.month ?? 1) - 1])"
+            let c = calendar.dateComponents([.day, .month, .year], from: due)
+            let date = "\(c.day ?? 0) \(Self.months[(c.month ?? 1) - 1])"
+            return c.year == calendar.component(.year, from: now) ? date : "\(date) \(c.year ?? 0)"
         }
     }
 

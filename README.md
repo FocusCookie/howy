@@ -83,7 +83,8 @@ Everything happens from a shortcut.
     in the past, impossible times (`25:00`) and words Howy doesn't know are
     refused with a message.
 - **In Browse** a dated todo shows a grey clock and a short time (_in 25 min_,
-  _16:00_, _Tomorrow 10:00_, _Fri 10:00_, _21 Oct_); an overdue one a red bell
+  _16:00_, _Tomorrow 10:00_, _Fri 10:00_, _21 Oct_, or _10 Oct 2027_ in another
+  year); an overdue one a red bell
   and _Overdue · 2 h_. The bell wiggles once when the list opens. Hover a label
   for the full date. Due dates never change the order or the quadrant.
 - **Notifications** at the due time show the title and quadrant, with **Done**,
