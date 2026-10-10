@@ -177,12 +177,15 @@ struct BrowseView: View {
             Text(todo.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            TimelineView(.everyMinute) { _ in
-                DueBadge(due: todo.due, now: flow.now, isSelected: isSelected, wiggle: bellWiggle) {
-                    model.beginDueDate(todo.id)
+            HStack(spacing: 10 * scale) {
+                TimelineView(.everyMinute) { _ in
+                    DueBadge(due: todo.due, now: flow.now, isSelected: isSelected, wiggle: bellWiggle) {
+                        model.beginDueDate(todo.id)
+                    }
                 }
+                AttachmentBadge(count: todo.attachmentCount)
             }
-            AttachmentBadge(count: todo.attachmentCount)
+            .besideQuadrantDots(shown: isSelected && !isDragged, spacing: 10 * scale)
             QuadrantDots(current: todo.quadrant, isActive: isSelected && !isDragged) { model.move(todo.id, to: $0) }
             dragHandle(todo, index: index, isActive: isSelected || isDragged)
         }
@@ -355,6 +358,30 @@ struct BrowseView: View {
     }
 }
 
+extension View {
+    /// For a row's badges (due date, attachments) laid out just before its `QuadrantDots`: while
+    /// the dots are hidden (`shown` false) the badges are drawn shifted into the dots' space, next
+    /// to the drag handle; when the dots show they slide back beside them. Only the drawing moves:
+    /// the row's layout, and so the title's width, stays the same either way.
+    func besideQuadrantDots(shown: Bool, spacing: CGFloat) -> some View {
+        modifier(BesideQuadrantDots(shown: shown, spacing: spacing))
+    }
+}
+
+private struct BesideQuadrantDots: ViewModifier {
+    let shown: Bool
+    let spacing: CGFloat
+    @Environment(\.panelScale) private var scale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: shown ? 0 : QuadrantDots.width * scale + spacing)
+            // In step with the dots fading in and out.
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: shown)
+    }
+}
+
 /// Remembers where the pointer was, to tell a real move from content sliding under it.
 @MainActor
 final class PointerTracker {
@@ -434,6 +461,8 @@ struct QuadrantDots: View {
     // At 100 %; the panel zoom multiplies them.
     static let hitSize: CGFloat = 20
     static let dotSize: CGFloat = 11
+    /// The dots' width at 100 %: four hit areas side by side.
+    static var width: CGFloat { CGFloat(Quadrant.allCases.count) * hitSize }
 
     var body: some View {
         HStack(spacing: 0) {
