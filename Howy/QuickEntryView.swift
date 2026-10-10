@@ -210,11 +210,13 @@ struct QuickEntryView: View {
         }
     }
 
-    /// The link dialog over the whole card, the rest dimmed; a click beside it cancels.
+    /// The link dialog over the whole card; a click beside it cancels. Not dimmed, like the
+    /// due-date dialog: a tint here covers only the screen inside the card's padding, a
+    /// square-cornered block rather than the rounded card.
     @ViewBuilder private var linkDialog: some View {
         if let dialog = flow.linkDialog {
             ZStack(alignment: .top) {
-                Color.black.opacity(0.12)
+                Color.clear
                     .contentShape(Rectangle())
                     .onTapGesture { flow.cancelLink() }
                 LinkDialogView(flow: flow, dialog: dialog)

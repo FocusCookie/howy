@@ -66,16 +66,24 @@ struct DueDateDialogView: View {
                 .truncationMode(.tail)
 
             HStack(spacing: 8 * scale) {
-                KeyHints(hint)
-                Spacer(minLength: 8 * scale)
-                if dialog.canRemove {
-                    Button("Remove", action: actions.remove)
-                        .help("Remove the due date (⌘⌫)")
+                // The hints give way first (shorter, then none); the buttons always get their width.
+                ViewThatFits(in: .horizontal) {
+                    ForEach(hints, id: \.self) { KeyHints($0) }
+                    Color.clear.frame(width: 0, height: 0)
                 }
-                Button("Cancel", action: actions.cancel)
-                Button("Set", action: actions.confirm)
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!dialog.canConfirm)
+                Spacer(minLength: 8 * scale)
+                HStack(spacing: 8 * scale) {
+                    if dialog.canRemove {
+                        Button("Remove", action: actions.remove)
+                            .help("Remove the due date (⌘⌫)")
+                    }
+                    Button("Cancel", action: actions.cancel)
+                    Button("Set", action: actions.confirm)
+                        .buttonStyle(.borderedProminent)
+                        .disabled(!dialog.canConfirm)
+                }
+                .fixedSize()
+                .layoutPriority(1)
             }
             .buttonStyle(.bordered)
             .panelControlSize(.small)
@@ -100,12 +108,15 @@ struct DueDateDialogView: View {
         .onDisappear { examples.hide() }
     }
 
-    /// With the examples open: how to pick one; otherwise the dialog's own keys.
-    private var hint: String {
+    /// The key hints, longest first; the first that fits beside the buttons is shown. With the
+    /// examples open: how to pick one; otherwise the dialog's own keys (⇥ examples kept longest).
+    private var hints: [String] {
         if dialog.showsExamples {
-            return dialog.highlightedExample == nil ? "↑↓ examples · ↩ set · ⇥ hide · esc hide" : "↑↓ examples · ↩ pick · ⇥ hide · esc hide"
+            let enter = dialog.highlightedExample == nil ? "↩ set" : "↩ pick"
+            return ["↑↓ examples · \(enter) · ⇥ hide · esc hide", "↑↓ examples · \(enter)", "↑↓ examples"]
         }
-        return dialog.canRemove ? "↩ set · ⇥ examples · esc cancel · ⌘⌫ remove" : "↩ set · ⇥ examples · esc cancel"
+        return (dialog.canRemove ? ["↩ set · ⇥ examples · esc cancel · ⌘⌫ remove"] : [])
+            + ["↩ set · ⇥ examples · esc cancel", "↩ set · ⇥ examples", "⇥ examples"]
     }
 
     @ViewBuilder private var preview: some View {
@@ -303,7 +314,7 @@ private struct HostWindowReader: NSViewRepresentable {
 }
 
 extension View {
-    /// Shows `dialog` over this screen, the rest dimmed (a click beside it runs `onDismiss`), and
+    /// Shows `dialog` over this screen (a click beside it runs `onDismiss`), and
     /// makes the card tall enough for it: the card clips its content, so on a short screen (Browse
     /// with one todo) the dialog would otherwise be cut off at the card's bottom edge. The dialog
     /// stays in the panel's own window, so the keyboard and the close-on-focus-loss rule are
@@ -333,7 +344,11 @@ private struct DueDialogOverlay<Dialog: View>: ViewModifier {
             .overlay {
                 if isPresented {
                     ZStack(alignment: .top) {
-                        Color.black.opacity(0.12)
+                        // Not dimmed: this layer covers the screen inside the card's padding, so a
+                        // tint would show as a square-cornered block, not the rounded card. It only
+                        // catches the click beside the dialog; the dialog's material and shadow
+                        // set it apart, like the move picker over the list.
+                        Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture(perform: onDismiss)
                         dialog()
