@@ -281,6 +281,65 @@ import Testing
         #expect(store.attachmentList(for: live.id).count == 1, "live attachments are never touched")
     }
 
+    @Test func aTodoThatCameBackGetsItsTrashedFilesBack() async throws {
+        let live = try store.add(title: "Live", quadrant: .urgentImportant)
+        try attach(to: live.id)
+        let returning = try store.add(title: "Deleted then back", quadrant: .urgentImportant)
+        try attach(to: returning.id)
+        // Deleted on another device: the row goes, the cleanup trashes the folder.
+        let row = try store.todos(id: returning.id)
+        row.forEach(store.context.delete)
+        try store.context.save()
+        #expect(try await store.removeOrphanedAttachments() == 1)
+        #expect(exists(trashed(returning.id)))
+
+        // The todo comes back (a late twin, an edit that won over the delete).
+        store.context.insert(Todo(id: returning.id, title: "Back", quadrant: .urgentImportant, createdAt: clock.now))
+        try store.context.save()
+        try await store.removeOrphanedAttachments()
+
+        #expect(exists(folder(returning.id)), "restored")
+        #expect(!exists(trashed(returning.id)))
+        #expect(store.attachmentList(for: returning.id).count == 1)
+    }
+
+    @Test func aRestoreNeverOverwritesANewFolder() async throws {
+        let live = try store.add(title: "Live", quadrant: .urgentImportant)
+        try attach(to: live.id)
+        let id = UUID()
+        try attach(to: id)
+        try await store.removeOrphanedAttachments()
+        #expect(exists(trashed(id)))
+        // The todo is back and already has new files.
+        store.context.insert(Todo(id: id, title: "Back", quadrant: .urgentImportant, createdAt: clock.now))
+        try store.context.save()
+        try attach(to: id)
+
+        try await store.removeOrphanedAttachments()
+
+        #expect(exists(folder(id)))
+        #expect(exists(trashed(id)), "left in the trash, not merged or replaced")
+    }
+
+    @Test func purgingTheTrashSkipsTodosThatExist() async throws {
+        let live = try store.add(title: "Live", quadrant: .urgentImportant)
+        try attach(to: live.id)
+        let id = UUID()
+        try attach(to: id)
+        try await store.removeOrphanedAttachments()
+        // The todo is back, and its folder was recreated, so nothing restores the trash.
+        store.context.insert(Todo(id: id, title: "Back", quadrant: .urgentImportant, createdAt: clock.now))
+        try store.context.save()
+        try attach(to: id)
+        clock.advance(by: 15 * 24 * 3600)
+
+        try await store.removeOrphanedAttachments()
+
+        #expect(exists(trashed(id)), "an existing todo's trash outlives the retention")
+        #expect(files.purgeTrash(olderThan: .distantFuture, keeping: []) == 1)
+        #expect(!exists(trashed(id)))
+    }
+
     @Test func theTrashIsNotEmptiedWhileTheBrakeHolds() async throws {
         let live = try store.add(title: "Live", quadrant: .urgentImportant)
         try attach(to: live.id)

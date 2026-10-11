@@ -46,7 +46,10 @@ public enum StoreSync: Hashable, Sendable {
 /// CloudKit build is never tried again in this process: from then on the setting is `.local`.
 final class SharedContainer: Sendable {
     private struct State {
+        /// What the container is built with, or was built with: after a fallback, `.local`.
         var sync: StoreSync = .local
+        /// What `configure(sync:)` asked for; never changed by a fallback.
+        var requested: StoreSync = .local
         var container: ModelContainer?
         var fallbackReason: String?
     }
@@ -60,6 +63,12 @@ final class SharedContainer: Sendable {
     /// The sync setting the container is (or will be) built with: after a fallback, `.local`.
     var sync: StoreSync {
         state.withLock { $0.sync }
+    }
+
+    /// What `configure(sync:)` asked for, whatever was actually built. `.iCloud` marks the app
+    /// process (the widget never configures anything).
+    var requestedSync: StoreSync {
+        state.withLock { $0.requested }
     }
 
     /// Why the `.iCloud` build failed and the container was built `.local` instead; `nil` when
@@ -81,6 +90,7 @@ final class SharedContainer: Sendable {
         state.withLock { state in
             if state.container != nil || state.fallbackReason != nil { return state.sync == sync }
             state.sync = sync
+            state.requested = sync
             return true
         }
     }
@@ -97,6 +107,8 @@ final class SharedContainer: Sendable {
             } catch where state.sync.mirrors {
                 let reason = String(describing: error)
                 Self.log.error("CloudKit store unavailable, using the local store for this run: \(reason, privacy: .public)")
+                // Recorded before the local build: CloudKit is never tried again in this process,
+                // whatever the local build does. `isBuilt` (and so the mode) tells whether it worked.
                 state.sync = .local
                 state.fallbackReason = reason
                 container = try build(.local)

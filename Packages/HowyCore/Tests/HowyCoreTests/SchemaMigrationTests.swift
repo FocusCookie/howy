@@ -279,7 +279,7 @@ import Testing
         defer { cleanup(url) }
         let flag = makeFlag()
         _ = try TodoStore.onDisk(url: url, healFlag: flag)
-        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey))
+        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey(fileName: url.lastPathComponent)))
 
         // Todos arrive before their events (CloudKit); the next open must not invent events.
         try insertTodosWithoutEvents(at: url, flag: flag, titles: ["Early", "Earlier"])
@@ -303,21 +303,87 @@ import Testing
         #expect(try second.allEvents().isEmpty)
     }
 
-    @Test func aStoreThatMirrorsNeverRunsTheSelfHeal() throws {
-        // On a new device the todos can be there before their events: no made-up events, and the
-        // flag stays as it was. (`selfHeal` never touches CloudKit; the setting only decides.)
-        let flag = makeFlag()
+    func storeWithTodoButNoEvent() throws -> TodoStore {
         let store = try TodoStore.inMemory()
         store.context.insert(Todo(id: UUID(), title: "Arrived first", quadrant: .urgentImportant, createdAt: created))
         try store.context.save()
+        return store
+    }
 
-        try TodoStore.selfHeal(store.modelContainer, flag: flag, sync: .iCloud(containerIdentifier: StoreSync.containerIdentifier))
+    @Test func theWidgetNeverRunsTheSelfHeal() throws {
+        // Only the app process heals: once the app mirrors, todos can be there before their events.
+        let flag = makeFlag()
+        let store = try storeWithTodoButNoEvent()
+        try TodoStore.selfHeal(store.modelContainer, flag: flag, fileName: "Howy.store", isAppProcess: false)
         #expect(try store.allEvents().isEmpty)
-        #expect(!flag.bool(forKey: TodoStore.selfHealFlagKey))
+        #expect(!flag.bool(forKey: TodoStore.selfHealFlagKey(fileName: "Howy.store")))
 
-        try TodoStore.selfHeal(store.modelContainer, flag: flag, sync: .local)
+        try TodoStore.selfHeal(store.modelContainer, flag: flag, fileName: "Howy.store", isAppProcess: true)
         #expect(try store.allEvents().count == 1)
-        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey))
+        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey(fileName: "Howy.store")))
+    }
+
+    @Test func aStoreThatMirroredNeverRunsTheSelfHeal() throws {
+        for key in [TodoStore.mirroredFlagKey(fileName: "Howy.store"), TodoStore.datesQuantizedFlagKey(fileName: "Howy.store")] {
+            let flag = makeFlag()
+            flag.set(true, forKey: key)
+            let store = try storeWithTodoButNoEvent()
+            try TodoStore.selfHeal(store.modelContainer, flag: flag, fileName: "Howy.store", isAppProcess: true)
+            #expect(try store.allEvents().isEmpty, "\(key)")
+            #expect(!flag.bool(forKey: TodoStore.selfHealFlagKey(fileName: "Howy.store")))
+        }
+    }
+
+    @Test func theHealFlagIsPerStoreFileAndTheOldOneStillCountsForTheReleaseFile() throws {
+        let flag = makeFlag()
+        #expect(TodoStore.selfHealFlagKey(fileName: "Howy.store") != TodoStore.selfHealFlagKey(fileName: "Howy-Debug.store"))
+        flag.set(true, forKey: TodoStore.selfHealFlagKey) // set by a build before the flag was scoped
+        let release = try storeWithTodoButNoEvent()
+        try TodoStore.selfHeal(release.modelContainer, flag: flag, fileName: "Howy.store", isAppProcess: true)
+        #expect(try release.allEvents().isEmpty)
+        let debug = try storeWithTodoButNoEvent()
+        try TodoStore.selfHeal(debug.modelContainer, flag: flag, fileName: "Howy-Debug.store", isAppProcess: true)
+        #expect(try debug.allEvents().count == 1)
+    }
+
+    @Test func buildingTheMirroringContainerSetsTheMirroredFlagButOpeningLocallyDoesNot() throws {
+        // `makeContainer` with CloudKit needs an iCloud account and entitlements, so the flag
+        // logic is checked through the preparation that runs before it.
+        let url = try makeStoreURL()
+        defer { cleanup(url) }
+        let flag = makeFlag()
+        _ = try TodoStore.makeContainer(url: url, healFlag: flag, sync: .local)
+        #expect(!flag.bool(forKey: TodoStore.mirroredFlagKey(fileName: url.lastPathComponent)))
+        #expect(!TodoStore.hasMirrored(flag, fileName: url.lastPathComponent))
+    }
+
+    @Test func preparingANewFileOpensNothingAndSetsTheFlags() throws {
+        let url = try makeStoreURL()
+        defer { cleanup(url) }
+        let flag = makeFlag()
+        try TodoStore.prepareBeforeMirroring(url: url, flags: flag, isAppProcess: true)
+        #expect(!FileManager.default.fileExists(atPath: url.path(percentEncoded: false)), "no store was created")
+        #expect(flag.bool(forKey: TodoStore.datesQuantizedFlagKey(fileName: url.lastPathComponent)))
+        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey(fileName: url.lastPathComponent)))
+    }
+
+    @Test func preparingAnExistingFileHealsThenQuantizesOnceInTheAppOnly() throws {
+        let url = try makeStoreURL()
+        defer { cleanup(url) }
+        try insertTodosWithoutEvents(at: url, flag: makeFlag(), titles: ["A"])
+        let widgetFlag = makeFlag()
+        try TodoStore.prepareBeforeMirroring(url: url, flags: widgetFlag, isAppProcess: false)
+        #expect(!widgetFlag.bool(forKey: TodoStore.selfHealFlagKey(fileName: url.lastPathComponent)))
+        #expect(widgetFlag.bool(forKey: TodoStore.datesQuantizedFlagKey(fileName: url.lastPathComponent)))
+
+        let appURL = try makeStoreURL()
+        defer { cleanup(appURL) }
+        try insertTodosWithoutEvents(at: appURL, flag: makeFlag(), titles: ["A"])
+        let appFlag = makeFlag()
+        try TodoStore.prepareBeforeMirroring(url: appURL, flags: appFlag, isAppProcess: true)
+        #expect(appFlag.bool(forKey: TodoStore.selfHealFlagKey(fileName: appURL.lastPathComponent)))
+        #expect(try TodoStore.onDisk(url: appURL, healFlag: makeFlag()).allEvents().count == 1)
+        try TodoStore.prepareBeforeMirroring(url: appURL, flags: appFlag, isAppProcess: true) // prepared: a no-op
     }
 
     @Test func aFailedMigrationBackfillHealsOnceThenNeverAgain() throws {
@@ -327,11 +393,11 @@ import Testing
         // Todos, no events, no flag: what a failed didMigrate leaves behind.
         let seeding = makeFlag()
         try insertTodosWithoutEvents(at: url, flag: seeding, titles: ["A", "B"])
-        #expect(!flag.bool(forKey: TodoStore.selfHealFlagKey))
+        #expect(!flag.bool(forKey: TodoStore.selfHealFlagKey(fileName: url.lastPathComponent)))
 
         let healed = try TodoStore.onDisk(url: url, healFlag: flag)
         #expect(try healed.allEvents().count == 2)
-        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey))
+        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey(fileName: url.lastPathComponent)))
         let again = try TodoStore.onDisk(url: url, healFlag: flag)
         #expect(try again.allEvents().count == 2)
     }

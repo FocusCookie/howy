@@ -61,11 +61,24 @@ public final class TodoStore {
     /// The store file name an Info.plist dictionary asks for: its `HowyStoreFileName` when that
     /// is a plain file name ending in `.store`, otherwise `Howy.store`.
     nonisolated static func storeFileName(info: [String: Any]?) -> String {
+        validStoreFileName(info: info) ?? defaultStoreFileName
+    }
+
+    /// The store file name an Info.plist dictionary asks for, or `nil` when the key is missing or
+    /// isn't a plain `*.store` file name (an unexpanded `$(…)` build setting, a path, a hidden file).
+    nonisolated static func validStoreFileName(info: [String: Any]?) -> String? {
         guard let name = info?[storeFileNameInfoKey] as? String,
               name.hasSuffix(".store"), name.count > ".store".count,
               !name.contains("/"), !name.contains("$"), !name.hasPrefix(".")
-        else { return defaultStoreFileName }
+        else { return nil }
         return name
+    }
+
+    /// Whether this build's Info.plist names its store file properly. The app doesn't turn
+    /// CloudKit on without it: a Debug build that silently fell back to `Howy.store` would mirror
+    /// the real data into the Development environment from the wrong place.
+    nonisolated public static var hasValidStoreFileName: Bool {
+        validStoreFileName(info: Bundle.main.infoDictionary) != nil
     }
 
     let modelContainer: ModelContainer
@@ -108,10 +121,34 @@ public final class TodoStore {
             StoreChangeSignal.post()
         }
     ) throws -> TodoStore {
-        let container = try SharedContainer.process.container { sync in
-            try makeContainer(url: sharedStoreURL(), healFlag: sharedHealDefaults(), sync: sync)
-        }
+        let container = try buildSharedContainer()
         return try TodoStore(modelContainer: container, attachments: AttachmentStore.shared(), now: now, didWrite: didWrite)
+    }
+
+    /// Builds the process's shared container (if it isn't yet) off the main actor, so a migration,
+    /// the first-mirroring preparation and the CloudKit setup don't block the menu bar. The app
+    /// awaits it at launch; `shared()` then finds the container built. A `shared()` that comes
+    /// first (a deep link) builds it itself, on the main actor, and this waits for it.
+    @concurrent
+    nonisolated public static func prepareSharedContainer() async throws {
+        _ = try buildSharedContainer()
+    }
+
+    nonisolated private static func buildSharedContainer() throws -> ModelContainer {
+        // Read before the build: its closure runs while the container's lock is held.
+        let isAppProcess = SharedContainer.process.requestedSync.mirrors
+        return try SharedContainer.process.container { sync in
+            try makeContainer(url: sharedStoreURL(), healFlag: sharedHealDefaults(), sync: sync, isAppProcess: isAppProcess)
+        }
+    }
+
+    /// The sync mode the shared container really has, from what was built (the fallback
+    /// included), not from what was asked for: `.starting` until it is built.
+    public static var sharedSyncMode: SyncState.Mode {
+        SyncMonitor.mode(
+            sync: SharedContainer.process.sync, fallbackReason: SharedContainer.process.fallbackReason,
+            isBuilt: SharedContainer.process.isBuilt
+        )
     }
 
     /// How the shared store really syncs: the setting given to `configureSharedSync(_:)`, or
@@ -154,7 +191,7 @@ public final class TodoStore {
     }
 
     /// The App Group store URL: `<group container>/Library/Application Support/Howy.store`.
-    public static func sharedStoreURL() throws -> URL {
+    nonisolated public static func sharedStoreURL() throws -> URL {
         guard let container = HowyAppGroup.containerURL else {
             throw TodoStoreError.appGroupUnavailable(HowyAppGroup.identifier)
         }
@@ -163,51 +200,101 @@ public final class TodoStore {
         return directory.appending(path: storeFileName)
     }
 
-    /// Where `selfHeal` keeps its flag: the App Group's `UserDefaults`, shared by the app and the
-    /// widget so that the heal runs once across both.
-    static func sharedHealDefaults() throws -> UserDefaults {
+    /// Where the per-store flags live (self-heal, quantization, mirrored): the App Group's
+    /// `UserDefaults`, shared by the app and the widget.
+    nonisolated static func sharedHealDefaults() throws -> UserDefaults {
         guard let defaults = UserDefaults(suiteName: HowyAppGroup.identifier) else {
             throw TodoStoreError.appGroupUnavailable(HowyAppGroup.identifier)
         }
         return defaults
     }
 
-    /// The `UserDefaults` key of the one-time self-heal.
-    static let selfHealFlagKey = "howy.eventBackfillSelfHealDone"
+    /// The flag key of the one-time self-heal before it was scoped per store file. It still
+    /// counts for `Howy.store`, whose heal ran under it.
+    nonisolated static let selfHealFlagKey = "howy.eventBackfillSelfHealDone"
 
-    /// A new container on the store file at `url`: migrated to the live schema and self-healed.
-    /// Before a store mirrors for the first time, its dates are quantized once
-    /// (`quantizeDatesBeforeMirroring`); `healFlag` keeps that flag too.
-    static func makeContainer(url: URL, healFlag: UserDefaults, sync: StoreSync) throws -> ModelContainer {
-        if sync.mirrors { try quantizeDatesBeforeMirroring(url: url, flags: healFlag) }
-        let container = try openContainer(url: url, sync: sync)
-        try selfHeal(container, flag: healFlag, sync: sync)
-        return container
+    /// The `UserDefaults` key that marks the store file named `fileName` as self-healed.
+    nonisolated static func selfHealFlagKey(fileName: String) -> String {
+        "\(selfHealFlagKey).\(fileName)"
+    }
+
+    /// The `UserDefaults` key that marks the store file named `fileName` as built with CloudKit
+    /// mirroring at least once (set when the mirroring container is first built).
+    nonisolated static func mirroredFlagKey(fileName: String) -> String {
+        "howy.storeMirrored.\(fileName)"
     }
 
     /// The `UserDefaults` key that marks the store file named `fileName` as quantized.
-    static func datesQuantizedFlagKey(fileName: String) -> String {
+    nonisolated static func datesQuantizedFlagKey(fileName: String) -> String {
         "howy.datesQuantized.\(fileName)"
+    }
+
+    /// Whether the store file named `fileName` mirrored before, or was prepared for it. The
+    /// quantization flag counts: it is only ever set right before the first mirroring build, and
+    /// builds from before the mirrored flag existed set it.
+    nonisolated static func hasMirrored(_ flags: UserDefaults, fileName: String) -> Bool {
+        flags.bool(forKey: mirroredFlagKey(fileName: fileName)) || flags.bool(forKey: datesQuantizedFlagKey(fileName: fileName))
+    }
+
+    /// A new container on the store file at `url`: migrated to the live schema, and for the app
+    /// process (`isAppProcess`) self-healed. With `sync.mirrors` the file is first prepared
+    /// (`prepareBeforeMirroring`: self-heal, date quantization), then opened with CloudKit, and
+    /// the mirrored flag is set. The widget extension (`isAppProcess == false`) never heals:
+    /// once the app mirrors, todos can be there before their events, and a backfill would add
+    /// false ones.
+    nonisolated static func makeContainer(
+        url: URL, healFlag flags: UserDefaults, sync: StoreSync, isAppProcess: Bool = true
+    ) throws -> ModelContainer {
+        let fileName = url.lastPathComponent
+        if sync.mirrors { try prepareBeforeMirroring(url: url, flags: flags, isAppProcess: isAppProcess) }
+        let container = try openContainer(url: url, sync: sync)
+        if sync.mirrors {
+            flags.set(true, forKey: mirroredFlagKey(fileName: fileName))
+        } else {
+            try selfHeal(container, flag: flags, fileName: fileName, isAppProcess: isAppProcess)
+        }
+        return container
+    }
+
+    /// Before a file mirrors for the first time: on a container that doesn't mirror, the
+    /// self-heal and the date quantization, both once per file (flags in `flags`). A file that
+    /// doesn't exist yet has nothing to heal or quantize, so it only sets the flags and no
+    /// container is opened. Does nothing for a file that was prepared or mirrored before. If it
+    /// throws, the flags stay unset and the next launch tries again.
+    nonisolated static func prepareBeforeMirroring(url: URL, flags: UserDefaults, isAppProcess: Bool) throws {
+        let fileName = url.lastPathComponent
+        let quantizedKey = datesQuantizedFlagKey(fileName: fileName)
+        guard !flags.bool(forKey: quantizedKey) else { return }
+        guard FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) else {
+            flags.set(true, forKey: selfHealFlagKey(fileName: fileName))
+            flags.set(true, forKey: quantizedKey)
+            return
+        }
+        let container = try openContainer(url: url, sync: .local)
+        try selfHeal(container, flag: flags, fileName: fileName, isAppProcess: isAppProcess)
+        try quantizeDatesBeforeMirroring(url: url, flags: flags, container: container)
     }
 
     /// Rounds every stored date of the store file at `url` to whole milliseconds, once per file
     /// (flag in `flags`, keyed by the file name), on a container that doesn't mirror. Runs
     /// before the mirroring container opens, so the first upload already has whole-millisecond
-    /// dates (rows written before Phase 3a may not). The local container is gone again before
-    /// the mirroring one is built. Returns how many rows it changed; `nil` when the flag was
-    /// already set. If it throws, the flag stays unset.
+    /// dates (rows written before Phase 3a may not). Returns how many rows it changed; `nil`
+    /// when the flag was already set. If it throws, the flag stays unset.
     @discardableResult
-    static func quantizeDatesBeforeMirroring(url: URL, flags: UserDefaults) throws -> Int? {
+    nonisolated static func quantizeDatesBeforeMirroring(
+        url: URL, flags: UserDefaults, container: ModelContainer? = nil
+    ) throws -> Int? {
         let key = datesQuantizedFlagKey(fileName: url.lastPathComponent)
         guard !flags.bool(forKey: key) else { return nil }
-        let changed = try DateQuantization.run(in: ModelContext(openContainer(url: url, sync: .local)))
+        let container = try container ?? openContainer(url: url, sync: .local)
+        let changed = try DateQuantization.run(in: ModelContext(container))
         flags.set(true, forKey: key)
         log.notice("Quantized the dates of \(changed) rows in \(url.lastPathComponent, privacy: .public) before mirroring")
         return changed
     }
 
     /// A container on the store file at `url`, migrated to the live schema.
-    private static func openContainer(url: URL, sync: StoreSync) throws -> ModelContainer {
+    nonisolated private static func openContainer(url: URL, sync: StoreSync) throws -> ModelContainer {
         let configuration = ModelConfiguration(
             schema: Schema(versionedSchema: HowySchemaV3.self),
             url: url,
@@ -221,16 +308,25 @@ public final class TodoStore {
     }
 
     /// One-time self-heal: todos without any event mean the migration's backfill didn't run or
-    /// failed. It runs only while `flag` isn't set and sets it after any successful open, the
-    /// no-op case of an empty store included. Never on later opens: with CloudKit, todos can
-    /// arrive before their events, and a backfill then would add false events. For the same
-    /// reason a store that mirrors (`sync.mirrors`) never runs it, on a new device the todos can
-    /// be there before their events on the very first open; the flag stays as it was. If the
-    /// backfill throws, the flag stays unset and the next open tries again.
-    static func selfHeal(_ container: ModelContainer, flag: UserDefaults, sync: StoreSync = .local) throws {
-        guard !sync.mirrors, !flag.bool(forKey: selfHealFlagKey) else { return }
+    /// failed. It runs only
+    ///
+    /// - in the app process (`isAppProcess`); the widget extension never does,
+    /// - on a store file that never mirrored (`hasMirrored`): with CloudKit, todos can arrive
+    ///   before their events, and a backfill then would add false events,
+    /// - while the file's flag (`selfHealFlagKey(fileName:)`, and for `Howy.store` the older
+    ///   unscoped one) isn't set.
+    ///
+    /// It sets the flag after any successful run, the no-op case of an empty store included.
+    /// If the backfill throws, the flag stays unset and the next open tries again.
+    nonisolated static func selfHeal(
+        _ container: ModelContainer, flag flags: UserDefaults, fileName: String, isAppProcess: Bool
+    ) throws {
+        guard isAppProcess, !hasMirrored(flags, fileName: fileName),
+              !flags.bool(forKey: selfHealFlagKey(fileName: fileName)),
+              !(fileName == defaultStoreFileName && flags.bool(forKey: selfHealFlagKey))
+        else { return }
         try HowyMigrationPlan.backfillEvents(in: ModelContext(container))
-        flag.set(true, forKey: selfHealFlagKey)
+        flags.set(true, forKey: selfHealFlagKey(fileName: fileName))
     }
 
     /// An in-memory store for tests and previews.
@@ -539,7 +635,9 @@ public final class TodoStore {
     /// staging and import areas. Two brakes stop a cleanup that would be a mass deletion if the
     /// store were wrong (say, wiped by an iCloud sign-out): it does nothing, and logs it, when
     /// the store has no todos, or when more than 3 folders are candidates and more than half of
-    /// them look orphaned. The trash is only emptied on a run that passes the brakes.
+    /// them look orphaned. The trash is only emptied on a run that passes the brakes, and never
+    /// of a todo that exists. A trashed folder whose todo exists again (it came back through
+    /// sync) is moved back first, unless it has a new folder already.
     ///
     /// The file work runs off the main actor, the id read on a background context. Returns the
     /// number of folders moved to the trash. Writes nothing to the store.
@@ -554,27 +652,39 @@ public final class TodoStore {
             if !candidates.isEmpty { Self.log.notice("Orphan cleanup skipped: the store has no todos") }
             return 0
         }
-        let orphans = candidates.subtracting(existing)
+        // A todo that came back through sync gets its trashed files back first.
+        await Self.restoreTrashed(for: existing, in: attachments)
+        var orphans = candidates.subtracting(existing)
         if candidates.count > 3, orphans.count * 2 > candidates.count {
             Self.log.notice("Orphan cleanup skipped: \(orphans.count) of \(candidates.count) attachment folders look orphaned")
             return 0
         }
-        return await Self.trash(orphans, in: attachments, at: stamp)
+        // Read again right before the move: rows that arrived meanwhile keep their folders.
+        let latest = try await StoreMaintenance.todoIDs(modelContainer)
+        orphans.subtract(latest)
+        return await Self.trash(orphans, keeping: existing.union(latest), in: attachments, at: stamp)
     }
 
-    private static let log = Logger(subsystem: "lueddemann.howy", category: "TodoStore")
+    nonisolated private static let log = Logger(subsystem: "lueddemann.howy", category: "TodoStore")
 
     @concurrent
     nonisolated private static func todoFolders(in attachments: AttachmentStore, changedBefore cutoff: Date) async -> Set<UUID> {
         attachments.todoFolderIDs(changedBefore: cutoff)
     }
 
-    /// Moves `ids` to the trash and empties what has been there longer than the retention.
+    /// Moves `ids` to the trash and empties what has been there longer than the retention,
+    /// except the entries of todos in `keeping` (they exist).
     @concurrent
-    nonisolated private static func trash(_ ids: Set<UUID>, in attachments: AttachmentStore, at stamp: Date) async -> Int {
+    nonisolated private static func trash(_ ids: Set<UUID>, keeping: Set<UUID>, in attachments: AttachmentStore, at stamp: Date) async -> Int {
         let moved = ids.filter { attachments.moveToTrash($0, at: stamp) }.count
-        attachments.purgeTrash(olderThan: stamp.addingTimeInterval(-AttachmentStore.trashRetention))
+        attachments.purgeTrash(olderThan: stamp.addingTimeInterval(-AttachmentStore.trashRetention), keeping: keeping)
         return moved
+    }
+
+    @concurrent
+    nonisolated private static func restoreTrashed(for ids: Set<UUID>, in attachments: AttachmentStore) async {
+        let restored = attachments.restoreFromTrash(for: ids)
+        if restored > 0 { log.notice("Restored the attachments of \(restored) todos that came back") }
     }
 
     /// Makes `list` the todo's attachments (see `AttachmentStore.commit`); reloads widgets when
@@ -591,14 +701,34 @@ public final class TodoStore {
     @discardableResult
     public func purgeArchive(now: Date? = nil, retention: ArchiveRetention = .default) throws -> Int {
         let cutoff = (now ?? self.now()).addingTimeInterval(-retention.interval)
-        let expired = try fetchRows(FetchDescriptor<Todo>(predicate: #Predicate { todo in
+        // A fresh context, read right before the delete: a row that arrived or changed through
+        // sync since this store's own context last read (a twin completed again, an edit that
+        // reopened the todo) is seen, not deleted from a stale snapshot.
+        let fresh = ModelContext(modelContainer)
+        let expired = try fresh.fetch(FetchDescriptor<Todo>(predicate: #Predicate { todo in
             todo.completedAt.flatMap { $0 < cutoff } == true
         }))
         guard !expired.isEmpty else { return 0 }
-        let ids = expired.map(\.id)
-        expired.flatMap(\.all).forEach(context.delete)
-        try commit()
-        ids.forEach { attachments?.removeAll(for: $0) }
+        var ids: [UUID] = []
+        for id in Set(expired.map(\.id)) {
+            let all = try fresh.fetch(FetchDescriptor<Todo>(predicate: #Predicate { $0.id == id }))
+            // The todo counts as it reads: by its survivor (`DuplicateRules`).
+            guard let survivor = DuplicateRules.survivor(of: all), let done = survivor.completedAt, done < cutoff else { continue }
+            all.forEach(fresh.delete)
+            ids.append(id)
+        }
+        guard !ids.isEmpty else { return 0 }
+        do {
+            try fresh.save()
+        } catch {
+            fresh.rollback()
+            throw error
+        }
+        didWrite?()
+        // The files go only when no row of the id is left (one may have come back since).
+        for id in ids where try fresh.fetchCount(FetchDescriptor<Todo>(predicate: #Predicate { $0.id == id })) == 0 {
+            attachments?.removeAll(for: id)
+        }
         return ids.count
     }
 

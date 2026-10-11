@@ -219,17 +219,49 @@ public final class AttachmentStore: Sendable {
         }
     }
 
-    /// Deletes trashed entries dated before `cutoff`. Returns how many.
+    /// The todo id a trash entry belongs to: its name is the id, or the id and `-` and a suffix.
+    private static func trashedTodoID(_ name: String) -> UUID? {
+        UUID(uuidString: String(name.prefix(36)))
+    }
+
+    /// Deletes trashed entries dated before `cutoff`, except those of the todos in `keeping`
+    /// (they exist). Returns how many.
     @discardableResult
-    func purgeTrash(olderThan cutoff: Date) -> Int {
+    func purgeTrash(olderThan cutoff: Date, keeping: Set<UUID> = []) -> Int {
         let keys: [URLResourceKey] = [.contentModificationDateKey]
         guard let entries = try? fileManager.contentsOfDirectory(at: trashDirectory, includingPropertiesForKeys: keys) else { return 0 }
         var removed = 0
         for entry in entries {
+            if let id = Self.trashedTodoID(entry.lastPathComponent), keeping.contains(id) { continue }
             guard let changed = try? entry.resourceValues(forKeys: Set(keys)).contentModificationDate, changed < cutoff else { continue }
             if (try? fileManager.removeItem(at: entry)) != nil { removed += 1 }
         }
         return removed
+    }
+
+    /// Moves trashed folders back to `<root>/<todo id>/` for the todos in `ids` (the todo is
+    /// there again, e.g. it came back through sync after another Mac deleted it). A todo that has
+    /// a folder again is left alone, and so is its trash. When several entries exist for an id
+    /// (numbered variants), the newest one comes back. Returns how many todos got files back.
+    @discardableResult
+    func restoreFromTrash(for ids: Set<UUID>) -> Int {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard !ids.isEmpty,
+              let entries = try? fileManager.contentsOfDirectory(at: trashDirectory, includingPropertiesForKeys: keys) else { return 0 }
+        var newest: [UUID: (entry: URL, date: Date)] = [:]
+        for entry in entries {
+            guard let id = Self.trashedTodoID(entry.lastPathComponent), ids.contains(id) else { continue }
+            let date = (try? entry.resourceValues(forKeys: Set(keys)).contentModificationDate) ?? .distantPast
+            if let current = newest[id], current.date >= date { continue }
+            newest[id] = (entry, date)
+        }
+        var restored = 0
+        for (id, found) in newest {
+            let target = todoDirectory(id)
+            guard !fileManager.fileExists(atPath: target.path(percentEncoded: false)) else { continue }
+            if (try? fileManager.moveItem(at: found.entry, to: target)) != nil { restored += 1 }
+        }
+        return restored
     }
 
     /// The names of the entries in the trash (tests, diagnostics).

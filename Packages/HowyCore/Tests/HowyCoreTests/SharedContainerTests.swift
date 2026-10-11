@@ -89,6 +89,32 @@ import Testing
         #expect(try cache.container(build) === first)
         #expect(asked.count == 2, "never built again")
         #expect(!cache.configure(sync: .iCloud(containerIdentifier: StoreSync.containerIdentifier)), "no second CloudKit try")
+        #expect(cache.requestedSync == .iCloud(containerIdentifier: StoreSync.containerIdentifier), "the app process stays known")
+    }
+
+    @Test func aFallbackThatFailsTooReportsNoFallback() {
+        struct Failure: Error {}
+        let cache = SharedContainer()
+        cache.configure(sync: .iCloud(containerIdentifier: StoreSync.containerIdentifier))
+        #expect(throws: Failure.self) { try cache.container { _ in throw Failure() } }
+        #expect(!cache.isBuilt)
+        // Nothing was built, so the mode stays "starting": it never claims a fallback that isn't running.
+        let mode = SyncMonitor.mode(sync: cache.sync, fallbackReason: cache.fallbackReason, isBuilt: cache.isBuilt)
+        #expect(mode == .starting)
+    }
+
+    @Test func theModeFollowsWhatWasBuilt() throws {
+        let iCloud = StoreSync.iCloud(containerIdentifier: StoreSync.containerIdentifier)
+        #expect(SyncMonitor.mode(sync: iCloud, fallbackReason: nil, isBuilt: false) == .starting)
+        #expect(SyncMonitor.mode(sync: iCloud, fallbackReason: nil, isBuilt: true) == .iCloud)
+        let cache = SharedContainer()
+        cache.configure(sync: iCloud)
+        _ = try cache.container { sync in
+            if sync.mirrors { throw NoCloudKit() }
+            return try TodoStore.inMemory().modelContainer
+        }
+        let mode = SyncMonitor.mode(sync: cache.sync, fallbackReason: cache.fallbackReason, isBuilt: cache.isBuilt)
+        #expect(mode == .unavailable(reason: "missing iCloud entitlement"))
     }
 
     @Test func afterAFallbackOnlyLocalIsRetried() throws {
@@ -128,6 +154,16 @@ import Testing
     func aMissingOrOddStoreFileNameIsTheReleaseName(name: String?) {
         let info: [String: Any]? = name.map { ["HowyStoreFileName": $0] }
         #expect(TodoStore.storeFileName(info: info) == "Howy.store")
+    }
+
+    @Test(arguments: [nil, "", ".store", "Howy", "../Howy.store", "$(HOWY_STORE_FILE_NAME)", ".hidden.store"] as [String?])
+    func aMissingOrOddStoreFileNameIsInvalid(name: String?) {
+        let info: [String: Any]? = name.map { ["HowyStoreFileName": $0] }
+        #expect(TodoStore.validStoreFileName(info: info) == nil)
+    }
+
+    @Test func aProperStoreFileNameIsValid() {
+        #expect(TodoStore.validStoreFileName(info: ["HowyStoreFileName": "Howy-Debug.store"]) == "Howy-Debug.store")
     }
 
     @Test func foldersBesideTheStoreAreScopedToItsFile() {

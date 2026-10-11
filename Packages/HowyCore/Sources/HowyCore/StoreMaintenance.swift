@@ -77,30 +77,34 @@ actor StoreMaintenance {
     func removeDuplicates() throws -> DuplicateCleanup {
         assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
         var result = DuplicateCleanup()
-        // Ids first, then the full rows of the repeated ones only.
+        // Ids first (a cheap check; most runs end here), then, on a fresh context, the full
+        // rows of the repeated ids only, read right before the delete: rows that arrived since
+        // are in the decision, and no twin is deleted from a stale snapshot.
         let todoIDs = try repeatedIDs(of: Todo.self)
+        let eventIDs = try repeatedIDs(of: TodoEvent.self)
+        guard !todoIDs.isEmpty || !eventIDs.isEmpty else { return result }
+        let fresh = ModelContext(modelContainer)
         if !todoIDs.isEmpty {
             let ids = Array(todoIDs)
-            let rows = try modelContext.fetch(FetchDescriptor<Todo>(predicate: #Predicate { ids.contains($0.id) }))
+            let rows = try fresh.fetch(FetchDescriptor<Todo>(predicate: #Predicate { ids.contains($0.id) }))
             for row in DuplicateRules.losers(rows) {
-                modelContext.delete(row)
+                fresh.delete(row)
                 result.removedTodos += 1
             }
         }
-        let eventIDs = try repeatedIDs(of: TodoEvent.self)
         if !eventIDs.isEmpty {
             let ids = Array(eventIDs)
-            let rows = try modelContext.fetch(FetchDescriptor<TodoEvent>(predicate: #Predicate { ids.contains($0.id) }))
+            let rows = try fresh.fetch(FetchDescriptor<TodoEvent>(predicate: #Predicate { ids.contains($0.id) }))
             for row in DuplicateRules.losers(rows) {
-                modelContext.delete(row)
+                fresh.delete(row)
                 result.removedEvents += 1
             }
         }
         guard !result.isEmpty else { return result }
         do {
-            try modelContext.save()
+            try fresh.save()
         } catch {
-            modelContext.rollback()
+            fresh.rollback()
             throw error
         }
         return result
@@ -129,18 +133,21 @@ actor StoreMaintenance {
         }
         guard !deletedAt.isEmpty else { return [] }
         let ids = Array(deletedAt.keys)
-        let rows = try modelContext.fetch(FetchDescriptor<Todo>(predicate: #Predicate { ids.contains($0.id) }))
+        // The rows are read on a fresh context right before the delete (an edit that arrived
+        // since is newer than the event and keeps its todo).
+        let fresh = ModelContext(modelContainer)
+        let rows = try fresh.fetch(FetchDescriptor<Todo>(predicate: #Predicate { ids.contains($0.id) }))
         var removed = Set<UUID>()
         for row in rows {
             guard let stamp = deletedAt[row.id], DuplicateRules.milliseconds(row.updatedAt) <= stamp else { continue }
-            modelContext.delete(row)
+            fresh.delete(row)
             removed.insert(row.id)
         }
         guard !removed.isEmpty else { return [] }
         do {
-            try modelContext.save()
+            try fresh.save()
         } catch {
-            modelContext.rollback()
+            fresh.rollback()
             throw error
         }
         return removed

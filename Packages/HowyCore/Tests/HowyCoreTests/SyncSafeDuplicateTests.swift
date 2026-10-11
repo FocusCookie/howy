@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 import Testing
 @testable import HowyCore
 
@@ -338,5 +339,30 @@ import Testing
         #expect(try await second.removeDuplicates().removedEvents == 1, "\(name)")
         #expect(try first.allEvents().map(\.record) == shownFirst, "\(name)")
         #expect(try second.allEvents().map(\.record) == shownFirst, "\(name)")
+    }
+}
+
+/// Destructive saves read fresh state right before they delete.
+@MainActor
+@Suite struct FreshReadBeforeDeleteTests {
+    let clock = FakeClock()
+
+    @Test func thePurgeSeesAReopenWrittenThroughAnotherContext() throws {
+        let store = try TodoStore.inMemory(now: { clock.now })
+        let todo = try store.add(title: "Archived long ago", quadrant: .urgentImportant)
+        try store.complete(id: todo.id)
+        _ = try store.allTodos() // this store's context has read it as completed
+        clock.advance(by: 100 * 24 * 3600)
+
+        // A sync import reopens it (another context writes the row).
+        let other = ModelContext(store.modelContainer)
+        let id = todo.id
+        let row = try #require(try other.fetch(FetchDescriptor<Todo>(predicate: #Predicate { $0.id == id })).first)
+        row.completedAt = nil
+        row.updatedAt = clock.now
+        try other.save()
+
+        #expect(try store.purgeArchive(retention: ArchiveRetention(days: 30)) == 0)
+        #expect(try store.todo(id: id) != nil)
     }
 }
