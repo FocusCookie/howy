@@ -165,23 +165,36 @@ public final class TodoStore {
     /// (import). Ids that already exist, or repeat within `records`, are skipped; existing todos
     /// are never changed. `updatedAt` is the clock's now.
     ///
-    /// `events` are inserted as they are, except those whose id already exists (or repeats) and
-    /// those of a todo that already existed. Events of todos that aren't in `records` (deleted
-    /// ones) come in too. An inserted todo that has no event in `events` (a format v1 file) gets
-    /// a `created` event at its `createdAt`, and a `completed` one at its `completedAt` if
-    /// archived.
+    /// `events` are inserted as they are, except those whose id already exists (or repeats), so
+    /// importing the same file again adds nothing. That includes events of todos that already
+    /// exist (their history grows, the todo itself never changes) and of todos that aren't in
+    /// `records` (deleted ones). An inserted todo that has no event in `events` (a format v1
+    /// file) gets a `created` event at its `createdAt`, and a `completed` one at its
+    /// `completedAt` if archived.
     ///
     /// All of it is one write, so widgets reload once; nothing new writes nothing. Returns the
     /// todo ids inserted, in order.
     @discardableResult
     public func insert(_ records: [TodoRecord], events: [TodoEventRecord] = []) throws -> [UUID] {
+        try insertReporting(records, events: events).todoIDs
+    }
+
+    /// What `insertReporting` wrote.
+    struct InsertResult {
+        /// The todo ids inserted, in order.
+        var todoIDs: [UUID]
+        /// Events inserted from the given ones (not counting made-up `created`/`completed`).
+        var eventCount: Int
+    }
+
+    /// `insert`, also telling how many of the given events were new.
+    func insertReporting(_ records: [TodoRecord], events: [TodoEventRecord]) throws -> InsertResult {
         let validated = try records.map { record in
             var record = record
             record.title = try Self.validated(record.title)
             return record
         }
-        let existing = try allIDs()
-        var taken = existing
+        var taken = try allIDs()
         var inserted: [UUID] = []
         let stamp = now()
         let withHistory = Set(events.map(\.todoID))
@@ -201,13 +214,13 @@ public final class TodoStore {
         }
         var eventIDs = try allEventIDs()
         var insertedEvents = 0
-        for event in events where !existing.contains(event.todoID) && eventIDs.insert(event.id).inserted {
+        for event in events where eventIDs.insert(event.id).inserted {
             context.insert(TodoEvent(record: event))
             insertedEvents += 1
         }
-        guard !inserted.isEmpty || insertedEvents > 0 else { return [] }
+        guard !inserted.isEmpty || insertedEvents > 0 else { return InsertResult(todoIDs: [], eventCount: 0) }
         try commit()
-        return inserted
+        return InsertResult(todoIDs: inserted, eventCount: insertedEvents)
     }
 
     /// Changes a todo, keeping its due date. Moving it to another quadrant bumps `sortDate` so it

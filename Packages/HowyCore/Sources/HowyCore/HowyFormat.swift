@@ -142,6 +142,9 @@ public struct HowyExport: Encodable, Sendable {
     /// empty; quadrants use their format names, dates the format's ISO 8601.
     public struct Event: Codable, Hashable, Sendable {
         public var record: TodoEventRecord
+        /// Set when reading: one line per optional field that was wrong and left out, e.g.
+        /// `invalid toQuadrant "sideways" (ignored)`. Never written.
+        public var warnings: [String] = []
 
         public init(record: TodoEventRecord) {
             self.record = record
@@ -164,8 +167,11 @@ public struct HowyExport: Encodable, Sendable {
             try container.encodeIfPresent(record.due.map(HowyFormat.string(from:)), forKey: .due)
         }
 
-        /// Reads one event; throws an `EntryProblem` saying what's missing or wrong. A kind this
-        /// build doesn't know is kept as written.
+        /// Reads one event. Throws an `EntryProblem` only when `id`, `todoID`, `kind` or `date` is
+        /// missing or wrong, because without them the event is meaningless. A wrong optional
+        /// field (`seq`, `fromQuadrant`, `toQuadrant`, `previousDue`, `due`) is left out and
+        /// noted in `warnings`; the event keeps its id, kind and date. A kind this build doesn't
+        /// know is kept as written.
         public init(from decoder: any Decoder) throws {
             guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
                 throw EntryProblem("not an event object")
@@ -196,16 +202,29 @@ public struct HowyExport: Encodable, Sendable {
             let todoID = try uuid(.todoID)
             guard let kind = try string(.kind), !kind.isEmpty else { throw EntryProblem("missing kind") }
             guard let eventDate = try date(.date) else { throw EntryProblem("missing date") }
-            var seq = 0
-            if container.contains(.seq), !((try? container.decodeNil(forKey: .seq)) ?? false) {
-                guard let value = try? container.decode(Int.self, forKey: .seq) else { throw EntryProblem("invalid seq") }
-                seq = value
+            var warnings: [String] = []
+            /// Reads an optional field; a wrong one becomes a warning and `nil`.
+            func optional<Value>(_ key: CodingKeys, _ read: (CodingKeys) throws -> Value?) -> Value? {
+                do {
+                    return try read(key)
+                } catch let problem as EntryProblem {
+                    warnings.append("\(problem.message) (ignored)")
+                } catch {
+                    warnings.append("invalid \(key.stringValue) (ignored)")
+                }
+                return nil
+            }
+            let seq: Int? = optional(.seq) { key in
+                guard container.contains(key), !((try? container.decodeNil(forKey: key)) ?? false) else { return nil }
+                guard let value = try? container.decode(Int.self, forKey: key) else { throw EntryProblem("invalid seq") }
+                return value
             }
             record = TodoEventRecord(
-                id: id, todoID: todoID, kindRaw: kind, date: eventDate, seq: seq,
-                fromQuadrant: try quadrant(.fromQuadrant), toQuadrant: try quadrant(.toQuadrant),
-                previousDue: try date(.previousDue), due: try date(.due)
+                id: id, todoID: todoID, kindRaw: kind, date: eventDate, seq: seq ?? 0,
+                fromQuadrant: optional(.fromQuadrant, quadrant), toQuadrant: optional(.toQuadrant, quadrant),
+                previousDue: optional(.previousDue, date), due: optional(.due, date)
             )
+            self.warnings = warnings
         }
     }
 
@@ -315,6 +334,7 @@ public struct HowyExport: Encodable, Sendable {
 
     /// `howy.json` read leniently: the header must be right, each todo stands on its own.
     struct Parsed {
+        var formatVersion: Int
         var appVersion: String?
         var exportedAt: Date?
         /// One per entry in `todos`, in file order.
@@ -347,7 +367,9 @@ public struct HowyExport: Encodable, Sendable {
         case .notAList: throw .unreadable("its events aren't a list")
         case .list(let entries): events = entries.map(\.result)
         }
+        guard case .number(let version) = file.formatVersion else { throw .missingFormatVersion } // unreachable: checked above
         return Parsed(
+            formatVersion: version,
             appVersion: file.appVersion,
             exportedAt: file.exportedAt.flatMap(HowyFormat.date(from:)),
             entries: todos.map(\.result),

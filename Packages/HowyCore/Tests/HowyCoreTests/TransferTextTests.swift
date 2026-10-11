@@ -39,6 +39,29 @@ import Testing
         #expect(TransferText.importPreview(report) == "Found 1 todo (1 already exists and will be skipped). Nothing to import.")
     }
 
+    @Test func previewNamesTheHistory() {
+        var report = ImportReport()
+        report.importCount = 2
+        report.importedEventCount = 40
+        report.skippedEventCount = 1
+        report.invalidEventCount = 2
+        #expect(TransferText.importPreview(report)
+            == "Found 2 todos. History: 40 events to add (1 already exists, 2 invalid). Import?")
+    }
+
+    @Test func historyAloneIsWorthImporting() {
+        var report = ImportReport()
+        report.duplicateCount = 1
+        report.importedEventCount = 1
+        #expect(report.hasChanges)
+        #expect(TransferText.importPreview(report)
+            == "Found 1 todo (1 already exists and will be skipped). History: 1 event to add. Import?")
+        report.importedEventCount = 0
+        report.skippedEventCount = 3
+        #expect(!report.hasChanges)
+        #expect(TransferText.importPreview(report).hasSuffix("Nothing to import."))
+    }
+
     @Test func retentionWarningOnlyWhenSomethingExpires() {
         #expect(TransferText.retentionWarning(0) == nil)
         #expect(TransferText.retentionWarning(1) == "1 archived todo is older than your retention and will be removed.")

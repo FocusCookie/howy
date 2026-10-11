@@ -178,11 +178,11 @@ import Testing
         let (target, writes) = try makeStore("target")
         let importer = HowyImporter(store: target, retention: ArchiveRetention(days: 90))
         let plan = try importer.analyze(folder: exportFolder)
-        #expect(plan.report == ImportReport(importCount: 3, attachmentCount: 2))
+        #expect(plan.report == ImportReport(importCount: 3, attachmentCount: 2, importedEventCount: try source.allEvents().count))
         #expect(writes.count == 0)
 
         let summary = try await importer.apply(plan)
-        #expect(summary == ImportReport(importCount: 3, attachmentCount: 2))
+        #expect(summary == ImportReport(importCount: 3, attachmentCount: 2, importedEventCount: try source.allEvents().count))
         #expect(writes.count == 1)
 
         #expect(try target.allTodos().map(\.record) == source.allTodos().map(\.record))
@@ -206,11 +206,12 @@ import Testing
         let importer = HowyImporter(store: target)
         _ = try await importer.apply(try importer.analyze(folder: exportFolder))
         let before = try target.allTodos().map(\.record)
+        let eventCount = try target.allEvents().count
 
         let plan = try importer.analyze(folder: exportFolder)
-        #expect(plan.report == ImportReport(duplicateCount: 3))
+        #expect(plan.report == ImportReport(duplicateCount: 3, skippedEventCount: eventCount))
         let summary = try await importer.apply(plan)
-        #expect(summary == ImportReport(duplicateCount: 3))
+        #expect(summary == ImportReport(duplicateCount: 3, skippedEventCount: eventCount))
         #expect(writes.count == 1) // the second import wrote nothing
         #expect(try target.allTodos().map(\.record) == before)
     }

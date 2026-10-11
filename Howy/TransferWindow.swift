@@ -54,7 +54,7 @@ struct TransferView: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Import") { model.onImport() }
                     .keyboardShortcut(.defaultAction)
-                    .disabled(report.importCount == 0)
+                    .disabled(!report.hasChanges)
             }
         case .exported(let result):
             Text(TransferText.exportHeadline(result)).font(.headline)
@@ -105,6 +105,9 @@ private struct ImportCounts: View {
             if report.attachmentCount > 0 { row("Attachments", report.attachmentCount) }
             if report.duplicateCount > 0 { row("Skipped as duplicates", report.duplicateCount) }
             if report.invalidCount > 0 { row("Skipped as invalid", report.invalidCount) }
+            if report.totalEventCount > 0 { row("History events imported", report.importedEventCount) }
+            if report.skippedEventCount > 0 { row("History events skipped as duplicates", report.skippedEventCount) }
+            if report.invalidEventCount > 0 { row("History events skipped as invalid", report.invalidEventCount) }
             if report.missingAttachmentCount > 0 { row("Attachments missing", report.missingAttachmentCount) }
             if report.expiredCount > 0 { row("Will be purged by retention", report.expiredCount) }
         }

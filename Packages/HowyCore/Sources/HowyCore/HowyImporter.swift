@@ -15,11 +15,25 @@ public struct ImportReport: Hashable, Sendable {
     public var missingAttachmentCount = 0
     /// Imported done todos already older than the archive retention; the next purge removes them.
     public var expiredCount = 0
+    /// History events that will be imported (preview) or were imported (summary): those whose
+    /// id isn't in Howy yet, whether their todo is new or already exists.
+    public var importedEventCount = 0
+    /// History events skipped because their id already exists, in Howy or earlier in the file.
+    public var skippedEventCount = 0
+    /// History events skipped because `id`, `todoID`, `kind` or `date` is missing or wrong.
+    /// (A wrong optional field only drops that field and adds a problem line.)
+    public var invalidEventCount = 0
     /// One line per problem, naming the todo, e.g. `Entry #12: missing title`.
     public var problems: [String] = []
 
     /// Every todo entry in the file.
     public var totalCount: Int { importCount + duplicateCount + invalidCount }
+
+    /// Every history event in the file.
+    public var totalEventCount: Int { importedEventCount + skippedEventCount + invalidEventCount }
+
+    /// Whether the import adds anything: a todo or a history event.
+    public var hasChanges: Bool { importCount > 0 || importedEventCount > 0 }
 }
 
 /// The result of `HowyImporter.analyze`: what an import of `folder` would do. Nothing has been
@@ -34,13 +48,16 @@ public struct ImportPlan: Sendable {
 }
 
 /// Imports an export folder (`howy.json` + `attachments/`), merging by id: todos whose id
-/// already exists are skipped with their attachments and events, and existing data never
-/// changes.
+/// already exists are skipped with their attachments, and existing todos never change.
 ///
-/// History (format v2 `events`) comes in as written; events whose id exists are skipped, so
-/// importing a file twice adds nothing. A todo the file has no event for (any version 1 file)
-/// gets `created`/`completed` events made up from its timestamps. Invalid events are skipped
-/// and listed in `problems`, without counting toward the todo numbers.
+/// History (format v2 `events`) comes in as written, for new and for already existing todos
+/// alike; events whose id exists are skipped, so importing a file twice adds nothing. A todo
+/// the file has no event for (any version 1 file) gets `created`/`completed` events made up
+/// from its timestamps. An event with a wrong optional field keeps its id, kind and date and
+/// drops the field (a problem line says so); an event with a wrong `id`, `todoID`, `kind` or
+/// `date` is skipped. Events are counted separately (`importedEventCount`,
+/// `skippedEventCount`, `invalidEventCount`), never in the todo numbers. A file of format
+/// version 2 or later without `events` gets a problem line.
 @MainActor
 public struct HowyImporter {
     public let store: TodoStore
@@ -103,10 +120,23 @@ public struct HowyImporter {
             todos.append(accepted)
         }
         var events: [TodoEventRecord] = []
+        var knownEvents = try store.allEventIDs()
+        if parsed.events == nil, parsed.formatVersion >= 2 {
+            report.problems.append("History: no history in this file")
+        }
         for (index, entry) in (parsed.events ?? []).enumerated() {
             switch entry {
-            case .success(let event): events.append(event.record)
-            case .failure(let problem): report.problems.append("History entry #\(index + 1): \(problem.message)")
+            case .success(let event):
+                report.problems += event.warnings.map { "History entry #\(index + 1): \($0)" }
+                events.append(event.record)
+                if knownEvents.insert(event.record.id).inserted {
+                    report.importedEventCount += 1
+                } else {
+                    report.skippedEventCount += 1
+                }
+            case .failure(let problem):
+                report.invalidEventCount += 1
+                report.problems.append("History entry #\(index + 1): \(problem.message)")
             }
         }
         return ImportPlan(folder: folder, report: report, todos: todos, events: events)
@@ -161,6 +191,7 @@ public struct HowyImporter {
         report.importCount = 0
         report.attachmentCount = 0
         report.expiredCount = 0
+        report.importedEventCount = 0
 
         let existing = try store.allIDs()
         let fresh = plan.todos.filter { !existing.contains($0.id) }
@@ -203,7 +234,10 @@ public struct HowyImporter {
             if isExpired(todo.record) { report.expiredCount += 1 }
         }
         do {
-            report.importCount = try store.insert(records, events: plan.events).count
+            let result = try store.insertReporting(records, events: plan.events)
+            report.importCount = result.todoIDs.count
+            report.importedEventCount = result.eventCount
+            report.skippedEventCount = plan.events.count - result.eventCount
         } catch {
             withFiles.forEach { store.attachments?.removeAll(for: $0) }
             throw error

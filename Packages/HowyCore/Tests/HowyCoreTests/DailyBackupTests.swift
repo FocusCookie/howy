@@ -67,7 +67,7 @@ import Testing
         let restored = try TodoStore.inMemory(attachments: AttachmentStore(root: base.appending(path: "restored", directoryHint: .isDirectory)))
         let importer = HowyImporter(store: restored)
         let summary = try await importer.apply(try importer.analyze(folder: folder))
-        #expect(summary == ImportReport(importCount: 1, attachmentCount: 1))
+        #expect(summary == ImportReport(importCount: 1, attachmentCount: 1, importedEventCount: try store.allEvents().count))
         #expect(try restored.allTodos().map(\.record) == store.allTodos().map(\.record))
         #expect(try restored.allEvents().map(\.record) == store.allEvents().map(\.record))
     }

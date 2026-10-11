@@ -85,7 +85,7 @@ import Testing
 
         let summary = try await importAll(exportFolder, into: target)
 
-        #expect(summary == ImportReport(importCount: 2))
+        #expect(summary == ImportReport(importCount: 2, importedEventCount: try source.allEvents().count))
         #expect(writes.count == 1)
         #expect(try target.allTodos().map(\.record) == source.allTodos().map(\.record))
         #expect(sorted(try target.allEvents()) == sorted(try source.allEvents()), "nothing made up, the deleted todo's history included")
@@ -100,13 +100,13 @@ import Testing
 
         let again = try await importAll(exportFolder, into: target)
 
-        #expect(again == ImportReport(duplicateCount: 2))
+        #expect(again == ImportReport(duplicateCount: 2, skippedEventCount: events.count))
         #expect(writes.count == 1, "the second import wrote nothing")
         #expect(try target.allTodos().map(\.record) == todos)
         #expect(sorted(try target.allEvents()) == events)
     }
 
-    @Test func eventsOfTodosThatAlreadyExistAreSkipped() async throws {
+    @Test func eventsOfTodosThatAlreadyExistAreImportedByID() async throws {
         let (target, _) = try makeStore()
         let mine = try target.add(title: "Mine", quadrant: .urgentImportant)
         let mineEvents = sorted(try target.events(for: mine.id))
@@ -118,17 +118,117 @@ import Testing
             { "id": "\(theirs)", "title": "New", "quadrant": "urgent-important", "createdAt": "2026-10-01T08:00:00Z" }
           ],
           "events": [
-            { "id": "\(UUID())", "todoID": "\(mine.id)", "kind": "created", "date": "2026-10-01T08:00:00Z", "seq": 0, "toQuadrant": "urgent-important" },
-            { "id": "\(UUID())", "todoID": "\(mine.id)", "kind": "completed", "date": "2026-10-02T08:00:00Z", "seq": 1 },
+            { "id": "\(mineEvents[0].id)", "todoID": "\(mine.id)", "kind": "created", "date": "2026-10-01T08:00:00Z", "seq": 0, "toQuadrant": "urgent-important" },
+            { "id": "\(UUID())", "todoID": "\(mine.id)", "kind": "moved", "date": "2026-10-01T09:00:00Z", "seq": 1, "fromQuadrant": "urgent-important", "toQuadrant": "urgent-unimportant" },
+            { "id": "\(UUID())", "todoID": "\(mine.id)", "kind": "completed", "date": "2026-10-02T08:00:00Z", "seq": 2 },
             { "id": "\(UUID())", "todoID": "\(theirs)", "kind": "created", "date": "2026-10-01T08:00:00Z", "seq": 0, "toQuadrant": "urgent-important" }
           ] }
         """
+        let folder = try importFolder(json: json)
 
-        let summary = try await importAll(try importFolder(json: json), into: target)
+        let summary = try await importAll(folder, into: target)
 
-        #expect(summary == ImportReport(importCount: 1, duplicateCount: 1))
-        #expect(sorted(try target.events(for: mine.id)) == mineEvents)
+        #expect(summary == ImportReport(importCount: 1, duplicateCount: 1, importedEventCount: 3, skippedEventCount: 1))
+        let history = try target.events(for: mine.id)
+        #expect(history.compactMap(\.kind) == [.created, .moved, .completed], "the file's new events join the todo's history")
+        #expect(history.first?.id == mineEvents[0].id)
+        #expect(try target.todo(id: mine.id)?.title == "Mine", "the todo itself never changes")
         #expect(try target.events(for: theirs).compactMap(\.kind) == [.created])
+
+        let again = try await importAll(folder, into: target)
+        #expect(again == ImportReport(duplicateCount: 2, skippedEventCount: 4), "idempotent by event id")
+        #expect(try target.allEvents().count == 4)
+    }
+
+    @Test func aVersion2FileWithoutEventsGetsAProblemLine() throws {
+        let (target, _) = try makeStore()
+        let todo = UUID()
+        let two = """
+        { "formatVersion": 2, "todos": [{ "id": "\(todo)", "title": "T", "quadrant": "urgent-important", "createdAt": "2026-10-01T08:00:00Z" }] }
+        """
+        let one = two.replacingOccurrences(of: "\"formatVersion\": 2", with: "\"formatVersion\": 1")
+
+        let plan = try HowyImporter(store: target).analyze(folder: try importFolder(json: two))
+        #expect(plan.report.problems == ["History: no history in this file"])
+        let old = try HowyImporter(store: target).analyze(folder: try importFolder(json: one))
+        #expect(old.report.problems.isEmpty, "version 1 files never had history")
+    }
+
+    @Test func aBadOptionalFieldKeepsTheEventAndDropsTheField() async throws {
+        let (target, _) = try makeStore()
+        let todo = UUID()
+        let ids = (0..<6).map { _ in UUID() }
+        let json = """
+        { "formatVersion": 2,
+          "todos": [{ "id": "\(todo)", "title": "T", "quadrant": "urgent-important", "createdAt": "2026-10-01T08:00:00Z" }],
+          "events": [
+            { "id": "\(ids[0])", "todoID": "\(todo)", "kind": "moved", "date": "2026-10-01T09:00:00Z", "fromQuadrant": "x", "toQuadrant": "urgent-unimportant" },
+            { "id": "\(ids[1])", "todoID": "\(todo)", "kind": "moved", "date": "2026-10-01T09:01:00Z", "fromQuadrant": "urgent-unimportant", "toQuadrant": 5 },
+            { "id": "\(ids[2])", "todoID": "\(todo)", "kind": "dueChanged", "date": "2026-10-01T09:02:00Z", "previousDue": "soon", "due": "2026-10-09T08:00:00Z" },
+            { "id": "\(ids[3])", "todoID": "\(todo)", "kind": "dueChanged", "date": "2026-10-01T09:03:00Z", "previousDue": "2026-10-09T08:00:00Z", "due": "later" },
+            { "id": "\(ids[4])", "todoID": "\(todo)", "kind": "completed", "date": "2026-10-01T09:04:00Z", "seq": "two" },
+            { "id": "\(ids[5])", "todoID": "\(todo)", "kind": "completed", "date": "yesterday" }
+          ] }
+        """
+        let importer = HowyImporter(store: target)
+        let plan = try importer.analyze(folder: try importFolder(json: json))
+
+        #expect(plan.report.importedEventCount == 5)
+        #expect(plan.report.invalidEventCount == 1)
+        #expect(plan.report.problems == [
+            #"History entry #1: unknown fromQuadrant "x" (ignored)"#,
+            "History entry #2: invalid toQuadrant (ignored)",
+            #"History entry #3: invalid previousDue "soon" (ignored)"#,
+            #"History entry #4: invalid due "later" (ignored)"#,
+            "History entry #5: invalid seq (ignored)",
+            #"History entry #6: invalid date "yesterday""#,
+        ])
+        let summary = try await importer.apply(plan)
+        #expect(summary.importedEventCount == 5)
+
+        let events = Dictionary(uniqueKeysWithValues: try target.events(for: todo).map { ($0.id, $0) })
+        #expect(events.count == 5)
+        #expect(events[ids[0]]?.fromQuadrant == nil && events[ids[0]]?.toQuadrant == .urgentUnimportant)
+        #expect(events[ids[1]]?.fromQuadrant == .urgentUnimportant && events[ids[1]]?.toQuadrant == nil)
+        #expect(events[ids[1]]?.kind == .moved)
+        #expect(events[ids[2]]?.previousDue == nil && events[ids[2]]?.due == HowyFormat.date(from: "2026-10-09T08:00:00Z"))
+        #expect(events[ids[3]]?.due == nil && events[ids[3]]?.previousDue != nil)
+        #expect(events[ids[4]]?.seq == 0 && events[ids[4]]?.kind == .completed)
+        #expect(events[ids[4]]?.date == HowyFormat.date(from: "2026-10-01T09:04:00Z"))
+        #expect(events[ids[5]] == nil)
+    }
+
+    @Test func subSecondDatesRoundTripExactlyThroughExportAndImport() async throws {
+        // Random fractional dates (a fixed seed, so a failure reproduces) in todos and events.
+        var generator = SeededGenerator(seed: 0x4E4F_5744)
+        func randomDate() -> Date {
+            Date(timeIntervalSinceReferenceDate: Double.random(in: 700_000_000..<900_000_000, using: &generator))
+        }
+        let source = try TodoStore.inMemory()
+        var records: [TodoRecord] = []
+        var events: [TodoEventRecord] = []
+        for _ in 0..<12 {
+            let id = UUID()
+            let created = randomDate()
+            records.append(TodoRecord(
+                id: id, title: "T", note: "", quadrant: .urgentImportant, createdAt: created,
+                sortDate: randomDate(), completedAt: Bool.random(using: &generator) ? randomDate() : nil, due: randomDate()
+            ))
+            events.append(TodoEventRecord(
+                id: UUID(), todoID: id, kindRaw: "dueChanged", date: randomDate(), seq: 1,
+                previousDue: randomDate(), due: randomDate()
+            ))
+        }
+        try source.insert(records, events: events)
+        _ = try await HowyExporter(store: source).export(to: exportFolder)
+        let (target, _) = try makeStore()
+
+        _ = try await importAll(exportFolder, into: target)
+
+        let expected = try source.allTodos().map(\.record)
+        #expect(expected.contains { $0.createdAt.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1) != 0 })
+        #expect(try target.allTodos().map(\.record) == expected)
+        #expect(sorted(try target.allEvents()) == sorted(try source.allEvents()))
     }
 
     @Test func eventsWhoseIDExistsAreSkipped() async throws {
@@ -202,7 +302,7 @@ import Testing
 
     // MARK: Invalid and unknown events
 
-    @Test func invalidEventsAreSkippedAndReportedUnknownKindsKept() async throws {
+    @Test func eventsWithABadKeyFieldAreSkippedAndReportedUnknownKindsKept() async throws {
         let (target, _) = try makeStore()
         let todo = UUID()
         let future = UUID()
@@ -224,14 +324,31 @@ import Testing
         #expect(plan.report.problems == [
             "History entry #2: missing id",
             #"History entry #3: invalid date "soon""#,
-            #"History entry #4: unknown toQuadrant "later""#,
+            #"History entry #4: unknown toQuadrant "later" (ignored)"#,
         ])
+        #expect(plan.report.importedEventCount == 3)
+        #expect(plan.report.invalidEventCount == 2)
 
         _ = try await importer.apply(plan)
 
         let history = try target.events(for: todo)
-        #expect(history.map(\.kindRaw) == ["created", "pinned"])
+        #expect(history.map(\.kindRaw) == ["created", "moved", "pinned"], "the moved event lost only its bad quadrant")
         #expect(history.last?.id == future)
         #expect(history.last?.kind == nil)
+    }
+}
+
+/// A small deterministic generator (SplitMix64), so random tests reproduce.
+struct SeededGenerator: RandomNumberGenerator {
+    var state: UInt64
+
+    init(seed: UInt64) { state = seed }
+
+    mutating func next() -> UInt64 {
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
     }
 }
