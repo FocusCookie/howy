@@ -37,21 +37,30 @@ public enum TodoStoreError: Error, Equatable, Sendable {
 public final class TodoStore {
     /// The store file of Release builds (the user's real data) and of anything without the
     /// Info.plist key.
-    public static let defaultStoreFileName = "Howy.store"
+    nonisolated public static let defaultStoreFileName = "Howy.store"
     /// The Info.plist key with this build's store file name (`HOWY_STORE_FILE_NAME` in
     /// `project.yml`: `Howy-Debug.store` in Debug, `Howy.store` in Release). The app and the
     /// widget extension of one configuration read the same value, so they open the same file,
     /// and Debug (CloudKit Development) never opens Release's file (Production).
-    public static let storeFileNameInfoKey = "HowyStoreFileName"
+    nonisolated public static let storeFileNameInfoKey = "HowyStoreFileName"
 
     /// File name of the SQLite store inside the App Group container, for this build.
-    public static var storeFileName: String {
+    nonisolated public static var storeFileName: String {
         storeFileName(info: Bundle.main.infoDictionary)
+    }
+
+    /// The name of a folder that belongs to this build's store file, next to it in the App
+    /// Group: `base` itself for `Howy.store` (Release, the real data), `base-<file stem>` for
+    /// any other (`Backups-Howy-Debug` for `Howy-Debug.store`). So a Debug run never takes the
+    /// day's backup slot, prunes real backups or treats real attachments as orphans.
+    nonisolated public static func storeScopedName(_ base: String, storeFileName: String = storeFileName) -> String {
+        guard storeFileName != defaultStoreFileName else { return base }
+        return "\(base)-\(storeFileName.dropLast(".store".count))"
     }
 
     /// The store file name an Info.plist dictionary asks for: its `HowyStoreFileName` when that
     /// is a plain file name ending in `.store`, otherwise `Howy.store`.
-    static func storeFileName(info: [String: Any]?) -> String {
+    nonisolated static func storeFileName(info: [String: Any]?) -> String {
         guard let name = info?[storeFileNameInfoKey] as? String,
               name.hasSuffix(".store"), name.count > ".store".count,
               !name.contains("/"), !name.contains("$"), !name.hasPrefix(".")

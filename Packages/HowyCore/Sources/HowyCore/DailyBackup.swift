@@ -67,12 +67,15 @@ public struct DailyBackup {
         return calendar
     }
 
-    /// `<App Group>/Library/Application Support/Backups`.
+    /// `<App Group>/Library/Application Support/Backups` (in Debug, `Backups-Howy-Debug`:
+    /// `TodoStore.storeScopedName`).
     public static func sharedDirectory() throws -> URL {
         guard let container = HowyAppGroup.containerURL else {
             throw TodoStoreError.appGroupUnavailable(HowyAppGroup.identifier)
         }
-        return container.appending(path: "Library/Application Support/Backups", directoryHint: .isDirectory)
+        return container.appending(
+            path: "Library/Application Support/\(TodoStore.storeScopedName("Backups"))", directoryHint: .isDirectory
+        )
     }
 
     /// The folder name for the day `date` falls on: `Howy Backup 2026-10-11`.

@@ -30,7 +30,9 @@ public final class AttachmentStore: Sendable {
         guard let container = HowyAppGroup.containerURL else {
             throw TodoStoreError.appGroupUnavailable(HowyAppGroup.identifier)
         }
-        return AttachmentStore(root: container.appending(path: "Library/Application Support/Attachments", directoryHint: .isDirectory))
+        return AttachmentStore(root: container.appending(
+            path: "Library/Application Support/\(TodoStore.storeScopedName("Attachments"))", directoryHint: .isDirectory
+        ))
     }
 
     private var fileManager: FileManager { .default }

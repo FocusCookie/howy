@@ -130,6 +130,13 @@ import Testing
         #expect(TodoStore.storeFileName(info: info) == "Howy.store")
     }
 
+    @Test func foldersBesideTheStoreAreScopedToItsFile() {
+        #expect(TodoStore.storeScopedName("Backups", storeFileName: "Howy.store") == "Backups")
+        #expect(TodoStore.storeScopedName("Attachments", storeFileName: "Howy.store") == "Attachments")
+        #expect(TodoStore.storeScopedName("Backups", storeFileName: "Howy-Debug.store") == "Backups-Howy-Debug")
+        #expect(TodoStore.storeScopedName("Attachments", storeFileName: "Howy-Debug.store") == "Attachments-Howy-Debug")
+    }
+
     @Test func onlyAnAppExtensionPostsTheExtensionSignal() {
         #expect(StoreChangeSignal.isAppExtension(URL(filePath: "/Applications/Howy.app/Contents/PlugIns/HowyWidgets.appex")))
         #expect(!StoreChangeSignal.isAppExtension(URL(filePath: "/Applications/Howy.app")))
