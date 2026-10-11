@@ -1,6 +1,6 @@
 name: Howy
 options:
-  bundleIdPrefix: io.lichtwart
+  bundleIdPrefix: lueddemann
   deploymentTarget:
     macOS: "27.0"
   createIntermediateGroups: true
@@ -9,6 +9,8 @@ settings:
   base:
     DEVELOPMENT_TEAM: GQ9M79TF33
     CODE_SIGN_STYLE: Automatic
+    # Lets automatic signing register group.howy on the App IDs.
+    REGISTER_APP_GROUPS: YES
     CODE_SIGN_IDENTITY: "Apple Development"
     MACOSX_DEPLOYMENT_TARGET: "27.0"
     SWIFT_VERSION: "6.0"
@@ -25,6 +27,12 @@ packages:
 targets:
   Howy:
     type: application
+    attributes:
+      # Lets automatic signing turn on App Groups for the App ID, so the
+      # provisioning profile grants group.howy.
+      SystemCapabilities:
+        com.apple.ApplicationGroups.Mac:
+          enabled: 1
     platform: macOS
     sources:
       - path: Howy
@@ -36,7 +44,7 @@ targets:
         codeSign: true
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.lichtwart.howy
+        PRODUCT_BUNDLE_IDENTIFIER: lueddemann.howy
         PRODUCT_NAME: Howy
         INFOPLIST_FILE: Howy/Info.plist
         CODE_SIGN_ENTITLEMENTS: Howy/Howy.entitlements
@@ -51,9 +59,8 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSUIElement: true
-        HowyAppGroup: $(TeamIdentifierPrefix)io.lichtwart.howy
         CFBundleURLTypes:
-          - CFBundleURLName: io.lichtwart.howy
+          - CFBundleURLName: lueddemann.howy
             CFBundleURLSchemes: [howy]
     entitlements:
       path: Howy/Howy.entitlements
@@ -63,9 +70,15 @@ targets:
         # Fetches a pasted link's page title (the note's link dialog).
         com.apple.security.network.client: true
         com.apple.security.application-groups:
-          - $(TeamIdentifierPrefix)io.lichtwart.howy
+          - group.howy
   HowyWidgets:
     type: app-extension
+    attributes:
+      # Lets automatic signing turn on App Groups for the App ID, so the
+      # provisioning profile grants group.howy.
+      SystemCapabilities:
+        com.apple.ApplicationGroups.Mac:
+          enabled: 1
     platform: macOS
     sources:
       - path: HowyWidgets
@@ -75,7 +88,7 @@ targets:
       - sdk: SwiftUI.framework
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: io.lichtwart.howy.widgets
+        PRODUCT_BUNDLE_IDENTIFIER: lueddemann.howy.widgets
         PRODUCT_NAME: HowyWidgets
         INFOPLIST_FILE: HowyWidgets/Info.plist
         CODE_SIGN_ENTITLEMENTS: HowyWidgets/HowyWidgets.entitlements
@@ -89,7 +102,6 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
-        HowyAppGroup: $(TeamIdentifierPrefix)io.lichtwart.howy
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
@@ -97,7 +109,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.application-groups:
-          - $(TeamIdentifierPrefix)io.lichtwart.howy
+          - group.howy
 schemes:
   Howy:
     build:

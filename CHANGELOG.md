@@ -6,6 +6,11 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **New bundle ID and App Group.** The app is now `lueddemann.howy` (widget
+  `lueddemann.howy.widgets`) and stores its data in the `group.howy` App Group.
+
 ## [1.7.0] - 2026-10-11
 
 ### Added
@@ -16,19 +21,19 @@ All notable changes to Howy are documented here. The format follows
     **↩** sets the date, **Esc** cancels, **⌘⌫** removes it; an empty field
     keeps the date that's set.
   - Type it in words: `in 30 min`, `in a week`, `tomorrow 10am`, `tonight`,
-    `fri`, `next friday`, `next week`, `weekend`, `24.12.`, `10.10.2026 at
-    10am`, `3 nov 5pm`, `14:30`, `noon`… A date without a time means 9:00 (a
-    new Settings choice). The **?** button (or **⇥**) shows examples in a panel
-    beside Howy's; click one or pick it with **↑↓** and **↩**.
+    `fri`, `next friday`, `next week`, `weekend`, `24.12.`,
+    `10.10.2026 at 10am`, `3 nov 5pm`, `14:30`, `noon`… A date without a time
+    means 9:00 (a new Settings choice). The **?** button (or **⇥**) shows
+    examples in a panel beside Howy's; click one or pick it with **↑↓** and
+    **↩**.
   - Browse shows a grey clock and a short time on dated todos, and a red bell
     with _Overdue · 2 h_ on late ones; the bell wiggles when the list opens.
-  - A notification at the due time with **Done**, **Snooze 1 h** and
-    **Tomorrow 9:00**; clicking it opens the todo. Permission is asked the
-    first time you set a due date, and Settings links to System Settings when
-    notifications are off. Dates that passed while the Mac slept notify on
-    wake.
-  - The widgets show a small clock on dated todos, red once overdue, and
-    update at that moment.
+  - A notification at the due time with **Done**, **Snooze 1 h** and **Tomorrow
+    9:00**; clicking it opens the todo. Permission is asked the first time you
+    set a due date, and Settings links to System Settings when notifications are
+    off. Dates that passed while the Mac slept notify on wake.
+  - The widgets show a small clock on dated todos, red once overdue, and update
+    at that moment.
   - Export and import keep due dates (`"due"` in `howy.json`; older exports
     still import).
 
@@ -47,8 +52,8 @@ All notable changes to Howy are documented here. The format follows
 
 ### Added
 
-- **Links in notes.** Paste a web address into the note and a small dialog
-  asks for its title.
+- **Links in notes.** Paste a web address into the note and a small dialog asks
+  for its title.
   - The title starts as the site's domain (`github.com`) and is replaced by the
     page's own title once Howy has fetched it, unless you've started typing.
     **↩** adds the link, **Esc** cancels the paste. An empty title pastes the
@@ -60,9 +65,9 @@ All notable changes to Howy are documented here. The format follows
     deletes it. Click a chip to put the cursor after it.
   - With the cursor on a chip, a **popover** shows its address with **Open** and
     **Edit**. **⌘O** (or **⌘-click**) opens the link in your browser, **⌘E**
-    edits its title and address; **⌘⌫** in that dialog turns it back into
-    plain text. Both keys also work on a bare address, so ⌘E gives one a title.
-    The key hints show them while the cursor is on a link.
+    edits its title and address; **⌘⌫** in that dialog turns it back into plain
+    text. Both keys also work on a bare address, so ⌘E gives one a title. The
+    key hints show them while the cursor is on a link.
 - Howy now has the network permission (outgoing connections only) to fetch a
   pasted link's page title.
 
@@ -70,17 +75,17 @@ All notable changes to Howy are documented here. The format follows
 
 ### Added
 
-- **Checklists in notes.** Markdown task items (`- [ ] todo`, `- [x] done`)
-  get a dimmed box with an accent-coloured tick, and a ticked item's text is
-  crossed out and greyed.
+- **Checklists in notes.** Markdown task items (`- [ ] todo`, `- [x] done`) get
+  a dimmed box with an accent-coloured tick, and a ticked item's text is crossed
+  out and greyed.
   - **⇧⌘L** in the note turns the selected lines into checklist items (a list
     item keeps its marker, `1.` included). Pressed on items, it ticks them, or
     unticks them when they're all ticked already. On an empty line it starts a
     new `- [ ] ` item.
   - **Click a box** to tick or untick it. The pointer turns into a hand over a
     box and the box gets a soft highlight; the cursor stays where it was.
-  - **⌘Z** undoes either in one step. The key hints show **⇧⌘L checklist**
-    while you're in the note.
+  - **⌘Z** undoes either in one step. The key hints show **⇧⌘L checklist** while
+    you're in the note.
 
 ## [1.4.0] - 2026-10-09
 
@@ -118,9 +123,9 @@ All notable changes to Howy are documented here. The format follows
 ### Added
 
 - **Panel zoom.** Make everything in Howy's panels bigger: **⌘+** (or **⌘=**)
-  zooms in, **⌘-** zooms out and **⌘0** goes back to 100 %. There are four
-  steps (100, 115, 130 and 150 %); 100 % is the size you know and the smallest.
-  The keys work in every panel, also while you type a title or a note, and Howy
+  zooms in, **⌘-** zooms out and **⌘0** goes back to 100 %. There are four steps
+  (100, 115, 130 and 150 %); 100 % is the size you know and the smallest. The
+  keys work in every panel, also while you type a title or a note, and Howy
   beeps when you're already at the smallest or largest step. Text, rows, icons,
   key caps and the panel's width all grow together, the lists stay within the
   screen, and the Overview keeps its size while its content zooms. The level is
@@ -142,8 +147,8 @@ All notable changes to Howy are documented here. The format follows
     still visible. ⌘↩ saves, ⌘D saves and marks done, Esc discards. Focusing
     another quadrant keeps the edit as a draft.
   - Drag a todo by its grip to another place or another quadrant. A line shows
-    where it lands, dropping on a quadrant's header puts it on top, and ⌘Z
-    takes it back.
+    where it lands, dropping on a quadrant's header puts it on top, and ⌘Z takes
+    it back.
   - **Esc** or the button shrinks the panel back to the four quadrants.
 - **Overview size in Settings.** Width and height sliders (50–95 % of the
   screen, 80 % by default) with a live preview of the Overview on your display.
@@ -170,8 +175,8 @@ All notable changes to Howy are documented here. The format follows
 - **⌘⌫ is plain text editing again in the title and note.** It deletes to the
   start of the line, as everywhere else on the Mac. It used to ask to delete the
   todo (when editing) or clear the whole draft (when adding). Todos are now
-  deleted for good only from the archive, and the edit window's Delete button
-  is gone.
+  deleted for good only from the archive, and the edit window's Delete button is
+  gone.
 
 ## [1.1.0] - 2026-10-09
 
@@ -197,8 +202,8 @@ All notable changes to Howy are documented here. The format follows
   button. A file that can't be read, or that comes from a newer Howy, is refused
   and nothing changes.
 - **Copy for AI.** Settings has a new **Import Format** section. **Copy for AI**
-  puts a description of the import format, with an example, on the clipboard,
-  so an AI chat can turn data from another app into a `howy.json` to import.
+  puts a description of the import format, with an example, on the clipboard, so
+  an AI chat can turn data from another app into a `howy.json` to import.
 
 ### Changed
 
