@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-11
+
 ### Added
 
 - **Due dates and reminders.** A todo can have one due date.
