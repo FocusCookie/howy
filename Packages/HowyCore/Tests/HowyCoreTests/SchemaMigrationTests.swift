@@ -257,6 +257,84 @@ import Testing
         }
     }
 
+    /// A flag store of its own, so the tests don't share (or leave) a flag.
+    func makeFlag() -> UserDefaults {
+        let name = "howy.tests.\(UUID().uuidString)"
+        let defaults = UserDefaults(suiteName: name)!
+        defaults.removePersistentDomain(forName: name)
+        return defaults
+    }
+
+    /// Writes todos without events into a v3 store at `url`, as todos arriving by sync would.
+    func insertTodosWithoutEvents(at url: URL, flag: UserDefaults, titles: [String]) throws {
+        let store = try TodoStore.onDisk(url: url, healFlag: flag)
+        for title in titles {
+            store.context.insert(Todo(id: UUID(), title: title, quadrant: .urgentImportant, createdAt: created))
+        }
+        try store.context.save()
+    }
+
+    @Test func aFreshEmptyStoreSetsTheFlagAndLaterTodosWithoutEventsGetNoBackfill() throws {
+        let url = try makeStoreURL()
+        defer { cleanup(url) }
+        let flag = makeFlag()
+        _ = try TodoStore.onDisk(url: url, healFlag: flag)
+        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey))
+
+        // Todos arrive before their events (CloudKit); the next open must not invent events.
+        try insertTodosWithoutEvents(at: url, flag: flag, titles: ["Early", "Earlier"])
+        let reopened = try TodoStore.onDisk(url: url, healFlag: flag)
+        #expect(try reopened.allTodos().count == 2)
+        #expect(try reopened.allEvents().isEmpty)
+        #expect(try reopened.allTodos().allSatisfy { $0.updatedAt == created })
+    }
+
+    @Test func theFlagStopsASecondBackfill() throws {
+        let url = try makeStoreURL()
+        defer { cleanup(url) }
+        let flag = makeFlag()
+        try insertTodosWithoutEvents(at: url, flag: makeFlag(), titles: ["A"]) // another flag store: opening sets no flag here
+        let first = try TodoStore.onDisk(url: url, healFlag: flag)
+        #expect(try first.allEvents().count == 1) // healed, flag set
+        try first.allEvents().forEach(first.context.delete)
+        try first.context.save()
+
+        let second = try TodoStore.onDisk(url: url, healFlag: flag)
+        #expect(try second.allEvents().isEmpty)
+    }
+
+    @Test func aFailedMigrationBackfillHealsOnceThenNeverAgain() throws {
+        let url = try makeStoreURL()
+        defer { cleanup(url) }
+        let flag = makeFlag()
+        // Todos, no events, no flag: what a failed didMigrate leaves behind.
+        let seeding = makeFlag()
+        try insertTodosWithoutEvents(at: url, flag: seeding, titles: ["A", "B"])
+        #expect(!flag.bool(forKey: TodoStore.selfHealFlagKey))
+
+        let healed = try TodoStore.onDisk(url: url, healFlag: flag)
+        #expect(try healed.allEvents().count == 2)
+        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey))
+        let again = try TodoStore.onDisk(url: url, healFlag: flag)
+        #expect(try again.allEvents().count == 2)
+    }
+
+    @Test func theBackfillKeepsAnUpdatedAtThatIsAlreadySet() throws {
+        let url = try makeStoreURL()
+        defer { cleanup(url) }
+        let stamp = created.addingTimeInterval(500)
+        do {
+            let store = try TodoStore.onDisk(url: url, healFlag: makeFlag())
+            store.context.insert(Todo(id: UUID(), title: "Synced", quadrant: .urgentImportant, createdAt: created, updatedAt: stamp))
+            store.context.insert(Todo(id: UUID(), title: "Fresh", quadrant: .urgentImportant, createdAt: created, updatedAt: .distantPast))
+            try store.context.save()
+        }
+        let store = try TodoStore.onDisk(url: url, healFlag: makeFlag())
+        let byTitle = Dictionary(uniqueKeysWithValues: try store.allTodos().map { ($0.title, $0.updatedAt) })
+        #expect(byTitle["Synced"] == stamp)
+        #expect(byTitle["Fresh"] == created) // sortDate defaults to createdAt
+    }
+
     @Test func backfilledEventsHaveDeterministicIds() throws {
         let todo = UUID()
         let created = TodoEvent.backfillID(todoID: todo, kind: .created)

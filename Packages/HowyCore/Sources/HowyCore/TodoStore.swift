@@ -61,7 +61,8 @@ public final class TodoStore {
         }
     ) throws -> TodoStore {
         try TodoStore(
-            modelContainer: makeContainer(url: sharedStoreURL()), attachments: AttachmentStore.shared(),
+            modelContainer: makeContainer(url: sharedStoreURL(), healFlag: sharedHealDefaults()),
+            attachments: AttachmentStore.shared(),
             now: now, didWrite: didWrite
         )
     }
@@ -69,11 +70,14 @@ public final class TodoStore {
     /// A store on a SQLite file at `url` (tests, tools).
     static func onDisk(
         url: URL,
+        healFlag: UserDefaults? = nil,
         attachments: AttachmentStore? = nil,
         now: @escaping @Sendable () -> Date = { Date() },
         didWrite: (@MainActor () -> Void)? = nil
     ) throws -> TodoStore {
-        try TodoStore(modelContainer: makeContainer(url: url), attachments: attachments, now: now, didWrite: didWrite)
+        // Without a given flag store, each open gets a fresh one (the backfill is idempotent).
+        let flag = healFlag ?? UserDefaults(suiteName: "howy.tests.\(UUID().uuidString)")!
+        return try TodoStore(modelContainer: makeContainer(url: url, healFlag: flag), attachments: attachments, now: now, didWrite: didWrite)
     }
 
     /// The App Group store URL: `<group container>/Library/Application Support/Howy.store`.
@@ -86,7 +90,19 @@ public final class TodoStore {
         return directory.appending(path: storeFileName)
     }
 
-    private static func makeContainer(url: URL) throws -> ModelContainer {
+    /// Where `selfHeal` keeps its flag: the App Group's `UserDefaults`, shared by the app and the
+    /// widget so that the heal runs once across both.
+    static func sharedHealDefaults() throws -> UserDefaults {
+        guard let defaults = UserDefaults(suiteName: HowyAppGroup.identifier) else {
+            throw TodoStoreError.appGroupUnavailable(HowyAppGroup.identifier)
+        }
+        return defaults
+    }
+
+    /// The `UserDefaults` key of the one-time self-heal.
+    static let selfHealFlagKey = "howy.eventBackfillSelfHealDone"
+
+    private static func makeContainer(url: URL, healFlag: UserDefaults) throws -> ModelContainer {
         let configuration = ModelConfiguration(
             schema: Schema(versionedSchema: HowySchemaV3.self),
             url: url,
@@ -97,9 +113,19 @@ public final class TodoStore {
             migrationPlan: HowyMigrationPlan.self,
             configurations: configuration
         )
-        // Self-heal: todos without any event means the migration's backfill didn't run or failed.
-        try HowyMigrationPlan.backfillEvents(in: container.mainContext)
+        try selfHeal(container, flag: healFlag)
         return container
+    }
+
+    /// One-time self-heal: todos without any event mean the migration's backfill didn't run or
+    /// failed. It runs only while `flag` isn't set and sets it after any successful open, the
+    /// no-op case of an empty store included. Never on later opens: with CloudKit, todos can
+    /// arrive before their events, and a backfill then would add false events. If the backfill
+    /// throws, the flag stays unset and the next open tries again.
+    static func selfHeal(_ container: ModelContainer, flag: UserDefaults) throws {
+        guard !flag.bool(forKey: selfHealFlagKey) else { return }
+        try HowyMigrationPlan.backfillEvents(in: container.mainContext)
+        flag.set(true, forKey: selfHealFlagKey)
     }
 
     /// An in-memory store for tests and previews.

@@ -84,8 +84,10 @@ enum HowyMigrationPlan: SchemaMigrationPlan {
     /// v2 → v3 drops the unique constraint, adds `updatedAt` (with a default) and the new
     /// `TodoEvent` model; the schema part is lightweight. `didMigrate` then backfills the
     /// history the store already knows (`backfillEvents`). The stage runs once, when the
-    /// store's version is below v3. `TodoStore` also runs the backfill whenever it opens a
-    /// store that has todos but no events, which heals a `didMigrate` that failed.
+    /// store's version is below v3. `TodoStore` also runs the backfill once (`TodoStore.selfHeal`, one
+    /// flag in the App Group defaults) when it opens a store that has todos but no events, which
+    /// heals a `didMigrate` that failed. It is only once: with CloudKit, todos can arrive before
+    /// their events, and a later backfill would invent events for them.
     static let v2ToV3 = MigrationStage.custom(
         fromVersion: HowySchemaV2.self,
         toVersion: HowySchemaV3.self,
@@ -97,7 +99,8 @@ enum HowyMigrationPlan: SchemaMigrationPlan {
 
     /// Backfills the history the store already knows: a `created` event at `createdAt` (with
     /// the quadrant) for every todo, a `completed` event at `completedAt` for every archived
-    /// one, and sets `updatedAt` to `completedAt ?? sortDate`. Does nothing if events exist.
+    /// one, and sets `updatedAt` to `completedAt ?? sortDate` where it is still `.distantPast`
+    /// (a todo that has a real `updatedAt` keeps it). Does nothing if events exist.
     ///
     /// The `created` event's `due` is the todo's due date at migration time; the log has no
     /// earlier value. Events get ids derived from (todo, kind) so that the app and the widget
@@ -118,7 +121,7 @@ enum HowyMigrationPlan: SchemaMigrationPlan {
                     todoID: todo.id, kind: .completed, date: completedAt, seq: 1
                 ))
             }
-            todo.updatedAt = todo.completedAt ?? todo.sortDate
+            if todo.updatedAt == .distantPast { todo.updatedAt = todo.completedAt ?? todo.sortDate }
         }
         try context.save()
     }
