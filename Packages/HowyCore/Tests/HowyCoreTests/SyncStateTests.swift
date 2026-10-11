@@ -1,3 +1,4 @@
+import CloudKit
 import Foundation
 import Testing
 @testable import HowyCore
@@ -19,6 +20,8 @@ import Testing
     }
 
     static let quota = SyncError(domain: "CKErrorDomain", code: 25, description: "Quota exceeded")
+    static let noAccount = SyncError(domain: "CKErrorDomain", code: CKError.Code.notAuthenticated.rawValue, description: "Not authenticated")
+    static let offline = SyncError(domain: "CKErrorDomain", code: CKError.Code.networkUnavailable.rawValue, description: "Network unavailable")
 
     // MARK: State
 
@@ -82,7 +85,7 @@ import Testing
 
     @Test func aFailedSetupIsRememberedUntilTheNextSetupStarts() {
         var state = SyncState(mode: .iCloud)
-        let failed = event(.setup, from: 0, to: 1, succeeded: false)
+        let failed = event(.setup, from: 0, to: 1, succeeded: false, error: Self.noAccount)
         state.apply(failed.0, at: at(0))
         state.apply(failed.1, at: at(1))
         #expect(state.setupFailed)
@@ -132,7 +135,7 @@ import Testing
         #expect(SyncGate.decide(.cleanups, sync: SyncState(mode: .local), retentionKnown: false, now: start) == .open)
     }
 
-    @Test(arguments: MaintenanceWork.allCases)
+    @Test(arguments: [MaintenanceWork.cleanups, .purge])
     func mirroringWaitsForTheFirstImport(work: MaintenanceWork) {
         var state = SyncState(mode: .iCloud)
         #expect(SyncGate.decide(work, sync: state, retentionKnown: true, now: start) == .waitForSync)
@@ -178,11 +181,174 @@ import Testing
     @Test func aFailedSetupOpensTheGateAfterTheQuietPeriod() {
         // No account, say: nothing will arrive until a new setup, so there is nothing to wait for.
         var state = SyncState(mode: .iCloud)
-        let setup = event(.setup, from: 0, to: 1, succeeded: false)
+        let setup = event(.setup, from: 0, to: 1, succeeded: false, error: Self.noAccount)
         state.apply(setup.0, at: at(0))
         state.apply(setup.1, at: at(1))
         #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(2)) == .waitUntil(at(31)))
         #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(31)) == .open)
+    }
+
+    // MARK: Review fixes: setup failures
+
+    @Test func aTransientSetupFailureDoesNotOpenTheGate() {
+        var state = SyncState(mode: .iCloud)
+        let setup = event(.setup, from: 0, to: 1, succeeded: false, error: Self.offline)
+        state.apply(setup.0, at: at(0))
+        state.apply(setup.1, at: at(1))
+        #expect(!state.setupFailed)
+        #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(500)) == .waitForSync)
+    }
+
+    @Test func aSetupFailureWithoutAnErrorDoesNotOpenTheGate() {
+        var state = SyncState(mode: .iCloud)
+        let setup = event(.setup, from: 0, to: 1, succeeded: false)
+        state.apply(setup.0, at: at(0))
+        state.apply(setup.1, at: at(1))
+        #expect(!state.setupFailed)
+    }
+
+    @Test(arguments: [CKError.Code.notAuthenticated, .badContainer, .missingEntitlement, .permissionFailure, .managedAccountRestricted])
+    func accountAndEntitlementErrorsAreSetupProblems(code: CKError.Code) {
+        let error = SyncError(domain: "CKErrorDomain", code: code.rawValue, description: "")
+        #expect(error.isAccountOrEntitlementProblem)
+    }
+
+    @Test(arguments: [CKError.Code.networkUnavailable, .networkFailure, .serviceUnavailable, .requestRateLimited, .quotaExceeded,
+                      .partialFailure, .zoneBusy, .accountTemporarilyUnavailable])
+    func transientErrorsAreNotSetupProblems(code: CKError.Code) {
+        let error = SyncError(domain: "CKErrorDomain", code: code.rawValue, description: "")
+        #expect(!error.isAccountOrEntitlementProblem)
+    }
+
+    @Test func aWrappedCloudKitErrorIsRecognised() {
+        let inner = NSError(domain: "CKErrorDomain", code: CKError.Code.notAuthenticated.rawValue)
+        let outer = NSError(domain: NSCocoaErrorDomain, code: 134400, userInfo: [NSUnderlyingErrorKey: inner])
+        let error = SyncError(outer)
+        #expect(error.cloudKitCode == .notAuthenticated)
+        #expect(error.isAccountOrEntitlementProblem)
+        #expect(!SyncError(domain: NSCocoaErrorDomain, code: 134400, description: "").isAccountOrEntitlementProblem)
+    }
+
+    // MARK: Review fixes: imports that count
+
+    @Test func anImportThatStartedBeforeTheWakeDoesNotCount() {
+        var state = SyncState(mode: .iCloud, startedAt: at(0))
+        let first = event(.import, from: 0, to: 1)
+        state.apply(first.0, at: at(0))
+        state.apply(first.1, at: at(1))
+        #expect(state.firstImportDone)
+
+        state.noteWake(at: at(100))
+        #expect(!state.firstImportDone)
+        #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(200)) == .waitForSync)
+
+        // Started at 90, before the wake, ended after it: it may have read the store before
+        // everything that arrived during sleep.
+        let early = event(.import, from: 90, to: 110)
+        state.apply(early.0, at: at(110))
+        state.apply(early.1, at: at(110))
+        #expect(!state.firstImportDone)
+
+        let after = event(.import, from: 120, to: 125)
+        state.apply(after.0, at: at(120))
+        state.apply(after.1, at: at(125))
+        #expect(state.firstImportDone)
+    }
+
+    @Test func aNewSetupResetsTheFirstImport() {
+        var state = SyncState(mode: .iCloud)
+        let imp = event(.import, from: 0, to: 1)
+        state.apply(imp.0, at: at(0))
+        state.apply(imp.1, at: at(1))
+        #expect(state.firstImportDone)
+        let setup = event(.setup, from: 10, to: 11)
+        state.apply(setup.0, at: at(10))
+        #expect(!state.firstImportDone, "an account change can bring everything again")
+        state.apply(setup.1, at: at(11))
+        #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(100)) == .waitForSync)
+    }
+
+    @Test func anEventWithoutAnEndIsStaleAfterTenMinutes() {
+        var state = SyncState(mode: .iCloud)
+        let imp = event(.import, from: 0, to: 1)
+        state.apply(imp.1, at: at(1))
+        state.noteWake(at: at(2))
+        let lost = event(.export, from: 5, to: 6)
+        state.apply(lost.0, at: at(5)) // the end never comes
+        let later = event(.import, from: 10, to: 11)
+        state.apply(later.0, at: at(10))
+        state.apply(later.1, at: at(11))
+        #expect(state.firstImportDone)
+        #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(300)) == .waitForSync, "still in flight at 5 minutes")
+        #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(5 + 600)) == .open, "stale at 10 minutes")
+        #expect(state.isBusy(at: at(100)))
+        #expect(!state.isBusy(at: at(605)))
+    }
+
+    // MARK: Review fixes: the gates
+
+    @Test func theMonitorStartsUnknownUntilTheContainerIsBuilt() {
+        var state = SyncState(mode: .starting, startedAt: at(0))
+        for work in [MaintenanceWork.cleanups, .purge] {
+            #expect(SyncGate.decide(work, sync: state, retentionKnown: true, now: at(100)) == .waitForSync)
+        }
+        // Events that arrive early (a deep link built the store first) are not lost.
+        let imp = event(.import, from: 1, to: 2)
+        state.apply(imp.0, at: at(1))
+        state.apply(imp.1, at: at(2))
+        #expect(state.firstImportDone)
+        state.mode = .iCloud
+        #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(100)) == .open)
+    }
+
+    @Test func theBackupGateIsRelaxed() {
+        var state = SyncState(mode: .iCloud, startedAt: at(0))
+        // No event yet: not before launch + 10 min.
+        #expect(SyncGate.decide(.backup, sync: state, retentionKnown: true, now: at(5)) == .waitUntil(at(600)))
+        // An event came: quiet after 30 s, no import needed.
+        let setup = event(.setup, from: 1, to: 2)
+        state.apply(setup.0, at: at(1))
+        #expect(SyncGate.decide(.backup, sync: state, retentionKnown: true, now: at(10)) == .waitUntil(at(600)), "in flight")
+        state.apply(setup.1, at: at(2))
+        #expect(SyncGate.decide(.backup, sync: state, retentionKnown: true, now: at(10)) == .waitUntil(at(32)))
+        #expect(SyncGate.decide(.backup, sync: state, retentionKnown: true, now: at(32)) == .open)
+        #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(32)) == .waitForSync, "cleanups still need an import")
+    }
+
+    @Test func theBackupFailsOpenAfterTenMinutesWhateverSyncDoes() {
+        var state = SyncState(mode: .iCloud, startedAt: at(0))
+        let stuck = event(.import, from: 1, to: 2)
+        state.apply(stuck.0, at: at(1))
+        #expect(SyncGate.decide(.backup, sync: state, retentionKnown: true, now: at(599)) == .waitUntil(at(600)))
+        #expect(SyncGate.decide(.backup, sync: state, retentionKnown: true, now: at(600)) == .open)
+        #expect(SyncGate.decide(.cleanups, sync: state, retentionKnown: true, now: at(601)) == .waitForSync)
+    }
+
+    @Test func aWakeDoesNotCloseTheBackupGate() {
+        var state = SyncState(mode: .iCloud, startedAt: at(0))
+        let imp = event(.import, from: 0, to: 1)
+        state.apply(imp.0, at: at(0))
+        state.apply(imp.1, at: at(1))
+        state.noteWake(at: at(1000))
+        #expect(SyncGate.decide(.backup, sync: state, retentionKnown: true, now: at(1000)) == .open)
+        #expect(SyncGate.decide(.purge, sync: state, retentionKnown: true, now: at(1000)) == .waitForSync, "purge needs an import after the wake")
+    }
+
+    @Test func theMonitorNotesAWake() {
+        var now = start
+        let monitor = SyncMonitor(mode: .iCloud, now: { now })
+        let imp = event(.import, from: 0, to: 1)
+        monitor.receive(imp.0)
+        monitor.receive(imp.1)
+        #expect(monitor.state.firstImportDone)
+        now = at(500)
+        monitor.noteWake()
+        #expect(!monitor.state.firstImportDone)
+    }
+
+    @Test func theMonitorsModeComesFromTheBuiltContainer() {
+        #expect(SyncMonitor.mode(sync: .local, fallbackReason: nil, isBuilt: false) == .starting)
+        #expect(SyncMonitor.mode(sync: .local, fallbackReason: "x", isBuilt: true) == .unavailable(reason: "x"))
     }
 
     // MARK: Monitor

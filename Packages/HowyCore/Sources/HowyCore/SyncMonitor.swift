@@ -25,15 +25,24 @@ public final class SyncMonitor {
     @ObservationIgnored private var observer: (any NSObjectProtocol)?
 
     public init(mode: SyncState.Mode, now: @escaping () -> Date = { Date() }) {
-        state = SyncState(mode: mode)
+        let start = now()
+        state = SyncState(mode: mode, startedAt: start)
         self.now = now
     }
 
-    /// The mode for how the shared store really opened: `.iCloud` if it mirrors, `.unavailable`
-    /// after the CloudKit build fell back to local, `.local` otherwise.
-    public static func mode(sync: StoreSync, fallbackReason: String?) -> SyncState.Mode {
+    /// The mode for how the shared store really opened: `.starting` while it isn't built,
+    /// `.iCloud` if the container that was built mirrors, `.unavailable` after the CloudKit build
+    /// fell back to local, `.local` otherwise. `sync` is what was actually built, never the intent.
+    public static func mode(sync: StoreSync, fallbackReason: String?, isBuilt: Bool = true) -> SyncState.Mode {
+        guard isBuilt else { return .starting }
         if let fallbackReason { return .unavailable(reason: fallbackReason) }
         return sync.mirrors ? .iCloud : .local
+    }
+
+    /// The Mac woke: the next import to count as the first one is one that starts now or later.
+    public func noteWake() {
+        state.noteWake(at: now())
+        onChange()
     }
 
     public func setMode(_ mode: SyncState.Mode) {

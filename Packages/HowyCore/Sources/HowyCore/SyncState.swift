@@ -66,21 +66,46 @@ public struct SyncError: Hashable, Sendable {
     public var domain: String
     public var code: Int
     public var description: String
+    /// The code of the CloudKit error underneath, when the error itself is another domain's
+    /// (Core Data wraps the CloudKit error it got).
+    public var underlyingCloudKitCode: Int?
 
-    public init(domain: String, code: Int, description: String) {
+    public init(domain: String, code: Int, description: String, underlyingCloudKitCode: Int? = nil) {
         self.domain = domain
         self.code = code
         self.description = description
+        self.underlyingCloudKitCode = underlyingCloudKitCode
     }
 
     public init(_ error: any Error) {
         let error = error as NSError
-        self.init(domain: error.domain, code: error.code, description: error.localizedDescription)
+        var underlying: Int?
+        var next = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        while let inner = next, underlying == nil {
+            if inner.domain == CKError.errorDomain { underlying = inner.code }
+            next = inner.userInfo[NSUnderlyingErrorKey] as? NSError
+        }
+        self.init(domain: error.domain, code: error.code, description: error.localizedDescription, underlyingCloudKitCode: underlying)
     }
 
-    /// The CloudKit error code, when it is a CloudKit error.
+    /// The CloudKit error code, when it is (or wraps) a CloudKit error.
     public var cloudKitCode: CKError.Code? {
-        domain == CKError.errorDomain ? CKError.Code(rawValue: code) : nil
+        if domain == CKError.errorDomain { return CKError.Code(rawValue: code) }
+        return underlyingCloudKitCode.flatMap { CKError.Code(rawValue: $0) }
+    }
+
+    /// Whether this says mirroring can't work until the account or the build's entitlements
+    /// change: no iCloud account, a restricted one, a missing entitlement or container, or no
+    /// permission. Transient failures (network, rate limits, a busy server, a temporarily
+    /// unavailable account) are not.
+    public var isAccountOrEntitlementProblem: Bool {
+        guard let code = cloudKitCode else { return false }
+        switch code {
+        case .notAuthenticated, .missingEntitlement, .badContainer, .permissionFailure, .managedAccountRestricted:
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -95,6 +120,10 @@ public struct SyncState: Hashable, Sendable {
         case iCloud
         /// The store should mirror but couldn't be opened with CloudKit; it runs locally this run.
         case unavailable(reason: String)
+        /// The shared container isn't built yet, so what it will be isn't known. Events that come
+        /// are taken in (the container may have been built by something else first), but no
+        /// destructive work runs.
+        case starting
     }
 
     /// What mirroring is doing now. Several events can run at once; setup counts first, then
@@ -103,9 +132,19 @@ public struct SyncState: Hashable, Sendable {
         case idle, settingUp, importing, exporting
     }
 
+    /// An event that was started and never ended counts as stale (and no longer as busy) after this.
+    public static let staleAfter: TimeInterval = 10 * 60
+
     public var mode: Mode
+    /// When this state began (launch), by the receiver's clock: the relaxed backup gate fails open
+    /// `SyncGate.backupFailOpenDelay` after it.
+    public let startedAt: Date
     /// Events started and not yet finished, by id.
     public private(set) var inFlight: [UUID: SyncEvent.Kind] = [:]
+    private var inFlightSince: [UUID: Date] = [:]
+    /// Imports that started before this don't count towards `firstImportDone`: launch (the
+    /// beginning of time here) or the last wake.
+    public private(set) var importBarrier = Date.distantPast
     /// When the last import and export finished successfully (by their `endDate`).
     public private(set) var lastImport: Date?
     public private(set) var lastExport: Date?
@@ -113,10 +152,13 @@ public struct SyncState: Hashable, Sendable {
     public private(set) var lastError: SyncError?
     /// When `lastError` came (the failed event's `endDate`).
     public private(set) var lastErrorDate: Date?
-    /// Whether an import has finished successfully since launch.
+    /// Whether an import that *started after* launch or the last wake (`noteWake(at:)`) has
+    /// finished successfully. Reset by a new setup event: a new setup (account change) can bring
+    /// everything again.
     public private(set) var firstImportDone = false
-    /// Whether the last setup that finished failed (e.g. no iCloud account): mirroring then
-    /// does nothing until a new setup starts, so it can't be waited for.
+    /// Whether the last setup that finished failed for an account or entitlement reason (e.g. no
+    /// iCloud account, `SyncError.isAccountOrEntitlementProblem`): mirroring then does nothing
+    /// until a new setup starts, so it can't be waited for. A transient failure doesn't count.
     public private(set) var setupFailed = false
     /// When the last event (a start or an end) was received, by the receiver's clock.
     public private(set) var lastEventDate: Date?
@@ -124,11 +166,15 @@ public struct SyncState: Hashable, Sendable {
     /// late start isn't counted as in flight. Kept small.
     private var finishedEarly: [UUID] = []
 
-    public init(mode: Mode) {
+    public init(mode: Mode, startedAt: Date = Date()) {
         self.mode = mode
+        self.startedAt = startedAt
     }
 
     public var mirrors: Bool { mode == .iCloud }
+
+    /// Whether events are taken in: the store mirrors, or it isn't known yet.
+    var acceptsEvents: Bool { mode == .iCloud || mode == .starting }
 
     public var phase: Phase {
         let kinds = Set(inFlight.values)
@@ -138,24 +184,46 @@ public struct SyncState: Hashable, Sendable {
         return .idle
     }
 
-    /// Whether an import or export (or setup) is running.
+    /// Whether an import or export (or setup) is running (stale entries included).
     public var isBusy: Bool { !inFlight.isEmpty }
+
+    /// Whether an event is in flight that started less than `staleAfter` before `now`. An event
+    /// whose end was never seen doesn't hold the gate shut for ever.
+    public func isBusy(at now: Date) -> Bool {
+        inFlightSince.values.contains { now.timeIntervalSince($0) < Self.staleAfter }
+    }
+
+    /// The Mac woke from sleep: what arrived meanwhile hasn't been imported yet, so only an import
+    /// that starts from now on counts as the first one again.
+    public mutating func noteWake(at now: Date) {
+        importBarrier = now
+        firstImportDone = false
+    }
 
     /// Takes in an event received at `now`. Ignored unless the store mirrors. Returns `true`
     /// when it was the successful end of an import (the app then refreshes what shows the data).
     @discardableResult
     public mutating func apply(_ event: SyncEvent, at now: Date) -> Bool {
-        guard mirrors else { return false }
+        guard acceptsEvents else { return false }
         lastEventDate = now
+        for (id, since) in inFlightSince where now.timeIntervalSince(since) >= Self.staleAfter {
+            inFlightSince[id] = nil
+            inFlight[id] = nil
+        }
         guard let end = event.endDate else {
             if let index = finishedEarly.firstIndex(of: event.id) {
                 finishedEarly.remove(at: index)
             } else {
                 inFlight[event.id] = event.kind
-                if event.kind == .setup { setupFailed = false }
+                inFlightSince[event.id] = now
+                if event.kind == .setup {
+                    setupFailed = false
+                    firstImportDone = false
+                }
             }
             return false
         }
+        inFlightSince[event.id] = nil
         if inFlight.removeValue(forKey: event.id) == nil {
             finishedEarly.append(event.id)
             if finishedEarly.count > 32 { finishedEarly.removeFirst() }
@@ -165,14 +233,14 @@ public struct SyncState: Hashable, Sendable {
             case .setup: setupFailed = false
             case .import:
                 lastImport = end
-                firstImportDone = true
+                if event.startDate >= importBarrier { firstImportDone = true }
                 clearError()
             case .export:
                 lastExport = end
                 clearError()
             }
         } else {
-            if event.kind == .setup { setupFailed = true }
+            if event.kind == .setup, event.error?.isAccountOrEntitlementProblem == true { setupFailed = true }
             if let error = event.error {
                 lastError = error
                 lastErrorDate = end
@@ -199,14 +267,26 @@ public enum MaintenanceWork: Hashable, Sendable, CaseIterable {
 
 /// When destructive maintenance and the daily backup may run.
 ///
-/// Without mirroring, always (the purge only once the retention is known). With mirroring, only
-/// when the store has settled: the first import since launch finished successfully (or setup
-/// failed, so nothing will arrive until a new setup), nothing is in flight, and no event came for
-/// `quietPeriod`. A closed gate defers the work; the app checks again on every sync event and
-/// at the date a `.waitUntil` gives.
+/// Without mirroring, always (the purge only once the retention is known). With mirroring:
+///
+/// - **Destructive work** (cleanups, purge) only when the store has settled: an import that
+///   started after launch or the last wake finished successfully (or setup failed for an account
+///   or entitlement reason, so nothing will arrive until a new setup), no event is in flight (one
+///   that started over `SyncState.staleAfter` ago doesn't count), and none came for
+///   `quietPeriod`. Until the shared container's real mode is reported (`.starting`) it waits too.
+/// - **The backup** (read-only) has a relaxed gate: sync quiet (some event came, nothing in
+///   flight, `quietPeriod` since the last), or `backupFailOpenDelay` since launch, whatever sync
+///   does. A backup taken early is still a backup; a missing one is the worse failure.
+///
+/// A closed gate defers the work; the app checks again on every sync event, at the date a
+/// `.waitUntil` gives, and every `retryInterval` while it waits for sync.
 public enum SyncGate {
     /// How long after the last sync event the store counts as settled.
     public static let quietPeriod: TimeInterval = 30
+    /// How long after launch the backup runs whatever sync is doing.
+    public static let backupFailOpenDelay: TimeInterval = 10 * 60
+    /// How often the app re-asks while the decision is `.waitForSync`.
+    public static let retryInterval: TimeInterval = 60
 
     public enum Decision: Hashable, Sendable {
         case open
@@ -222,11 +302,26 @@ public enum SyncGate {
 
     public static func decide(_ work: MaintenanceWork, sync: SyncState, retentionKnown: Bool, now: Date) -> Decision {
         if work == .purge, !retentionKnown { return .waitForRetention }
-        guard sync.mirrors else { return .open }
-        guard !sync.isBusy, sync.firstImportDone || sync.setupFailed else { return .waitForSync }
+        switch sync.mode {
+        case .local, .unavailable: return .open
+        case .starting: return work == .backup ? backup(sync: sync, now: now) : .waitForSync
+        case .iCloud: return work == .backup ? backup(sync: sync, now: now) : destructive(sync: sync, now: now)
+        }
+    }
+
+    private static func destructive(sync: SyncState, now: Date) -> Decision {
+        guard !sync.isBusy(at: now), sync.firstImportDone || sync.setupFailed else { return .waitForSync }
         if let last = sync.lastEventDate, now < last.addingTimeInterval(quietPeriod) {
             return .waitUntil(last.addingTimeInterval(quietPeriod))
         }
         return .open
+    }
+
+    private static func backup(sync: SyncState, now: Date) -> Decision {
+        let failOpen = sync.startedAt.addingTimeInterval(backupFailOpenDelay)
+        if now >= failOpen { return .open }
+        guard !sync.isBusy(at: now), let last = sync.lastEventDate else { return .waitUntil(failOpen) }
+        let quiet = last.addingTimeInterval(quietPeriod)
+        return now < quiet ? .waitUntil(min(quiet, failOpen)) : .open
     }
 }
