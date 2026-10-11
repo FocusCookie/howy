@@ -52,11 +52,19 @@ final class AppController {
 
     private init() {}
 
+    /// Chooses how the shared store syncs. Called from `HowyApp.init()`, the first app code to
+    /// run: a `howy://` URL that launches the app reaches `application(_:open:)` (and so
+    /// `freshStore()`) before `applicationDidFinishLaunching`, and the container is built
+    /// once with whatever setting it finds. The app is the one process that may mirror the store
+    /// to CloudKit; the widget extension never calls this and stays `.local`.
+    static func configureStoreSync() {
+        // Phase 3b flips this to `.iCloud(containerIdentifier: StoreSync.containerIdentifier)`.
+        let accepted = TodoStore.configureSharedSync(.local)
+        assert(accepted, "The shared store was opened before its sync setting was chosen")
+        if !accepted { log.fault("Shared store sync was configured after the store was opened") }
+    }
+
     func start() {
-        // Before anything opens the store: the app is the one process that may mirror it to
-        // CloudKit (the widget extension never calls this and stays `.local`). iCloud sync turns
-        // on here with `.iCloud(containerIdentifier: StoreSync.containerIdentifier)`.
-        TodoStore.configureSharedSync(.local)
         ShortcutRecorderModel.removeFunctionModifier()
         migrateBrowseShortcut()
         // All three stay registered (the launcher shares Quick Add's default keys, and disabling one

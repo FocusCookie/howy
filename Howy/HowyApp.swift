@@ -8,6 +8,12 @@ import SwiftUI
 struct HowyApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
+    /// The earliest app code: before the delegate's `applicationWillFinishLaunching`, a launching
+    /// `howy://` URL and any use of the store (see `AppController.configureStoreSync`).
+    init() {
+        AppController.configureStoreSync()
+    }
+
     var body: some Scene {
         MenuBarExtra("Howy", systemImage: "square.grid.2x2") {
             MenuContent(controller: AppController.shared)
