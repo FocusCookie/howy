@@ -52,7 +52,7 @@ import Testing
 
     func importAll(_ folder: URL, into store: TodoStore) async throws -> ImportReport {
         let importer = HowyImporter(store: store)
-        return try await importer.apply(try importer.analyze(folder: folder))
+        return try await importer.apply(try await importer.analyze(folder: folder))
     }
 
     func sorted(_ events: [TodoEvent]) -> [TodoEventRecord] {
@@ -140,7 +140,7 @@ import Testing
         #expect(try target.allEvents().count == 4)
     }
 
-    @Test func aVersion2FileWithoutEventsGetsAProblemLine() throws {
+    @Test func aVersion2FileWithoutEventsGetsAProblemLine() async throws {
         let (target, _) = try makeStore()
         let todo = UUID()
         let two = """
@@ -148,9 +148,9 @@ import Testing
         """
         let one = two.replacingOccurrences(of: "\"formatVersion\": 2", with: "\"formatVersion\": 1")
 
-        let plan = try HowyImporter(store: target).analyze(folder: try importFolder(json: two))
+        let plan = try await HowyImporter(store: target).analyze(folder: try importFolder(json: two))
         #expect(plan.report.problems == ["History: no history in this file"])
-        let old = try HowyImporter(store: target).analyze(folder: try importFolder(json: one))
+        let old = try await HowyImporter(store: target).analyze(folder: try importFolder(json: one))
         #expect(old.report.problems.isEmpty, "version 1 files never had history")
     }
 
@@ -171,7 +171,7 @@ import Testing
           ] }
         """
         let importer = HowyImporter(store: target)
-        let plan = try importer.analyze(folder: try importFolder(json: json))
+        let plan = try await importer.analyze(folder: try importFolder(json: json))
 
         #expect(plan.report.importedEventCount == 5)
         #expect(plan.report.invalidEventCount == 1)
@@ -318,7 +318,7 @@ import Testing
           ] }
         """
         let importer = HowyImporter(store: target)
-        let plan = try importer.analyze(folder: try importFolder(json: json))
+        let plan = try await importer.analyze(folder: try importFolder(json: json))
         #expect(plan.report.importCount == 1)
         #expect(plan.report.invalidCount == 0)
         #expect(plan.report.problems == [

@@ -33,8 +33,12 @@ final class AppController {
     @ObservationIgnored private var purgeTimer: Timer?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored private var dayChangeObserver: NSObjectProtocol?
-    /// The running cleanups/backup, so a day change and a wake don't start a second one.
+    /// The running cleanups/backup. A call that arrives meanwhile is not dropped: it sets
+    /// `rerunMaintenance` (and `pendingCleanups` if it asked for the cleanups), and one more
+    /// run starts when this one ends.
     @ObservationIgnored private var maintenance: Task<Void, Never>?
+    @ObservationIgnored private var rerunMaintenance = false
+    @ObservationIgnored private var pendingCleanups = false
     @ObservationIgnored private let lastUsed = UserDefaultsLastQuadrantStore()
     @ObservationIgnored private let drafts = UserDefaultsDraftStore()
     /// Fetches a pasted link's page title for the link dialog.
@@ -567,38 +571,69 @@ final class AppController {
 
     // MARK: Cleanups and backups
 
-    /// At launch (`cleanups`): removes duplicate todos and events and orphaned attachment
-    /// folders, then writes the day's backup. On a day change or wake: the backup alone (it
-    /// skips a day that already has one). The store work runs on a background context and the
-    /// file work off the main actor; only one run at a time.
+    /// At launch (`cleanups`): removes duplicate todos and events, writes the day's backup, then
+    /// moves orphaned attachment folders to the trash (the backup comes first, so a store that
+    /// went wrong is backed up before anything is touched). On a day change or wake: the backup
+    /// alone, and only if today's isn't complete yet, checked before any store is opened. The
+    /// store work runs on a background context and the file work off the main actor.
+    ///
+    /// Only one run at a time. A call during a run is coalesced: when the run ends, one more
+    /// starts, with the cleanups if any of the swallowed calls asked for them.
     private func runMaintenance(cleanups: Bool) {
-        guard maintenance == nil, let store = quietStore() else { return }
-        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        guard maintenance == nil else {
+            pendingCleanups = pendingCleanups || cleanups
+            rerunMaintenance = true
+            return
+        }
         maintenance = Task { @MainActor [weak self] in
-            defer { self?.maintenance = nil }
-            if cleanups {
-                do {
-                    let removed = try await store.removeDuplicates()
-                    if !removed.isEmpty {
-                        log.notice("Removed \(removed.removedTodos) duplicate todos and \(removed.removedEvents) duplicate events")
-                    }
-                } catch {
-                    log.error("Duplicate cleanup failed: \(error, privacy: .public)")
-                }
-                do {
-                    let removed = try await store.removeOrphanedAttachments()
-                    if removed > 0 { log.notice("Removed attachments of \(removed) deleted todos") }
-                } catch {
-                    log.error("Orphan cleanup failed: \(error, privacy: .public)")
-                }
+            await self?.performMaintenance(cleanups: cleanups)
+            guard let self else { return }
+            maintenance = nil
+            if rerunMaintenance {
+                let again = pendingCleanups
+                rerunMaintenance = false
+                pendingCleanups = false
+                runMaintenance(cleanups: again)
             }
+        }
+    }
+
+    private func performMaintenance(cleanups: Bool) async {
+        let directory: URL
+        do {
+            directory = try DailyBackup.sharedDirectory()
+        } catch {
+            log.error("Backup directory unavailable: \(error, privacy: .public)")
+            return
+        }
+        // The common case on wake and day change: today's backup exists. Build no container.
+        if !cleanups, await DailyBackup.isTodayComplete(in: directory, at: .now) { return }
+        guard let store = quietStore() else { return }
+        if cleanups {
             do {
-                let backup = DailyBackup(store: store, directory: try DailyBackup.sharedDirectory(), appVersion: version)
-                if case .created(let folder) = try await backup.run() {
-                    log.info("Backed up to \(folder.lastPathComponent, privacy: .public)")
+                let removed = try await store.removeDuplicates()
+                if !removed.isEmpty {
+                    log.notice("Removed \(removed.removedTodos) duplicate todos and \(removed.removedEvents) duplicate events")
                 }
             } catch {
-                log.error("Backup failed: \(error, privacy: .public)")
+                log.error("Duplicate cleanup failed: \(error, privacy: .public)")
+            }
+        }
+        do {
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+            let backup = DailyBackup(store: store, directory: directory, appVersion: version)
+            if case .created(let folder) = try await backup.run() {
+                log.info("Backed up to \(folder.lastPathComponent, privacy: .public)")
+            }
+        } catch {
+            log.error("Backup failed: \(error, privacy: .public)")
+        }
+        if cleanups {
+            do {
+                let moved = try await store.removeOrphanedAttachments()
+                if moved > 0 { log.notice("Moved attachments of \(moved) deleted todos to the trash") }
+            } catch {
+                log.error("Orphan cleanup failed: \(error, privacy: .public)")
             }
         }
     }

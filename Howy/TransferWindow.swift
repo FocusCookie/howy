@@ -221,16 +221,22 @@ final class TransferWindowController: NSObject, NSWindowDelegate {
 
     private func analyze(store: TodoStore, folder: URL) {
         let importer = HowyImporter(store: store, retention: .load())
-        do {
-            let plan = try importer.analyze(folder: folder)
-            pendingImport = (importer, plan)
-            show(.confirmImport(plan.report))
-        } catch {
-            log.error("Import refused: \(error, privacy: .public)")
-            show(.failed(
-                title: "Import refused",
-                message: "\(error.localizedDescription) Nothing was changed."
-            ))
+        busy = true
+        show(.working("Reading…"))
+        Task { [weak self] in
+            do {
+                let plan = try await importer.analyze(folder: folder)
+                self?.pendingImport = (importer, plan)
+                self?.busy = false
+                self?.show(.confirmImport(plan.report))
+            } catch {
+                log.error("Import refused: \(error, privacy: .public)")
+                self?.busy = false
+                self?.show(.failed(
+                    title: "Import refused",
+                    message: "\(error.localizedDescription) Nothing was changed."
+                ))
+            }
         }
     }
 
