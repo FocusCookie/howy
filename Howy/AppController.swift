@@ -53,6 +53,10 @@ final class AppController {
     private init() {}
 
     func start() {
+        // Before anything opens the store: the app is the one process that may mirror it to
+        // CloudKit (the widget extension never calls this and stays `.local`). iCloud sync turns
+        // on here with `.iCloud(containerIdentifier: StoreSync.containerIdentifier)`.
+        TodoStore.configureSharedSync(.local)
         ShortcutRecorderModel.removeFunctionModifier()
         migrateBrowseShortcut()
         // All three stay registered (the launcher shares Quick Add's default keys, and disabling one
@@ -531,9 +535,10 @@ final class AppController {
         activationObserver = nil
     }
 
-    /// A store on a brand-new `ModelContainer`, so every modal starts from what is on disk now —
-    /// including changes the widget extension made from its own process (e.g. completed todos).
-    /// When the store can't be opened, shows an error panel instead of silently doing nothing.
+    /// A store with a brand-new `ModelContext` on the process's one container, so every modal
+    /// starts from what is on disk now — including changes the widget extension made from its
+    /// own process (e.g. completed todos). When the store can't be opened, shows an error panel
+    /// instead of silently doing nothing.
     private func freshStore(activate: Bool = false) -> TodoStore? {
         do {
             return try TodoStore.shared()

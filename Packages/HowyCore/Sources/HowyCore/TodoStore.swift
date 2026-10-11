@@ -16,6 +16,10 @@ public enum TodoStoreError: Error, Equatable, Sendable {
 
 /// All reads and writes of todos. Main-actor bound because it owns a `ModelContext`.
 ///
+/// Each `TodoStore` has its own `ModelContext`, so one made now reads what is on disk now
+/// (including the widget extension's writes). The shared on-disk stores of a process all sit on
+/// one `ModelContainer` (`SharedContainer`), built once.
+///
 /// Every successful write saves the context and then calls `didWrite` (by default, for the
 /// shared store, `TodoStore.reloadWidgetTimelines` and `StoreChangeSignal.post`).
 ///
@@ -45,7 +49,9 @@ public final class TodoStore {
     ) {
         self.modelContainer = modelContainer
         self.attachments = attachments
-        self.context = modelContainer.mainContext
+        let context = ModelContext(modelContainer)
+        context.autosaveEnabled = false // `commit` saves, together with the events
+        self.context = context
         self.now = now
         self.didWrite = didWrite
     }
@@ -54,6 +60,10 @@ public final class TodoStore {
 
     /// The on-disk store in the App Group container, shared by the app and the widget extension.
     /// By default every write reloads the widgets and posts `StoreChangeSignal`.
+    ///
+    /// Every call returns a new `TodoStore` with a fresh `ModelContext`, all on the process's
+    /// one `ModelContainer`, which the first call builds (with the setting given to
+    /// `configureSharedSync(_:)`, `.local` if none was).
     public static func shared(
         now: @escaping @Sendable () -> Date = { Date() },
         didWrite: (@MainActor () -> Void)? = {
@@ -61,11 +71,21 @@ public final class TodoStore {
             StoreChangeSignal.post()
         }
     ) throws -> TodoStore {
-        try TodoStore(
-            modelContainer: makeContainer(url: sharedStoreURL(), healFlag: sharedHealDefaults()),
-            attachments: AttachmentStore.shared(),
-            now: now, didWrite: didWrite
-        )
+        let container = try SharedContainer.process.container { sync in
+            try makeContainer(url: sharedStoreURL(), healFlag: sharedHealDefaults(), sync: sync)
+        }
+        return try TodoStore(modelContainer: container, attachments: AttachmentStore.shared(), now: now, didWrite: didWrite)
+    }
+
+    /// Chooses whether the shared store mirrors to CloudKit. Call it once at launch, before the
+    /// first `shared()`: the app with its setting, the widget extension never (it stays
+    /// `.local`, so only the app mirrors). Returns `false`, changing nothing, if the container
+    /// was already built with another setting.
+    @discardableResult
+    public static func configureSharedSync(_ sync: StoreSync) -> Bool {
+        let accepted = SharedContainer.process.configure(sync: sync)
+        if !accepted { log.fault("Shared store sync set to \(String(describing: sync), privacy: .public) after the container was built") }
+        return accepted
     }
 
     /// A store on a SQLite file at `url` (tests, tools).
@@ -78,7 +98,10 @@ public final class TodoStore {
     ) throws -> TodoStore {
         // Without a given flag store, each open gets a fresh one (the backfill is idempotent).
         let flag = healFlag ?? UserDefaults(suiteName: "howy.tests.\(UUID().uuidString)")!
-        return try TodoStore(modelContainer: makeContainer(url: url, healFlag: flag), attachments: attachments, now: now, didWrite: didWrite)
+        return try TodoStore(
+            modelContainer: makeContainer(url: url, healFlag: flag, sync: .local),
+            attachments: attachments, now: now, didWrite: didWrite
+        )
     }
 
     /// The App Group store URL: `<group container>/Library/Application Support/Howy.store`.
@@ -103,11 +126,12 @@ public final class TodoStore {
     /// The `UserDefaults` key of the one-time self-heal.
     static let selfHealFlagKey = "howy.eventBackfillSelfHealDone"
 
-    private static func makeContainer(url: URL, healFlag: UserDefaults) throws -> ModelContainer {
+    /// A new container on the store file at `url`: migrated to the live schema and self-healed.
+    static func makeContainer(url: URL, healFlag: UserDefaults, sync: StoreSync) throws -> ModelContainer {
         let configuration = ModelConfiguration(
             schema: Schema(versionedSchema: HowySchemaV3.self),
             url: url,
-            cloudKitDatabase: .none
+            cloudKitDatabase: sync.cloudKitDatabase
         )
         let container = try ModelContainer(
             for: Schema(versionedSchema: HowySchemaV3.self),
@@ -125,7 +149,7 @@ public final class TodoStore {
     /// throws, the flag stays unset and the next open tries again.
     static func selfHeal(_ container: ModelContainer, flag: UserDefaults) throws {
         guard !flag.bool(forKey: selfHealFlagKey) else { return }
-        try HowyMigrationPlan.backfillEvents(in: container.mainContext)
+        try HowyMigrationPlan.backfillEvents(in: ModelContext(container))
         flag.set(true, forKey: selfHealFlagKey)
     }
 
