@@ -6,6 +6,43 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-10-11
+
+### Added
+
+- **Due dates and reminders.** A todo can have one due date.
+  - **⌘T** in the editor (or the clock pill in its header) and **T** in Browse
+    (or a row's clock) open a small dialog with one field and a live preview.
+    **↩** sets the date, **Esc** cancels, **⌘⌫** removes it; an empty field
+    keeps the date that's set.
+  - Type it in words: `in 30 min`, `in a week`, `tomorrow 10am`, `tonight`,
+    `fri`, `next friday`, `next week`, `weekend`, `24.12.`, `10.10.2026 at
+    10am`, `3 nov 5pm`, `14:30`, `noon`… A date without a time means 9:00 (a
+    new Settings choice). The **?** button (or **⇥**) shows examples in a panel
+    beside Howy's; click one or pick it with **↑↓** and **↩**.
+  - Browse shows a grey clock and a short time on dated todos, and a red bell
+    with _Overdue · 2 h_ on late ones; the bell wiggles when the list opens.
+  - A notification at the due time with **Done**, **Snooze 1 h** and
+    **Tomorrow 9:00**; clicking it opens the todo. Permission is asked the
+    first time you set a due date, and Settings links to System Settings when
+    notifications are off. Dates that passed while the Mac slept notify on
+    wake.
+  - The widgets show a small clock on dated todos, red once overdue, and
+    update at that moment.
+  - Export and import keep due dates (`"due"` in `howy.json`; older exports
+    still import).
+
+### Changed
+
+- The data store moves to schema version 2 (an optional due date per todo).
+  Existing todos are migrated automatically and keep everything.
+- A long title in the editor wraps onto up to three lines instead of scrolling
+  out of view.
+
+### Fixed
+
+- The editor's title no longer jumps a few pixels when it gets or loses focus.
+
 ## [1.6.0] - 2026-10-09
 
 ### Added

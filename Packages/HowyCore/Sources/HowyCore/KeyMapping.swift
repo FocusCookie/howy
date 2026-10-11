@@ -62,6 +62,8 @@ extension QuickEntryKey {
                 self = .commandDone
             } else if modifiers == .command, characters?.lowercased() == "z" {
                 self = .undo
+            } else if modifiers == .command, characters?.lowercased() == "t" {
+                self = .dueDate
             } else if modifiers == .command, let characters, characters.count == 1, let digit = Int(characters) {
                 self = .commandDigit(digit)
             } else if plain, let characters, characters.count == 1, let digit = Int(characters) {

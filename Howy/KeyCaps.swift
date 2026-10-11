@@ -23,7 +23,8 @@ struct KeyCap: View {
 
 /// A footer line of keyboard hints with the keys as keycaps: "⌘↩ save · esc close" becomes
 /// [⌘][↩] save  [esc] close (`KeyHint` says what counts as a key). With `short`, that variant is
-/// shown when the full one doesn't fit the footer.
+/// shown when the full one doesn't fit the footer. When neither fits, hints are dropped from the
+/// end until the line fits: a line wider than the footer would widen the whole panel.
 struct KeyHints: View {
     let hint: String
     var short: String?
@@ -35,9 +36,14 @@ struct KeyHints: View {
     }
 
     var body: some View {
+        let full = KeyHint.items(in: hint)
+        let last = short.map(KeyHint.items(in:)) ?? full
         ViewThatFits(in: .horizontal) {
-            line(hint)
-            if let short { line(short) }
+            line(full)
+            if short != nil { line(last) }
+            ForEach((0..<last.count).reversed(), id: \.self) { count in
+                line(Array(last.prefix(count)))
+            }
         }
         .panelFont(.caption)
         .lineLimit(1)
@@ -45,9 +51,9 @@ struct KeyHints: View {
         .id(short.map { hint + $0 } ?? hint)
     }
 
-    private func line(_ hint: String) -> some View {
+    private func line(_ items: [[KeyHint.Part]]) -> some View {
         HStack(spacing: 10 * scale) {
-            ForEach(Array(KeyHint.items(in: hint).enumerated()), id: \.offset) { _, item in
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                 HStack(spacing: 4 * scale) {
                     ForEach(Array(item.enumerated()), id: \.offset) { _, part in
                         switch part {

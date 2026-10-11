@@ -102,3 +102,42 @@ import Testing
         #expect(content.quadrants[0].overflowCount == 2)
     }
 }
+
+/// Due dates in the widget: each row's clock state and when the timeline must refresh.
+@Suite struct WidgetDueTests {
+    let now = DueFixture.wednesday
+
+    func snapshot(_ title: String, due: Date?) -> TodoSnapshot {
+        TodoSnapshot(id: UUID(), title: title, quadrant: .urgentImportant, due: due)
+    }
+
+    @Test func rowsCarryTheirDueState() {
+        let content = WidgetContentBuilder.build(
+            openTodos: [.urgentImportant: [
+                snapshot("none", due: nil),
+                snapshot("soon", due: now.addingTimeInterval(60)),
+                snapshot("late", due: now.addingTimeInterval(-60)),
+            ]],
+            family: .small, selectedQuadrant: .urgentImportant
+        )
+        let states = content.quadrants[0].visible.map { $0.dueState(at: now) }
+        #expect(states == [.none, .upcoming, .overdue])
+    }
+
+    @Test func theNextRefreshIsTheEarliestFutureDueDate() {
+        let todos: [Quadrant: [TodoSnapshot]] = [
+            .urgentImportant: [snapshot("a", due: now.addingTimeInterval(1800)), snapshot("late", due: now.addingTimeInterval(-60))],
+            .notUrgentImportant: [snapshot("b", due: now.addingTimeInterval(600)), snapshot("none", due: nil)],
+        ]
+        #expect(WidgetContentBuilder.nextDueDate(openTodos: todos, after: now) == now.addingTimeInterval(600))
+        #expect(WidgetContentBuilder.nextRefreshDate(openTodos: todos, now: now, fallback: 3600) == now.addingTimeInterval(600))
+    }
+
+    @Test func withoutAComingDueDateTheFallbackRefreshStays() {
+        let todos: [Quadrant: [TodoSnapshot]] = [.urgentImportant: [snapshot("late", due: now.addingTimeInterval(-60))]]
+        #expect(WidgetContentBuilder.nextDueDate(openTodos: todos, after: now) == nil)
+        #expect(WidgetContentBuilder.nextRefreshDate(openTodos: todos, now: now, fallback: 3600) == now.addingTimeInterval(3600))
+        let far: [Quadrant: [TodoSnapshot]] = [.urgentImportant: [snapshot("far", due: now.addingTimeInterval(86_400))]]
+        #expect(WidgetContentBuilder.nextRefreshDate(openTodos: far, now: now, fallback: 3600) == now.addingTimeInterval(3600))
+    }
+}

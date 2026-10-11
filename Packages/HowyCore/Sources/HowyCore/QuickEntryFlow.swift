@@ -40,6 +40,8 @@ public enum QuickEntryKey: Hashable, Sendable {
     case zoomReset
     /// A plain ⌫. Deletes text in the fields; removes the selected attachment.
     case backspace
+    /// ⌘T: the due-date dialog (the editor, and the editor in an Overview tile).
+    case dueDate
     /// A plain letter key, lower-cased. Typing in the fields; a shortcut where there is nothing
     /// to type into (Browse: `a` opens the archive, `d` marks the selected todo done).
     case letter(Character)
@@ -56,18 +58,27 @@ public struct QuickEntryDraft: Hashable, Sendable {
     public var note: String
     public var quadrant: Quadrant
     public var attachments: [TodoAttachment]
+    /// When it is due; `nil` for none.
+    public var due: Date?
 
-    public init(todoID: UUID? = nil, title: String, note: String, quadrant: Quadrant, attachments: [TodoAttachment] = []) {
+    public init(
+        todoID: UUID? = nil, title: String, note: String, quadrant: Quadrant,
+        attachments: [TodoAttachment] = [], due: Date? = nil
+    ) {
         self.todoID = todoID
         self.title = title
         self.note = note
         self.quadrant = quadrant
         self.attachments = attachments
+        self.due = due
     }
 
     /// Edit-mode source loaded from an existing todo and its committed attachments.
     public init(todo: Todo, attachments: [TodoAttachment] = []) {
-        self.init(todoID: todo.id, title: todo.title, note: todo.note, quadrant: todo.quadrant, attachments: attachments)
+        self.init(
+            todoID: todo.id, title: todo.title, note: todo.note, quadrant: todo.quadrant,
+            attachments: attachments, due: todo.due
+        )
     }
 }
 
@@ -131,6 +142,14 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 /// note changed in the meantime. A new link's title starts as the site's domain; with a
 /// `LinkTitleLookup` the page's own title replaces it when it arrives, unless the user typed first.
 ///
+/// Due date (`dueDialog`): ⌘T anywhere (or `beginDueDate()`, the clock in the header) opens the
+/// due-date dialog over the panel (`DueDateDialog`). While it is open its keys come first (the
+/// dialog's rules): typing re-parses the phrase, ↩ (or ⌘↩) sets the date (only a valid one; an
+/// empty field keeps the date already set), ⇥ / ⇧⇥ open or close the examples (↑↓ and ↩ pick
+/// one there), Esc closes the examples first and then the dialog, ⌘⌫ removes a set date (without
+/// one it is the field's). ⌘D and ⌥↩ are swallowed. The date goes into `due` and is saved with the
+/// todo (`savedDraft.due`) and kept in a stashed draft.
+///
 /// Modes: `.create` starts in the picker on the preselected / last-used quadrant and records the
 /// chosen quadrant as last-used on save. With `startingInTitle` it starts in the title instead,
 /// for callers that picked the quadrant themselves. `.edit` starts in the title field with the
@@ -188,6 +207,11 @@ public final class QuickEntryFlow {
     public private(set) var isRestoredDraft = false
     /// `abandon()` ran: the modal is gone.
     @ObservationIgnored private var isAbandoned = false
+    /// The todo's due date as edited here (saved with the todo).
+    public private(set) var due: Date?
+    /// The due-date dialog over the panel, while it is open.
+    public private(set) var dueDialog: DueDateDialog?
+    @ObservationIgnored private let dueContext: DueDateContext
     /// The link dialog over the note, while it is open.
     public private(set) var linkDialog: LinkDialog?
     /// A finished link dialog's change to the note, for the note editor to apply.
@@ -213,12 +237,14 @@ public final class QuickEntryFlow {
         lastUsed: any LastQuadrantStore,
         drafts: (any DraftStore)? = nil,
         startQuadrant: NewTodoQuadrant = .lastUsed,
-        linkTitles: (any LinkTitleLookup)? = nil
+        linkTitles: (any LinkTitleLookup)? = nil,
+        dueDates: DueDateContext = DueDateContext()
     ) {
         self.mode = mode
         self.lastUsed = lastUsed
         self.drafts = drafts
         self.linkTitles = linkTitles
+        self.dueContext = dueDates
         switch mode {
         case .create(let preselected, let startingInTitle):
             if let stashed = drafts?.createDraft() {
@@ -227,6 +253,7 @@ public final class QuickEntryFlow {
                 title = stashed.title
                 note = stashed.note
                 attachments = stashed.attachments
+                due = stashed.due
                 isRestoredDraft = true
             } else {
                 phase = .pickingQuadrant
@@ -244,6 +271,7 @@ public final class QuickEntryFlow {
                 title = stashed.title
                 note = stashed.note
                 attachments = stashed.attachments
+                due = stashed.due
                 isRestoredDraft = true
             } else {
                 phase = .editingTitle
@@ -251,6 +279,7 @@ public final class QuickEntryFlow {
                 title = draft.title
                 note = draft.note
                 attachments = draft.attachments
+                due = draft.due
             }
         }
     }
@@ -275,7 +304,11 @@ public final class QuickEntryFlow {
     public func handle(_ key: QuickEntryKey) -> Bool {
         guard !isFinished, !isAbandoned else { return false }
         if linkDialog != nil { return handleLinkDialogKey(key) }
+        if dueDialog != nil { return handleDueDialogKey(key) }
         switch key {
+        case .dueDate:
+            beginDueDate()
+            return true
         case .escape:
             cancel()
             return true
@@ -302,7 +335,7 @@ public final class QuickEntryFlow {
             case .shiftTab, .moveUp, .moveDown, .commandDigit: return false
             case .other, .letter, .space, .optionEnter, .optionDigit, .backspace, .commandDelete, .undo:
                 break // nothing to type into
-            case .escape, .closePanel, .commandEnter, .commandDone: break
+            case .escape, .closePanel, .commandEnter, .commandDone, .dueDate: break
             case .zoomIn, .zoomOut, .zoomReset: return false // the panel's, not the flow's
             }
             return true
@@ -445,12 +478,14 @@ public final class QuickEntryFlow {
             return false
         }
         closeLinkDialog()
+        dueDialog = nil
         savedDraft = QuickEntryDraft(
             todoID: todoID,
             title: title.trimmingCharacters(in: .whitespacesAndNewlines),
             note: note,
             quadrant: quadrant,
-            attachments: attachments
+            attachments: attachments,
+            due: due
         )
         if !isEditing { lastUsed.save(quadrant) }
         setStash(nil)
@@ -470,6 +505,7 @@ public final class QuickEntryFlow {
     public func cancel() {
         guard !isFinished else { return }
         closeLinkDialog()
+        dueDialog = nil
         if isEditing { setStash(nil) } else { stashCurrent() }
         phase = .cancelled
     }
@@ -497,10 +533,10 @@ public final class QuickEntryFlow {
         case .editingNote, .browsingAttachments: .note
         default: .quadrant
         }
-        let current = StashedDraft(quadrant: quadrant, title: title, note: note, field: field, attachments: attachments)
+        let current = StashedDraft(quadrant: quadrant, title: title, note: note, field: field, attachments: attachments, due: due)
         if case .edit(let original) = mode {
             let unchanged = original.title == title && original.note == note && original.quadrant == quadrant
-                && original.attachments == attachments
+                && original.attachments == attachments && original.due == due
             setStash(unchanged ? nil : current)
         } else {
             setStash(isBlank ? nil : current)
@@ -522,6 +558,65 @@ public final class QuickEntryFlow {
         case .title: .editingTitle
         case .note: .editingNote
         }
+    }
+
+    // MARK: Due date
+
+    /// ⌘T or the clock in the header: opens the due-date dialog, starting from the current date.
+    public func beginDueDate() {
+        guard !isFinished, !isAbandoned, linkDialog == nil, dueDialog == nil else { return }
+        dueDialog = DueDateDialog(current: due)
+    }
+
+    /// The dialog's field changed.
+    public func setDueText(_ text: String) {
+        dueDialog?.setText(text, context: dueContext)
+    }
+
+    /// ↩ or Set: takes the typed date (or keeps the set one on an empty field) and closes.
+    /// Does nothing while the text isn't a date. Returns whether it closed.
+    @discardableResult
+    public func confirmDue() -> Bool {
+        guard let confirmation = dueDialog?.confirmation else { return false }
+        if case .set(let date) = confirmation { due = date }
+        dueDialog = nil
+        return true
+    }
+
+    /// ⌘⌫ or Remove: clears the date and closes (only when one was set).
+    public func removeDue() {
+        guard dueDialog?.canRemove == true else { return }
+        due = nil
+        dueDialog = nil
+    }
+
+    /// Esc: closes the examples panel if open, else the dialog (nothing changes).
+    public func cancelDue() {
+        if dueDialog?.closeExamples() != true { dueDialog = nil }
+    }
+
+    /// The **?** button (and ⇥ / ⇧⇥).
+    public func toggleDueExamples() {
+        dueDialog?.toggleExamples()
+    }
+
+    /// A click on an example: it goes into the field.
+    public func pickDueExample(_ phrase: String) {
+        setDueText(phrase)
+    }
+
+    /// The current time from the injected clock (for previews and labels).
+    public var now: Date { dueContext.now() }
+
+    private func handleDueDialogKey(_ key: QuickEntryKey) -> Bool {
+        switch dueDialog?.handle(key, context: dueContext) {
+        case .handled: return true
+        case .confirm: confirmDue()
+        case .remove: removeDue()
+        case .close: dueDialog = nil
+        case .notOurs, nil: return false
+        }
+        return true
     }
 
     // MARK: Links
@@ -589,7 +684,7 @@ public final class QuickEntryFlow {
     }
 
     private var canOpenLinkDialog: Bool {
-        !isFinished && !isAbandoned && phase == .editingNote && linkDialog == nil
+        !isFinished && !isAbandoned && phase == .editingNote && linkDialog == nil && dueDialog == nil
     }
 
     public func setLinkTitle(_ title: String) {

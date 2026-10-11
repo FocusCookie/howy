@@ -15,6 +15,7 @@ extension HowyFormat {
           "createdAt": "2026-10-01T08:00:00Z",
           "sortDate": "2026-10-01T08:00:00Z",
           "completedAt": null,
+          "due": "2026-10-15T07:00:00Z",
           "attachments": [
             { "id": "0A9B8C7D-6E5F-4A3B-9C1D-0E9F8A7B6C5D", "name": "receipt.png" }
           ]
@@ -50,6 +51,7 @@ extension HowyFormat {
     - "note": optional, default "". Markdown text for details.
     - "sortDate": optional, defaults to createdAt. Newer sortDates are listed first within a quadrant.
     - "completedAt": optional, default null. null means open; a date means done (archived).
+    - "due": optional, default null. When the todo is due; Howy reminds you with a notification at that moment.
     - "attachments": optional, default []. Each attachment is { "id": UUID, "name": file name }. Names must be plain file names, unique within the todo, without "/", "\\" or "..". To show an image in the note, reference it as ![label](name); other files as [name](name).
 
     All dates are ISO 8601 in UTC with a "Z", e.g. "2026-10-01T08:00:00Z". Unknown keys are ignored.

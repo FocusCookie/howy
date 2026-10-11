@@ -17,6 +17,8 @@ struct BrowseView: View {
     /// The list section's and the move picker's sizes, to keep the picker inside the card.
     @State private var listSize = CGSize.zero
     @State private var movePickerSize = CGSize(width: MoveQuadrantPicker.width, height: 150)
+    /// Bumped once each time the list opens: overdue rows' bells wiggle.
+    @State private var bellWiggle = 0
     @Environment(\.panelEffects) private var panelEffects
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.panelScale) private var scale
@@ -60,6 +62,9 @@ struct BrowseView: View {
                 footer
             }
             .frame(maxHeight: model.morph.isExpandedLayout ? .infinity : nil, alignment: .top)
+            .dueDialogOverlay(isPresented: flow.dueDialog != nil, topInset: 24 * scale, onDismiss: { model.cancelDue() }) {
+                dueDialog
+            }
             .onChange(of: model.lastMove) { _, event in
                 guard let event else { return }
                 panelEffects?.launchBadge(event.isUndo ? "Back to" : "Moved to", quadrant: event.quadrant)
@@ -156,7 +161,11 @@ struct BrowseView: View {
                 .onChange(of: flow.movePicker?.todo.id) { _, id in
                     if let id { withAnimation(.snappy(duration: 0.2)) { proxy.scrollTo(id) } }
                 }
-                .onAppear { pointer.reset() }
+                .onAppear {
+                    pointer.reset()
+                    // Once the list is in: the overdue bells wiggle, then stay still and red.
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { bellWiggle += 1 }
+                }
             }
         }
     }
@@ -168,7 +177,15 @@ struct BrowseView: View {
             Text(todo.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            AttachmentBadge(count: todo.attachmentCount)
+            HStack(spacing: 10 * scale) {
+                TimelineView(.everyMinute) { _ in
+                    DueBadge(due: todo.due, now: flow.now, isSelected: isSelected, wiggle: bellWiggle) {
+                        model.beginDueDate(todo.id)
+                    }
+                }
+                AttachmentBadge(count: todo.attachmentCount)
+            }
+            .besideQuadrantDots(shown: isSelected && !isDragged, spacing: 10 * scale)
             QuadrantDots(current: todo.quadrant, isActive: isSelected && !isDragged) { model.move(todo.id, to: $0) }
             dragHandle(todo, index: index, isActive: isSelected || isDragged)
         }
@@ -203,6 +220,7 @@ struct BrowseView: View {
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
         .accessibilityAction(named: "Mark done") { model.complete(todo.id) }
+        .accessibilityAction(named: "Set due date") { model.beginDueDate(todo.id) }
         .accessibilityAction(named: "Move Up") { model.nudge(todo.id, by: -1) }
         .accessibilityAction(named: "Move Down") { model.nudge(todo.id, by: 1) }
         .accessibilityActions {
@@ -249,6 +267,22 @@ struct BrowseView: View {
         return drag.translation - CGFloat(index - drag.startIndex) * rowPitch
     }
 
+    // MARK: Due date
+
+    /// The due-date dialog over the list or the Overview (`dueDialogOverlay` dims the rest and makes room).
+    @ViewBuilder private var dueDialog: some View {
+        if let dialog = flow.dueDialog {
+            DueDateDialogView(dialog: dialog, now: flow.now, actions: DueDateDialogActions(
+                setText: { flow.setDueText($0) },
+                confirm: { model.confirmDue() },
+                cancel: { model.cancelDue() },
+                remove: { model.removeDue() },
+                toggleExamples: { flow.toggleDueExamples() },
+                pickExample: { flow.pickDueExample($0) }
+            ))
+        }
+    }
+
     // MARK: Done emoji
 
     /// Launches `event`'s emoji up out of the card's top edge, above the row that was just marked
@@ -276,13 +310,13 @@ struct BrowseView: View {
                 KeyHints("⌥1–4 focus quadrant (keeps the \(editor.flow.isEditing ? "edit" : "todo") as a draft)")
             } else if model.morph.isExpandedLayout {
                 KeyHints(
-                    "1–4 focus · ⇥ next · ↑↓ select · ↩ edit · N new · D done · ⌫ archive · M ⌘1–4 move · ⌘J ⌘K reorder\(undo) · esc back",
+                    "1–4 focus · ⇥ next · ↑↓ select · ↩ edit · N new · D done · T due · ⌫ archive · M ⌘1–4 move · ⌘J ⌘K reorder\(undo) · esc back",
                     short: "1–4 focus · ↑↓ select · ↩ edit · N new · D done · M move\(undo) · esc back"
                 )
             } else if flow.phase == .listing {
                 KeyHints(
-                    "↑↓ select · ⌘J ⌘K reorder · ↩ edit · N new · D done · ⌫ archive · M ⌘1–4 move\(undo) · 1–4 switch · esc back",
-                    short: "↑↓ select · ↩ edit · N new · D done · M ⌘1–4 move\(undo) · esc back"
+                    "↑↓ select · ⌘J ⌘K reorder · ↩ edit · N new · D done · T due · ⌫ archive · M ⌘1–4 move\(undo) · 1–4 switch · esc back",
+                    short: "↑↓ select · ↩ edit · N new · D done · T due · M ⌘1–4 move\(undo) · esc back"
                 )
             } else {
                 KeyHints("←↑↓→ or 1–4 · ↩ open · O overview\(undo) · esc close", short: "←↑↓→ or 1–4 · ↩ open\(undo) · esc close")
@@ -321,6 +355,30 @@ struct BrowseView: View {
         .help("Archive (\(BrowseFlow.archiveKey))")
         .animation(.snappy(duration: 0.22), value: isHighlighted)
         .accessibilityAddTraits(isHighlighted ? .isSelected : [])
+    }
+}
+
+extension View {
+    /// For a row's badges (due date, attachments) laid out just before its `QuadrantDots`: while
+    /// the dots are hidden (`shown` false) the badges are drawn shifted into the dots' space, next
+    /// to the drag handle; when the dots show they slide back beside them. Only the drawing moves:
+    /// the row's layout, and so the title's width, stays the same either way.
+    func besideQuadrantDots(shown: Bool, spacing: CGFloat) -> some View {
+        modifier(BesideQuadrantDots(shown: shown, spacing: spacing))
+    }
+}
+
+private struct BesideQuadrantDots: ViewModifier {
+    let shown: Bool
+    let spacing: CGFloat
+    @Environment(\.panelScale) private var scale
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    func body(content: Content) -> some View {
+        content
+            .offset(x: shown ? 0 : QuadrantDots.width * scale + spacing)
+            // In step with the dots fading in and out.
+            .animation(reduceMotion ? nil : .easeOut(duration: 0.12), value: shown)
     }
 }
 
@@ -403,6 +461,8 @@ struct QuadrantDots: View {
     // At 100 %; the panel zoom multiplies them.
     static let hitSize: CGFloat = 20
     static let dotSize: CGFloat = 11
+    /// The dots' width at 100 %: four hit areas side by side.
+    static var width: CGFloat { CGFloat(Quadrant.allCases.count) * hitSize }
 
     var body: some View {
         HStack(spacing: 0) {

@@ -126,7 +126,7 @@ public struct HowyExport: Encodable, Sendable {
         public var title: String { record.title }
 
         enum CodingKeys: String, CodingKey {
-            case id, title, note, quadrant, createdAt, sortDate, completedAt, attachments
+            case id, title, note, quadrant, createdAt, sortDate, completedAt, due, attachments
         }
 
         public func encode(to encoder: any Encoder) throws {
@@ -138,6 +138,7 @@ public struct HowyExport: Encodable, Sendable {
             try container.encode(HowyFormat.string(from: record.createdAt), forKey: .createdAt)
             try container.encode(HowyFormat.string(from: record.sortDate), forKey: .sortDate)
             try container.encode(record.completedAt.map(HowyFormat.string(from:)), forKey: .completedAt) // null when open
+            try container.encode(record.due.map(HowyFormat.string(from:)), forKey: .due) // null without a due date
             try container.encode(attachments, forKey: .attachments)
         }
 
@@ -159,7 +160,8 @@ public struct HowyExport: Encodable, Sendable {
             guard let createdAt = try c.date(.createdAt) else { throw EntryProblem("missing createdAt") }
             record = TodoRecord(
                 id: id, title: title, note: try c.string(.note) ?? "", quadrant: quadrant,
-                createdAt: createdAt, sortDate: try c.date(.sortDate), completedAt: try c.date(.completedAt)
+                createdAt: createdAt, sortDate: try c.date(.sortDate), completedAt: try c.date(.completedAt),
+                due: try c.date(.due)
             )
             attachments = try c.attachments()
         }

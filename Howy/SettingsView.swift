@@ -5,8 +5,8 @@ import SwiftUI
 
 /// The things worth configuring: how big the panels are drawn, the global shortcuts (one launcher shortcut, or separate Quick Add
 /// and Browse shortcuts), the quadrant new todos start on, how attachments open, what plays when a
-/// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, and
-/// launching at login.
+/// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, the
+/// default time of due dates (and a hint when notifications are off), and launching at login.
 struct SettingsView: View {
     let controller: AppController
     @State private var newTodoQuadrant = NewTodoQuadrant.load()
@@ -17,6 +17,8 @@ struct SettingsView: View {
     @State private var archiveRetention = ArchiveRetention.load()
     @State private var overviewSize = OverviewSize.load()
     @State private var copiedFormat = false
+    @State private var dueDefaultTime = DueTime.load()
+    private let notifications = NotificationCoordinator.shared
 
     /// Width of each of the two columns.
     private static let columnWidth: CGFloat = 440
@@ -29,6 +31,10 @@ struct SettingsView: View {
         .fixedSize()
         .animation(.snappy(duration: 0.2), value: controller.shortcutMode)
         .onAppear { controller.refreshLaunchesAtLogin() }
+        .task { await notifications.refreshAuthorization() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            Task { await notifications.refreshAuthorization() } // back from System Settings
+        }
         .onDisappear { recorder.stop() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
             recorder.stop()
@@ -171,6 +177,38 @@ struct SettingsView: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
+        Section {
+            LabeledContent("Time when none is typed:") {
+                DatePicker(
+                    "Time when none is typed",
+                    selection: Binding(
+                        get: { dueDefaultTimeDate },
+                        set: { date in
+                            let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+                            let time = DueTime(hour: c.hour ?? 9, minute: c.minute ?? 0)
+                            guard time != dueDefaultTime else { return }
+                            dueDefaultTime = time
+                            time.save()
+                            notifications.registerCategory() // the Tomorrow button names the time
+                        }
+                    ),
+                    displayedComponents: .hourAndMinute
+                )
+                .labelsHidden()
+            }
+            if notifications.authorization == .denied {
+                LabeledContent("Notifications off —") {
+                    Button("Open System Settings") { notifications.openSystemSettings() }
+                }
+                .foregroundStyle(.red)
+            }
+        } header: {
+            Text("Due Dates")
+        } footer: {
+            Text("⌘T in the editor or T in Browse sets a due date: type \"tomorrow\", \"fri 2pm\", \"24.12.\" or \"in a week\". A day without a time is due at this time, and so is \"Tomorrow\" on a notification. Howy notifies you when a todo is due; due dates and the red bells work without notifications too.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
         Section("General") {
             Toggle("Start Howy at login", isOn: Binding(
                 get: { controller.launchesAtLogin },
@@ -190,6 +228,11 @@ extension SettingsView {
             try? await Task.sleep(for: .seconds(2))
             copiedFormat = false
         }
+    }
+
+    /// The default due time as a date today, for the time picker.
+    private var dueDefaultTimeDate: Date {
+        Calendar.current.date(bySettingHour: dueDefaultTime.hour, minute: dueDefaultTime.minute, second: 0, of: Date()) ?? Date()
     }
 
     private var overviewRange: ClosedRange<Double> {

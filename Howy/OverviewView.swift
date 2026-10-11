@@ -284,7 +284,13 @@ struct OverviewView: View {
             Text(todo.title)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            AttachmentBadge(count: todo.attachmentCount)
+            HStack(spacing: 10 * scale) {
+                TimelineView(.everyMinute) { _ in
+                    DueBadge(due: todo.due, now: flow.now, isSelected: isSelected) { model.beginDueDate(todo.id) }
+                }
+                AttachmentBadge(count: todo.attachmentCount)
+            }
+            .besideQuadrantDots(shown: isSelected && drag == nil, spacing: 10 * scale)
             QuadrantDots(current: todo.quadrant, isActive: isSelected && drag == nil) { model.move(todo.id, to: $0) }
             dragHandle(todo, in: quadrant, isActive: isSelected || isDragged)
         }
