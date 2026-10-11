@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-11
+
 ### Added
 
 - **Daily backups.** Once a day Howy exports everything (todos, attachments
