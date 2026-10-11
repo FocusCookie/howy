@@ -165,6 +165,23 @@ public final class AttachmentStore: Sendable {
         try JSONEncoder().encode(attachments).write(to: todoDirectory(todoID).appending(path: Self.manifestName), options: .atomic)
     }
 
+    /// The todo ids that have a folder here, among folders last changed before `cutoff`.
+    /// Staging, import areas and anything else not named by a UUID are left out.
+    func todoFolderIDs(changedBefore cutoff: Date) -> Set<UUID> {
+        let keys: [URLResourceKey] = [.isDirectoryKey, .contentModificationDateKey]
+        guard let entries = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: keys) else { return [] }
+        var ids = Set<UUID>()
+        for entry in entries {
+            guard let id = UUID(uuidString: entry.lastPathComponent),
+                  let values = try? entry.resourceValues(forKeys: Set(keys)),
+                  values.isDirectory == true,
+                  let changed = values.contentModificationDate, changed < cutoff
+            else { continue }
+            ids.insert(id)
+        }
+        return ids
+    }
+
     /// Deletes all of a todo's files (the todo was deleted or purged).
     public func removeAll(for todoID: UUID) {
         try? fileManager.removeItem(at: todoDirectory(todoID))

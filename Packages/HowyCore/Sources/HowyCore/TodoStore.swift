@@ -345,6 +345,51 @@ public final class TodoStore {
         attachments?.removeAll(for: id)
     }
 
+    // MARK: Cleanups
+
+    /// Collapses todos and events that share an id, on a background context: per id the newest
+    /// `updatedAt` survives (ties: see `StoreMaintenance.prefers(_:over:)`), and one event per
+    /// id. Records no events. Calls `didWrite` (widgets, `StoreChangeSignal`) only when it
+    /// removed something; a clean store isn't written.
+    @discardableResult
+    public func removeDuplicates() async throws -> DuplicateCleanup {
+        let result = try await StoreMaintenance(modelContainer: modelContainer).removeDuplicates()
+        if !result.isEmpty { didWrite?() }
+        return result
+    }
+
+    /// How long a fresh attachment folder is safe from `removeOrphanedAttachments`: a new todo's
+    /// files are committed before the todo is saved, and an import's before its insert.
+    public static let orphanGracePeriod: TimeInterval = 60 * 60
+
+    /// Deletes the attachment folders (files and `attachments.json`) of todo ids that no longer
+    /// exist in the store, e.g. deleted on another device. Folders changed within
+    /// `gracePeriod` before the clock's now are left alone, and so are staging and import
+    /// areas. The file work runs off the main actor, the id read on a background context.
+    /// Returns the number of folders removed. Writes nothing to the store.
+    @discardableResult
+    public func removeOrphanedAttachments(gracePeriod: TimeInterval = orphanGracePeriod) async throws -> Int {
+        guard let attachments else { return 0 }
+        let candidates = await Self.todoFolders(in: attachments, changedBefore: now().addingTimeInterval(-gracePeriod))
+        guard !candidates.isEmpty else { return 0 }
+        // Read after listing: a todo saved meanwhile is in here, its folder spared.
+        let existing = try await StoreMaintenance(modelContainer: modelContainer).todoIDs()
+        let orphans = candidates.subtracting(existing)
+        guard !orphans.isEmpty else { return 0 }
+        await Self.removeFolders(orphans, in: attachments)
+        return orphans.count
+    }
+
+    @concurrent
+    nonisolated private static func todoFolders(in attachments: AttachmentStore, changedBefore cutoff: Date) async -> Set<UUID> {
+        attachments.todoFolderIDs(changedBefore: cutoff)
+    }
+
+    @concurrent
+    nonisolated private static func removeFolders(_ ids: Set<UUID>, in attachments: AttachmentStore) async {
+        ids.forEach(attachments.removeAll(for:))
+    }
+
     /// Makes `list` the todo's attachments (see `AttachmentStore.commit`); reloads widgets when
     /// that changed anything, since they show a paperclip.
     public func setAttachments(_ list: [TodoAttachment], for id: UUID) throws {
