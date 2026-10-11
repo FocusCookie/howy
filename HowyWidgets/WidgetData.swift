@@ -4,7 +4,7 @@ import OSLog
 import WidgetKit
 
 extension Logger {
-    static let widgets = Logger(subsystem: "io.lichtwart.howy.widgets", category: "widgets")
+    static let widgets = Logger(subsystem: "lueddemann.howy.widgets", category: "widgets")
 }
 
 /// One timeline entry: everything a Howy widget renders, already laid out by `WidgetContentBuilder`.

@@ -4,7 +4,7 @@ import Foundation
 /// widget extension alike. The app listens for it to re-plan its notifications: an extension
 /// can't schedule or cancel local notifications itself (e.g. the widget's checkbox).
 public enum StoreChangeSignal {
-    public static let name = "io.lichtwart.howy.store-changed"
+    public static let name = "lueddemann.howy.store-changed"
 
     public static func post() {
         CFNotificationCenterPostNotification(

@@ -5,7 +5,7 @@ import os
 import ServiceManagement
 import SwiftUI
 
-let log = Logger(subsystem: "io.lichtwart.howy", category: "app")
+let log = Logger(subsystem: "lueddemann.howy", category: "app")
 
 /// Owns the global shortcuts, the single modal panel, archive purging and the login item.
 @MainActor

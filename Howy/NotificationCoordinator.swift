@@ -89,7 +89,7 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
 
     /// Opens System Settings at Howy's notification settings.
     func openSystemSettings() {
-        let id = Bundle.main.bundleIdentifier ?? "io.lichtwart.howy"
+        let id = Bundle.main.bundleIdentifier ?? "lueddemann.howy"
         if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
             NSWorkspace.shared.open(url)
         }

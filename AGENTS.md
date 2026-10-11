@@ -21,16 +21,16 @@ skill before you write code:
 | Build failures, Xcode trouble                           | `axiom-build`                                 |
 | Apple API questions                                     | `axiom-apple-docs` (don't answer from memory) |
 
-**One deliberate exception:** Axiom recommends `group.`-prefixed App Groups.
-Howy uses the **team-prefixed** form `$(TeamIdentifierPrefix)io.lichtwart.howy`
-instead. On recent macOS a free Personal Team can't register `group.` IDs, and
-when that fails the widget silently doesn't load. Keep the team-prefixed form.
+**App Group:** Howy uses `group.howy`, shared by the app (`lueddemann.howy`)
+and the widget (`lueddemann.howy.widgets`). `group.` IDs need a paid developer
+account; a free Personal Team can't register them, and when that fails the
+widget silently doesn't load.
 
 ## Platform
 
 - macOS 27 deployment target, Xcode 27, Swift 6 (strict concurrency), SwiftUI +
   AppKit.
-- Signing: automatic, Personal Team `GQ9M79TF33` ("Apple Development"). Not
+- Signing: automatic, team `GQ9M79TF33` ("Apple Development"). Not
   "Sign to Run Locally".
 - Both the app and the widget extension are **sandboxed**. macOS won't load an
   unsandboxed widget.
