@@ -67,21 +67,24 @@ import Testing
         #expect(try store.todos(id: id).map(\.title) == ["Dated"])
     }
 
-    @Test func duplicateEventsCollapseToOne() async throws {
+    @Test func sameIDEventsWithOtherValuesCollapseToTheEarliest() async throws {
         let todo = try store.add(title: "Logged", quadrant: .urgentImportant)
         try store.complete(id: todo.id)
         let created = try #require(try store.events(for: todo.id).first)
-        for _ in 0..<2 {
-            store.context.insert(TodoEvent(record: created.record))
+        for offset in 1...2 {
+            var copy = created.record
+            copy.date = copy.date.addingTimeInterval(Double(offset))
+            store.context.insert(TodoEvent(record: copy))
         }
         try store.context.save()
-        #expect(try store.events(for: todo.id).count == 4)
+        #expect(try store.events(for: todo.id).count == 2, "reads show one event per id")
         writes.count = 0
 
         let result = try await store.removeDuplicates()
 
         #expect(result == DuplicateCleanup(removedTodos: 0, removedEvents: 2))
         #expect(try store.events(for: todo.id).compactMap(\.kind) == [.created, .completed])
+        #expect(try store.events(for: todo.id).first?.date == todo.createdAt)
         #expect(try store.allTodos().count == 1)
         #expect(writes.count == 1)
     }

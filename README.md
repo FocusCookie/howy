@@ -152,8 +152,10 @@ Everything happens from a shortcut.
 All data stays on your Mac (SwiftData in a sandboxed App Group container). Howy
 has no sync and no account. It keeps a history of what happens to each todo
 (added, done, moved, due date changes, deleted; ids and times only, no titles)
-for statistics in a later version. At launch it removes duplicate copies of a
-todo, and moves attachment folders whose todo is gone into
+for statistics in a later version. A todo that exists twice shows once. At
+launch Howy removes the copies that differ from the most recently changed one
+(exact copies stay; they are harmless), and moves attachment folders whose todo
+is gone into
 `Attachments/.trash` (emptied after 14 days). It never does that for an empty
 store, or when more than half of the attachment folders look orphaned.
 

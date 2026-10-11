@@ -550,12 +550,13 @@ import Testing
         let other = try store.add(title: "Other", quadrant: .urgentImportant)
         clock.advance(by: 10)
         try store.reorder([id, other.id], in: .urgentImportant)
-        #expect(try store.openTodos(in: .urgentImportant).count == 3)
+        #expect(try store.openTodos(in: .urgentImportant).map(\.id) == [id, other.id], "the duplicate pair reads as one todo")
     }
 
     @Test func deleteRemovesEveryRowWithTheIdAndRecordsOneDeleted() throws {
         let id = try insertDuplicates(quadrant: .notUrgentUnimportant)
-        #expect(try store.allTodos().count == 2)
+        #expect(try store.todos(id: id).count == 2)
+        #expect(try store.allTodos().count == 1)
         try store.delete(id: id)
         #expect(try store.allTodos().isEmpty)
         let events = try store.events(for: id)
