@@ -110,15 +110,26 @@ gets a new format version. Old export files still import.
 
 ### CloudKit environments
 
-- **Debug builds:** Development environment. Safe to reset.
-- **Release builds:** Production, via the
-  `com.apple.developer.icloud-container-environment = Production` entitlement.
-- **Before the first Release build with sync:** deploy the schema in CloudKit
-  Console (icloud.developer.apple.com → container → Deploy Schema Changes).
-  Production schema changes are additive only.
+**Decision (supersedes the earlier "Release uses Production" plan):** Debug and
+Release builds **both use the Development environment**. There is one
+entitlements file (`Howy/Howy.entitlements`) with no
+`icloud-container-environment` key. Howy is for personal use, so there is no
+Production environment, no schema deploy, and no Deploy Schema step in any
+release process.
+
+- **Never press "Reset Development Environment"** in CloudKit Console. The real
+  data lives there now; a reset deletes it for good.
+- **Debug sees the real data.** Debug (`Howy-Debug.store`) and Release
+  (`Howy.store`) are separate files, but both mirror to the same private
+  database, so a Debug run downloads, edits and deletes the user's real todos.
+  Treat Debug runs against the real account as production. Test destructive
+  changes with a second iCloud account or with `.local`.
+- **Schema changes** are made in Development by running a build; they are
+  additive only in practice (CloudKit can't remove record types or fields that
+  exist), so a model change that needs a removal needs a new field name.
 - **Verify** the built app's entitlements with
-  `codesign -d --entitlements - Howy.app`, and confirm a Release build really
-  syncs. One developer reported that it didn't for them.
+  `codesign -d --entitlements - Howy.app`: `aps-environment` development, the
+  container, CloudKit, the key-value store.
 
 ## Delivery
 
@@ -148,20 +159,21 @@ it from the Mac. The release notes must say so clearly.
 - [x] iCloud capability with CloudKit and container `iCloud.lueddemann.howy`,
       in `project.yml`, for the app only (the widget doesn't mirror; see
       "Widget store: `.none`").
-- [x] Debug uses Development; Release uses Production through the entitlement.
+- [x] Debug and Release both use Development (see "CloudKit environments").
 - [x] `TodoStore` with `cloudKitDatabase: .private(…)`.
 - [x] Remote-change handling: widgets, UI, notifications, cleanups.
 - [x] Archive retention through `NSUbiquitousKeyValueStore`.
 - [ ] Account status (`CKContainer.accountStatus` and `CKAccountChanged`),
       the Settings status line, and error notifications.
-- [ ] CloudKit Console steps written down. Schema deployed to Production.
+- [x] ~~CloudKit Console steps; schema deployed to Production.~~ Dropped: no
+      Production (see "CloudKit environments").
 - [ ] Manual tests on two Macs:
   - first upload
   - sign-in after local use
   - sign-out wipe and restore
   - an edit on both Macs at once
   - remote delete with attachments
-  - a Release build syncing in Production
+  - a Release build syncing (Development)
 - [ ] From the PR 1 reviews, before turning on `.private`:
   - [x] One `ModelContainer` per process. `SharedContainer.process` builds the
         on-disk container once (behind a `Mutex`; a failed build is retried)
@@ -293,20 +305,20 @@ Decision: the app mirrors, the widget opens the same store file with
 **Entitlements.** The app has `icloud-container-identifiers`
 (`iCloud.lueddemann.howy`), `icloud-services` (CloudKit),
 `ubiquity-kvstore-identifier` (`$(TeamIdentifierPrefix)lueddemann.howy`) and
-`com.apple.developer.aps-environment` (the macOS key) = `development`. Debug
-signs with `Howy/Howy.entitlements`, Release with `Howy/Howy-Release.entitlements`,
-which adds `icloud-container-environment = Production` (`CODE_SIGN_ENTITLEMENTS`
-per configuration in `project.yml`; both files are edited by hand). The widget
-has only the sandbox and the App Group. `aps-environment` is `development` in
-Release too: every build is signed "Apple Development" with a development
-profile, which only allows that value. Verified with
-`codesign -d --entitlements -` on both builds.
+`com.apple.developer.aps-environment` (the macOS key) = `development`, in
+`Howy/Howy.entitlements` for both configurations (no
+`icloud-container-environment`, so both use Development; see "CloudKit
+environments"). The widget has only the sandbox and the App Group.
+`aps-environment` is `development` in Release too: every build is signed "Apple
+Development" with a development profile, which only allows that value.
+Verified with `codesign -d --entitlements -` on both builds.
 
 **Store per configuration.** `HOWY_STORE_FILE_NAME` (`Howy-Debug.store` in
 Debug, `Howy.store` in Release) reaches both targets' Info.plist as
 `HowyStoreFileName`; `TodoStore.storeFileName` reads it (anything odd or missing
-means `Howy.store`). So Debug (Development) and Release (Production) never share
-a file, and the widget opens its own app's file. The backups and the
+means `Howy.store`). So Debug and Release never share a file (they do share the iCloud data; see
+"CloudKit environments"), and the widget opens its own app's file. A missing or
+invalid name makes the app stay `.local` (assertionFailure and a fault log). The backups and the
 attachments are scoped the same way (`TodoStore.storeScopedName`): Release keeps
 `Backups/` and `Attachments/`, Debug uses `Backups-Howy-Debug/` and
 `Attachments-Howy-Debug/`. Shared folders would let a Debug run take the day's
@@ -396,6 +408,111 @@ rows; they show until the cleanup runs (after the quiet period).
 - Retention: change it on one Mac, the other follows (Settings, archive panel).
 - Widget tick while Howy runs: an open Browse panel updates; the other Mac gets
   it (now or after the next launch).
+
+#### Phase 3b fix round (from the reviews)
+
+Made so that a second Mac with an empty or older local store can join without
+any maintenance step destroying data before it has imported from iCloud.
+
+- **Archive retention.** With an empty KVS the value is *unknown* for up to 24 h
+  (counted from the first launch and remembered, so daily relaunches still
+  decide) and nothing is purged. Only a value the user chose on this Mac (not
+  one copied from KVS: `isExplicit`) seeds KVS. The change observer is
+  registered before `synchronize()`.
+- **Self-heal and one-time passes.** `selfHeal` runs only in the app process and
+  only on a store file that never mirrored. The mirrored flag
+  (`howy.storeMirrored.<file>`) is set when the mirroring container is first
+  built; the quantization flag counts as "mirrored" for builds that predate it.
+  The heal flag is per file too (the old unscoped key still counts for
+  `Howy.store`). A store file that doesn't exist yet skips the preparation.
+- **Gate.**
+  - Destructive work (duplicates, deleted todos, orphans and trash, archive
+    purge) needs an import that *started after* launch or the last wake. The
+    wake handler notes the wake and the purge goes through the gate. A new setup
+    event resets `firstImportDone`.
+  - `setupFailed` only for account/entitlement CKErrors (also when wrapped);
+    transient errors never open the gate.
+  - An event without an end counts as stale after 10 min.
+  - `.waitForSync` retries every 60 s; a gate closed for 30 min logs a fault.
+  - The mode is taken from the container that was built (`.starting` until
+    then; a CloudKit fallback is `.unavailable`).
+- **Backup** has a relaxed gate (sync quiet for 30 s with at least one event, or
+  10 min after launch whatever sync does) and runs first (`MaintenancePlan`).
+  Every step asks its own gate right before it runs.
+- **Import reactions** are debounced by 1 s; the cleanups run at most once per
+  10 min (`CleanupThrottle`).
+- **Fresh reads.** Duplicate and deleted-todo cleanups and the archive purge
+  read on a fresh `ModelContext` right before they delete; the orphan cleanup
+  re-reads the todo ids before it trashes a folder.
+- **Attachments.** Trashed folders of a todo that exists again are moved back
+  (unless it has a new folder); `purgeTrash` skips todos that exist.
+- **Off-main setup.** `TodoStore.prepareSharedContainer()` is `@concurrent`; the
+  app awaits it at launch. A `shared()` that comes first (a deep link) builds on
+  the main actor.
+- **Remote notifications.** The app calls
+  `NSApplication.shared.registerForRemoteNotifications()` at launch. Apple's
+  Core Data + CloudKit article only asks for the iCloud/Push capability, but the
+  APNs registration article says a macOS app registers itself, and community
+  reports say push-triggered imports otherwise don't arrive on macOS. It costs
+  nothing (the `aps-environment` entitlement is there). Check by hand (below).
+
+#### Known limits
+
+- Whether mirroring merges per field or per record is unverified. Nothing may
+  rely on per-field merging; a concurrent edit on two Macs can lose one edit.
+- **Sign-out wipes the local store** (Apple's behaviour); unsynced changes are
+  lost. The daily backup is the safety net; Phase 3c adds detection.
+- **A Mac without any sync event** (offline, no iCloud account) never opens the
+  strict gate for an account problem it can't see: the backup still runs after
+  10 min, the cleanups and the purge wait. After a wake they wait for an import
+  that starts after it, which may take until the next remote change or launch.
+- **Debug sees the real data** and can delete it (see "CloudKit environments").
+- The widget doesn't receive remote changes: it shows what the app last
+  imported. Its checkbox writes through the history, but when the other Mac gets
+  it depends on the app's mirroring running.
+- Attachments don't sync until PR 3; a todo synced to another Mac has none, and
+  the other Mac's orphan cleanup only trashes folders, never deletes at once.
+- A delete can still show briefly on another Mac until its gated cleanup runs.
+- A backup taken before the first import (the 10 min fail-open) can take the
+  day's slot with an older state; the next day's backup has everything.
+- `Reset Development Environment` would wipe the real data. Don't.
+- Key-value store: a Mac with its own older choice whose KVS download takes
+  longer than 24 h seeds its value over the other Mac's.
+
+#### Hand tests: joining a second Mac
+
+Use Console (subsystem `lueddemann.howy`). Take a manual export on the first Mac
+first (Export…), and keep `Backups/` safe.
+
+1. **Join with an empty local store.** Install Howy on Mac B signed in to the
+   same iCloud account. Check the store opens with CloudKit, the setup and
+   import events arrive, and Mac A's todos appear. Nothing is purged (log:
+   no "Purged"), no "Removed … duplicate", no "Moved attachments".
+2. **Join with an older local store.** Mac B has its own `Howy.store` with a few
+   different todos, created before sign-in. After the join both sets are
+   present on both Macs; no row vanished; the duplicate cleanup reports nothing
+   removed (or only twins it should).
+3. **Retention.** On Mac B, Settings shows Mac A's retention (not the default)
+   within minutes, and the purge doesn't run before it is known. Change it on B;
+   A follows. On a fresh Mac with nothing set, nothing purges for 24 h.
+4. **Gate.** With Mac B offline at launch: the backup runs after 10 min, the
+   cleanups don't. Go online: after the first import and 30 s the cleanups run
+   once; several imports in a row cause one reaction (debounce) and cleanups at
+   most every 10 min.
+5. **Sleep.** Put Mac B to sleep, change todos on A, wake B: the purge doesn't
+   run until an import that started after the wake has finished.
+6. **Delete.** Delete a todo on A: it disappears on B after the next import and
+   cleanup; its attachment folder on B moves to `.trash` (not deleted), and
+   comes back from the trash if the todo is recreated by a twin.
+7. **Push.** With both Macs running, add a todo on A: it shows up on B without
+   relaunching (confirms `registerForRemoteNotifications()`; if not, B only
+   catches up at launch and the 60 s retry loop shows nothing new).
+8. **Widget.** Tick a todo in the widget on B with Howy running and not
+   running; confirm A gets it (now or after the next launch).
+9. **Concurrent edit** of one todo on both Macs: no duplicates, no loss beyond
+   one edit.
+10. **Debug.** Launch Debug on one Mac: it opens `Howy-Debug.store`, downloads
+    the real data, and its backups go to `Backups-Howy-Debug`.
 
 **Left for Phase 3c:** account status (`CKContainer.accountStatus`,
 `CKAccountChanged`, identity token, `userDeletedZone` as a wipe), the Settings
