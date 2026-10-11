@@ -124,18 +124,18 @@ gets a new format version. Old export files still import.
 
 ### PR 1 → 1.8.0: schema v3, events, cleanups, backups (no iCloud)
 
-- [ ] Schema v3 (`HowySchemaV2` frozen, `.unique` dropped, defaults,
+- [x] Schema v3 (`HowySchemaV2` frozen, `.unique` dropped, defaults,
       `updatedAt`) and migration plan. Tests: v1 and v2 stores open under v3
       with data intact.
-- [ ] `TodoEvent` model, with `TodoStore` writing events for every listed kind
+- [x] `TodoEvent` model, with `TodoStore` writing events for every listed kind
       in the same save. Tests per kind.
-- [ ] Event backfill during migration. Test.
-- [ ] Duplicate cleanup. Test.
-- [ ] Orphaned-attachment cleanup. Test.
-- [ ] Export/import includes events, with a new format version that still reads
+- [x] Event backfill during migration. Test.
+- [x] Duplicate cleanup. Test.
+- [x] Orphaned-attachment cleanup. Test.
+- [x] Export/import includes events, with a new format version that still reads
       old files. Tests.
-- [ ] Daily automatic export, keeping the last 7. Test with `FakeClock`.
-- [ ] README, CHANGELOG and flow doc comments.
+- [x] Daily automatic export, keeping the last 7. Test with `FakeClock`.
+- [x] README, CHANGELOG and flow doc comments.
 
 Ship it on its own, so the migration runs on real data before iCloud is
 involved.
@@ -161,6 +161,17 @@ it from the Mac. The release notes must say so clearly.
   - an edit on both Macs at once
   - remote delete with attachments
   - a Release build syncing in Production
+- [ ] From the PR 1 reviews, before turning on `.private`:
+  - One `ModelContainer` per process. `TodoStore.shared()` currently builds a
+    new container on every call, and each would start its own CloudKit
+    mirroring. The widget's container needs a deliberate choice too.
+  - Duplicate cleanup across devices: two fully identical rows are different
+    CloudKit records, and each Mac could delete a different one, losing both.
+    The same applies to events with the same `id`. Find a tie-break that
+    picks the same record on every device, or keep both.
+  - Don't run the duplicate cleanup while a remote import is still in flight.
+  - Test switching an existing v3 store (migrated from v1/v2) from `.none` to
+    `.private`.
 
 ### PR 3: attachment sync
 
