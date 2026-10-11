@@ -162,16 +162,64 @@ it from the Mac. The release notes must say so clearly.
   - remote delete with attachments
   - a Release build syncing in Production
 - [ ] From the PR 1 reviews, before turning on `.private`:
-  - One `ModelContainer` per process. `TodoStore.shared()` currently builds a
-    new container on every call, and each would start its own CloudKit
-    mirroring. The widget's container needs a deliberate choice too.
-  - Duplicate cleanup across devices: two fully identical rows are different
-    CloudKit records, and each Mac could delete a different one, losing both.
-    The same applies to events with the same `id`. Find a tie-break that
-    picks the same record on every device, or keep both.
-  - Don't run the duplicate cleanup while a remote import is still in flight.
-  - Test switching an existing v3 store (migrated from v1/v2) from `.none` to
-    `.private`.
+  - [x] One `ModelContainer` per process. `SharedContainer.process` builds the
+        on-disk container once (behind a `Mutex`; a failed build is retried)
+        and every `TodoStore.shared()` and `StoreMaintenance` run uses it. Each
+        `TodoStore` gets its own `ModelContext`, so a store made now still
+        reads what the widget wrote. The sync setting is `StoreSync`: the app
+        calls `TodoStore.configureSharedSync(_:)` at launch (`.local` for now;
+        Phase 3b flips it to `.iCloud(containerIdentifier:
+        StoreSync.containerIdentifier)`), and the widget never calls it, so it
+        stays `.local`. See "Widget store: `.none`" below.
+  - [x] Duplicate cleanup across devices. Fully identical rows (every stored
+        value equal, dates to the millisecond) are never deleted; reads collapse
+        them by id and writes copy the survivor's values to every row in the same
+        save, so they stay identical. Rows that differ resolve by a total order
+        over the stored values only (`Todo.prefers(_:over:)`,
+        `TodoEvent.prefers(_:over:)` in `DuplicateRules.swift`), and the cleanup
+        deletes every row whose values aren't the survivor's. Events: the same.
+        Tests in `SyncSafeDuplicateTests`, including both insertion orders in two
+        stores per differing field.
+  - [ ] Don't run the duplicate cleanup while a remote import is still in flight.
+        (Phase 3b, needs the CloudKit event notifications.)
+  - [ ] Test switching an existing v3 store (migrated from v1/v2) from `.none` to
+        `.private`. (Phase 3b.)
+
+#### Widget store: `.none`
+
+Decision: the app mirrors, the widget opens the same store file with
+`cloudKitDatabase: .none`.
+
+- Apple's TN3164 ("Debugging the synchronization of
+  NSPersistentCloudKitContainer", section "Avoid synchronizing a store with
+  multiple persistent containers") says an app and its extension must not both
+  mirror one shared store, even from different processes, and recommends
+  "having the app in charge of the synchronization". A DTS engineer repeats it
+  for a widget in developer forums thread 776628 ("I'd like to suggest against
+  doing that"). The same technote warns about several mirroring containers on
+  one store inside one process, which is why the container is now built once.
+- A non-mirroring opener is safe as long as it keeps persistent history on:
+  mirroring exports from the store's history, and a write made without history
+  would be missed. SwiftData records history for every `DefaultStore` with no
+  option to turn it off ("Fetching and filtering time-based model changes":
+  history lets an app see "changes made by another process such as a Widget or
+  App Intent"), so the widget's `.none` writes (the checkbox,
+  `CompleteTodoIntent`) land in the history the app's mirroring reads.
+- Howy never deletes history, so nothing purges transactions the mirroring
+  still needs.
+- To check by hand in Phase 3b: tick a todo in the widget while Howy runs and
+  while it doesn't, and confirm the other Mac gets it (the export may only run
+  on Howy's next launch or remote-change notification).
+- Accepted, as before: the widget doesn't receive remote changes itself; it
+  shows what the app last imported.
+
+#### Notes for Phase 3b
+
+- Dates are compared at whole milliseconds in the duplicate rules, on the
+  assumption that a CloudKit round trip keeps milliseconds. Check by hand that
+  a row synced to the other Mac compares identical to its original, e.g. the
+  backfilled events, which get the same derived ids on every Mac: after a sync
+  the cleanup must report nothing removed.
 
 ### PR 3: attachment sync
 
