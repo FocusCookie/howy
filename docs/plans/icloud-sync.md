@@ -213,13 +213,79 @@ Decision: the app mirrors, the widget opens the same store file with
 - Accepted, as before: the widget doesn't receive remote changes itself; it
   shows what the app last imported.
 
-#### Notes for Phase 3b
+#### Phase 3a fix round (from the reviews)
 
-- Dates are compared at whole milliseconds in the duplicate rules, on the
-  assumption that a CloudKit round trip keeps milliseconds. Check by hand that
-  a row synced to the other Mac compares identical to its original, e.g. the
-  backfilled events, which get the same derived ids on every Mac: after a sync
-  the cleanup must report nothing removed.
+- Dates are stored at whole milliseconds since 1970 (`Date.wholeMilliseconds`,
+  applied in the `Todo`/`TodoEvent` initialisers, the clock, and every computed
+  or user-given date in `TodoStore`). The result is moved up to the first float
+  that truncates to the same millisecond, so rounding and truncating
+  conversions agree. The duplicate key is milliseconds since 1970, to the
+  nearest. Rows already on disk keep their sub-millisecond values (see the
+  checklist below).
+- `mirrorSurvivor` copies only the fields a write changed, compared by that
+  key, so a twin isn't rewritten for nothing and doesn't lose a newer value of a
+  field the write didn't touch. A twin that would still beat the survivor gets
+  every value.
+- The sync setting is chosen in `HowyApp.init()` (the earliest app code, before
+  the delegate and any `howy://` open); the result is asserted and logged.
+- All containers other than through `StoreSync` pass `cloudKitDatabase: .none`.
+- The once-only event self-heal is skipped for a store that mirrors.
+- Fewer scans: repeated ids once per `openSnapshots()`, none for an empty fetch,
+  only the fetched ids for events, id-first duplicate cleanup.
+
+#### Phase 3b checklist (from the 3a reviews)
+
+- [ ] **SyncGate** before any destructive maintenance (duplicates, archive
+      purge, orphan trash) and the daily backup. Require all of: the first
+      import since launch is done, no import or export in flight, and a quiet
+      period of about 30 s. Re-run the cleanups after each successful import.
+      The purge also waits until the iCloud key-value store (KVS) retention
+      value is known.
+- [ ] **Debug and Release stores** use different CloudKit environments, so use
+      a separate store file per configuration (or keep Debug on `.local`), to
+      avoid uploading real data to the wrong environment.
+- [ ] **Widget entitlements:** the widget gets NO iCloud, KVS or aps
+      entitlements.
+- [ ] **App entitlements:**
+  - app: `icloud-container-identifiers`, `icloud-services` CloudKit,
+    `ubiquity-kvstore-identifier`, `aps-environment`
+  - Release only: `icloud-container-environment = Production`, via a
+    per-configuration entitlements file
+  - verify with `codesign -d --entitlements -`
+- [ ] **Failed `.iCloud` container build:** fall back to `.local` for that run,
+      show "sync unavailable", and don't retry the build on every `shared()`
+      call on the main actor.
+- [ ] **Remote changes:** observe
+      `NSPersistentCloudKitContainer.eventChangedNotification`
+      (setup/import/export, extracting plain values off the notification) and
+      use it for the gate and the status line. After an import, reload widgets,
+      rebuild the due notifications and refresh the open UI.
+- [ ] **Account:** observe `CKAccountChanged` and check `accountStatus`. Detect
+      a wipe or account switch with a remembered identity token, and treat
+      `userDeletedZone` as a wipe.
+- [ ] **CKError matrix:** decide which errors are silent and which notify
+      (quota, schema missing in Production, sync failing for over an hour).
+- [ ] **KVS:** seed the shared value from the local one on first iCloud launch.
+- [ ] **Existing rows keep sub-millisecond dates** written before 3a. Quantize
+      them once (a one-time pass on a background context) before the first
+      upload, or a truncating or rounding CloudKit round trip can still shift
+      them by a millisecond.
+- [ ] **Hand tests:**
+  - a widget tick reaches the other Mac, with Howy running and not running
+  - a twin row on two Macs leads to nothing removed
+  - a concurrent edit on both Macs
+  - a delete while the other Mac edits
+  - a migrated v1 or v2 store switching from `.none` to `.private`
+  - before deploying the schema, exercise every event kind and optional field
+    in Debug
+  - a row synced to the other Mac compares identical to its original, e.g. the
+    backfilled events (same derived ids on every Mac): after a sync the cleanup
+    must report nothing removed
+- [ ] **Known gap: a delete can be resurrected.** A remote twin arriving after a
+      delete or purge brings the todo back. Decide in 3b: hide ids whose latest
+      event is `.deleted`, or accept and document it.
+- [ ] **Unverified:** whether mirroring merges per field or per record. Nothing
+      may rely on per-field merging.
 
 ### PR 3: attachment sync
 
