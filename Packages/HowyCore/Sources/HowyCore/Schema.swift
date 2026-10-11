@@ -83,10 +83,9 @@ enum HowyMigrationPlan: SchemaMigrationPlan {
 
     /// v2 → v3 drops the unique constraint, adds `updatedAt` (with a default) and the new
     /// `TodoEvent` model; the schema part is lightweight. `didMigrate` then backfills the
-    /// history the store already knows: a `created` event at `createdAt` (with the quadrant)
-    /// for every todo, a `completed` event at `completedAt` for every archived one, and sets
-    /// `updatedAt` to `completedAt ?? sortDate`. The stage runs once, when the store's
-    /// version is below v3; the backfill also does nothing if events already exist.
+    /// history the store already knows (`backfillEvents`). The stage runs once, when the
+    /// store's version is below v3. `TodoStore` also runs the backfill whenever it opens a
+    /// store that has todos but no events, which heals a `didMigrate` that failed.
     static let v2ToV3 = MigrationStage.custom(
         fromVersion: HowySchemaV2.self,
         toVersion: HowySchemaV3.self,
@@ -96,12 +95,28 @@ enum HowyMigrationPlan: SchemaMigrationPlan {
         }
     )
 
+    /// Backfills the history the store already knows: a `created` event at `createdAt` (with
+    /// the quadrant) for every todo, a `completed` event at `completedAt` for every archived
+    /// one, and sets `updatedAt` to `completedAt ?? sortDate`. Does nothing if events exist.
+    ///
+    /// The `created` event's `due` is the todo's due date at migration time; the log has no
+    /// earlier value. Events get ids derived from (todo, kind) so that the app and the widget
+    /// backfilling at once write the same ids and the duplicate cleanup can collapse them.
+    /// `seq` is 0 for `created` and 1 for `completed`.
     static func backfillEvents(in context: ModelContext) throws {
         guard try context.fetchCount(FetchDescriptor<TodoEvent>()) == 0 else { return }
-        for todo in try context.fetch(FetchDescriptor<Todo>()) {
-            context.insert(TodoEvent(todoID: todo.id, kind: .created, date: todo.createdAt, to: todo.quadrant))
+        let todos = try context.fetch(FetchDescriptor<Todo>())
+        guard !todos.isEmpty else { return }
+        for todo in todos {
+            context.insert(TodoEvent(
+                id: TodoEvent.backfillID(todoID: todo.id, kind: .created),
+                todoID: todo.id, kind: .created, date: todo.createdAt, to: todo.quadrant, due: todo.due, seq: 0
+            ))
             if let completedAt = todo.completedAt {
-                context.insert(TodoEvent(todoID: todo.id, kind: .completed, date: completedAt))
+                context.insert(TodoEvent(
+                    id: TodoEvent.backfillID(todoID: todo.id, kind: .completed),
+                    todoID: todo.id, kind: .completed, date: completedAt, seq: 1
+                ))
             }
             todo.updatedAt = todo.completedAt ?? todo.sortDate
         }

@@ -33,6 +33,8 @@ public final class TodoStore {
     public let attachments: AttachmentStore?
     private let now: @Sendable () -> Date
     private let didWrite: (@MainActor () -> Void)?
+    /// Highest `seq` handed out per todo since the last commit (events not yet saved).
+    private var pendingSeq: [UUID: Int] = [:]
 
     public init(
         modelContainer: ModelContainer,
@@ -90,11 +92,14 @@ public final class TodoStore {
             url: url,
             cloudKitDatabase: .none
         )
-        return try ModelContainer(
+        let container = try ModelContainer(
             for: Schema(versionedSchema: HowySchemaV3.self),
             migrationPlan: HowyMigrationPlan.self,
             configurations: configuration
         )
+        // Self-heal: todos without any event means the migration's backfill didn't run or failed.
+        try HowyMigrationPlan.backfillEvents(in: container.mainContext)
+        return container
     }
 
     /// An in-memory store for tests and previews.
@@ -121,9 +126,10 @@ public final class TodoStore {
     @discardableResult
     public func add(id: UUID = UUID(), title: String, note: String = "", quadrant: Quadrant, due: Date? = nil) throws -> Todo {
         let title = try Self.validated(title)
-        let todo = Todo(id: id, title: title, note: note, quadrant: quadrant, createdAt: now(), due: due)
+        let stamp = now()
+        let todo = Todo(id: id, title: title, note: note, quadrant: quadrant, createdAt: stamp, due: due)
         context.insert(todo)
-        record(.created, for: todo.id, at: todo.createdAt, to: quadrant, due: due)
+        record(.created, for: todo.id, at: stamp, to: quadrant, due: due)
         try commit()
         return todo
     }
@@ -157,12 +163,7 @@ public final class TodoStore {
             inserted.append(record.id)
         }
         guard !inserted.isEmpty else { return [] }
-        do {
-            try commit()
-        } catch {
-            context.rollback()
-            throw error
-        }
+        try commit()
         return inserted
     }
 
@@ -179,25 +180,26 @@ public final class TodoStore {
         let todo = try require(id)
         // An untouched edit is a no-op: don't write or reload widgets.
         guard todo.title != title || todo.note != note || todo.quadrant != quadrant || todo.due != due else { return }
+        let stamp = now()
         todo.title = title
         todo.note = note
-        changeDue(of: todo, to: due)
-        moveOnTop(todo, to: quadrant)
-        todo.updatedAt = now()
+        changeDue(of: todo, to: due, at: stamp)
+        moveOnTop(todo, to: quadrant, at: stamp)
+        todo.updatedAt = stamp
         try commit()
     }
 
     /// Sets (or with `nil` removes) a todo's due date. The same date again writes nothing.
     /// Due dates never change the quadrant or the order.
     public func setDue(id: UUID, to due: Date?) throws {
-        try setDue(id: id, to: due, snoozed: false)
+        try setDue(id: id, to: due, snoozed: false, at: now())
     }
 
-    private func setDue(id: UUID, to due: Date?, snoozed: Bool) throws {
+    private func setDue(id: UUID, to due: Date?, snoozed: Bool, at stamp: Date) throws {
         let todo = try require(id)
         guard todo.due != due else { return }
-        changeDue(of: todo, to: due, snoozed: snoozed)
-        todo.updatedAt = now()
+        changeDue(of: todo, to: due, snoozed: snoozed, at: stamp)
+        todo.updatedAt = stamp
         try commit()
     }
 
@@ -208,12 +210,13 @@ public final class TodoStore {
 
     /// Moves the due date to `interval` from now (the notification's "Snooze 1 h").
     public func snooze(id: UUID, by interval: TimeInterval) throws {
-        try setDue(id: id, to: now().addingTimeInterval(interval), snoozed: true)
+        let stamp = now()
+        try setDue(id: id, to: stamp.addingTimeInterval(interval), snoozed: true, at: stamp)
     }
 
     /// Moves the due date to `date` (the notification's "Tomorrow 9:00").
     public func snooze(id: UUID, until date: Date) throws {
-        try setDue(id: id, to: date, snoozed: true)
+        try setDue(id: id, to: date, snoozed: true, at: now())
     }
 
     /// Moves a todo to another quadrant (Browse's ⌘1–4 / move picker): like an edit-modal move
@@ -224,8 +227,9 @@ public final class TodoStore {
         let todo = try require(id)
         let previous = todo.sortDate
         guard todo.quadrant != quadrant else { return previous }
-        moveOnTop(todo, to: quadrant)
-        todo.updatedAt = now()
+        let stamp = now()
+        moveOnTop(todo, to: quadrant, at: stamp)
+        todo.updatedAt = stamp
         try commit()
         return previous
     }
@@ -243,12 +247,13 @@ public final class TodoStore {
         var ordered = current.filter { $0.id != id }
         ordered.insert(todo, at: min(max(index, 0), ordered.count))
         guard ordered.map(\.id) != current.map(\.id) else { return previous } // already there
-        recordMove(of: todo, to: quadrant)
+        let stamp = now()
+        recordMove(of: todo, to: quadrant, at: stamp)
         todo.quadrant = quadrant
-        todo.updatedAt = now()
-        let newest = max(now(), ordered.first(where: { $0.id != id })?.sortDate ?? .distantPast)
+        todo.updatedAt = stamp
+        let newest = max(stamp, ordered.first(where: { $0.id != id })?.sortDate ?? .distantPast)
         for (position, item) in ordered.enumerated() {
-            setSortDate(of: item, to: newest.addingTimeInterval(-Double(position) * 0.001))
+            setSortDate(of: item, to: newest.addingTimeInterval(-Double(position) * 0.001), at: stamp)
         }
         try commit()
         return previous
@@ -259,10 +264,11 @@ public final class TodoStore {
     public func moveBack(id: UUID, to quadrant: Quadrant, sortDate: Date) throws {
         let todo = try require(id)
         guard todo.quadrant != quadrant || todo.sortDate != sortDate else { return }
-        recordMove(of: todo, to: quadrant)
+        let stamp = now()
+        recordMove(of: todo, to: quadrant, at: stamp)
         todo.quadrant = quadrant
         todo.sortDate = sortDate
-        todo.updatedAt = now()
+        todo.updatedAt = stamp
         try commit()
     }
 
@@ -271,9 +277,10 @@ public final class TodoStore {
     public func complete(id: UUID) throws {
         let todo = try require(id)
         guard todo.completedAt == nil else { return } // no-op: don't write or reload widgets
-        todo.completedAt = now()
-        todo.updatedAt = now()
-        record(.completed, for: id)
+        let stamp = now()
+        todo.completedAt = stamp
+        todo.updatedAt = stamp
+        record(.completed, for: id, at: stamp)
         try commit()
     }
 
@@ -284,10 +291,11 @@ public final class TodoStore {
     public func restore(id: UUID, onTop: Bool = true) throws {
         let todo = try require(id)
         guard todo.completedAt != nil else { return }
+        let stamp = now()
         todo.completedAt = nil
-        if onTop { todo.sortDate = now() }
-        todo.updatedAt = now()
-        record(.reopened, for: id)
+        if onTop { todo.sortDate = stamp }
+        todo.updatedAt = stamp
+        record(.reopened, for: id, at: stamp)
         try commit()
     }
 
@@ -298,22 +306,25 @@ public final class TodoStore {
     public func reorder(_ ids: [UUID], in quadrant: Quadrant) throws {
         let todos = try openTodos(in: quadrant)
         guard let newest = todos.first?.sortDate else { return }
-        let byID = Dictionary(uniqueKeysWithValues: todos.map { ($0.id, $0) })
+        let byID = Dictionary(todos.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         var ordered = ids.compactMap { byID[$0] }
         let listed = Set(ordered.map(\.id))
         ordered += todos.filter { !listed.contains($0.id) }
         guard ordered.map(\.id) != todos.map(\.id) else { return } // unchanged: no write
+        let stamp = now()
         for (index, todo) in ordered.enumerated() {
-            setSortDate(of: todo, to: newest.addingTimeInterval(-Double(index) * 0.001))
+            setSortDate(of: todo, to: newest.addingTimeInterval(-Double(index) * 0.001), at: stamp)
         }
         try commit()
     }
 
-    /// Deletes the todo and its attached files. Its events stay, plus a `deleted` one.
+    /// Deletes the todo (every row with this id, should duplicates exist) and its attached
+    /// files. Its events stay, plus one `deleted` one.
     public func delete(id: UUID) throws {
-        let todo = try require(id)
-        record(.deleted, for: id, from: todo.quadrant)
-        context.delete(todo)
+        let rows = try todos(id: id)
+        guard let first = rows.first else { throw TodoStoreError.notFound(id) }
+        record(.deleted, for: id, at: now(), from: first.quadrant)
+        rows.forEach(context.delete)
         try commit()
         attachments?.removeAll(for: id)
     }
@@ -346,9 +357,12 @@ public final class TodoStore {
     // MARK: Reads
 
     public func todo(id: UUID) throws -> Todo? {
-        var descriptor = FetchDescriptor<Todo>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try context.fetch(descriptor).first
+        try todos(id: id).first
+    }
+
+    /// Every row with this id: one, unless duplicates exist (the id isn't unique in schema v3).
+    func todos(id: UUID) throws -> [Todo] {
+        try context.fetch(FetchDescriptor<Todo>(predicate: #Predicate { $0.id == id }))
     }
 
     /// Every todo, open and archived, oldest `createdAt` first (export).
@@ -356,27 +370,21 @@ public final class TodoStore {
         try context.fetch(FetchDescriptor<Todo>(sortBy: [SortDescriptor(\.createdAt)]))
     }
 
-    /// A todo's events, oldest first. Kept after the todo is deleted or purged.
+    /// A todo's events, oldest first (by `date`, then `seq`). Kept after the todo is deleted or
+    /// purged.
     public func events(for todoID: UUID) throws -> [TodoEvent] {
-        Self.chronological(try context.fetch(FetchDescriptor<TodoEvent>(
+        try context.fetch(FetchDescriptor<TodoEvent>(
             predicate: #Predicate { $0.todoID == todoID },
-            sortBy: [SortDescriptor(\.date)]
-        )))
+            sortBy: Self.eventOrder
+        ))
     }
 
-    /// Every event of every todo, oldest first.
+    /// Every event of every todo, oldest first (by `date`, then `seq`).
     public func allEvents() throws -> [TodoEvent] {
-        Self.chronological(try context.fetch(FetchDescriptor<TodoEvent>(sortBy: [SortDescriptor(\.date)])))
+        try context.fetch(FetchDescriptor<TodoEvent>(sortBy: Self.eventOrder))
     }
 
-    /// Oldest first; events at the same moment (one save, or a fast clock) in `TodoEventKind`
-    /// declaration order, so `created` comes before `completed` and the order is stable.
-    private static func chronological(_ events: [TodoEvent]) -> [TodoEvent] {
-        let rank = { (event: TodoEvent) in
-            event.kind.flatMap { TodoEventKind.allCases.firstIndex(of: $0) } ?? TodoEventKind.allCases.count
-        }
-        return events.sorted { ($0.date, rank($0)) < ($1.date, rank($1)) }
-    }
+    private static let eventOrder = [SortDescriptor(\TodoEvent.date), SortDescriptor(\TodoEvent.seq)]
 
     /// The ids of all todos.
     func allIDs() throws -> Set<UUID> {
@@ -446,49 +454,65 @@ public final class TodoStore {
 
     /// The one quadrant change (edit modal and Browse): on top of the new quadrant. Records the
     /// move.
-    private func moveOnTop(_ todo: Todo, to quadrant: Quadrant) {
+    private func moveOnTop(_ todo: Todo, to quadrant: Quadrant, at stamp: Date) {
         guard todo.quadrant != quadrant else { return }
-        recordMove(of: todo, to: quadrant)
+        recordMove(of: todo, to: quadrant, at: stamp)
         todo.quadrant = quadrant
-        todo.sortDate = now()
+        todo.sortDate = stamp
     }
 
     /// Sets the due date and records the matching event (nothing when unchanged). Doesn't
     /// stamp `updatedAt`; the caller does.
-    private func changeDue(of todo: Todo, to due: Date?, snoozed: Bool = false) {
+    private func changeDue(of todo: Todo, to due: Date?, snoozed: Bool = false, at stamp: Date) {
         guard todo.due != due else { return }
         let kind: TodoEventKind = switch (todo.due, due) {
         case (_, nil): .dueRemoved
+        case (nil, _): .dueSet // also a snooze of an undated todo
         case _ where snoozed: .dueSnoozed
-        case (nil, _): .dueSet
         default: .dueChanged
         }
-        record(kind, for: todo.id, previousDue: todo.due, due: due)
+        record(kind, for: todo.id, at: stamp, previousDue: todo.due, due: due)
         todo.due = due
     }
 
     /// Records a `moved` event if `quadrant` is another one than the todo's.
-    private func recordMove(of todo: Todo, to quadrant: Quadrant) {
+    private func recordMove(of todo: Todo, to quadrant: Quadrant, at stamp: Date) {
         guard todo.quadrant != quadrant else { return }
-        record(.moved, for: todo.id, from: todo.quadrant, to: quadrant)
+        record(.moved, for: todo.id, at: stamp, from: todo.quadrant, to: quadrant)
     }
 
     /// Rewrites a `sortDate` (reorders), stamping `updatedAt` only if it really changes.
-    private func setSortDate(of todo: Todo, to date: Date) {
+    private func setSortDate(of todo: Todo, to date: Date, at stamp: Date) {
         guard todo.sortDate != date else { return }
         todo.sortDate = date
-        todo.updatedAt = now()
+        todo.updatedAt = stamp
     }
 
     /// Inserts an event into the context; the caller's `commit` saves it with the change.
     private func record(
-        _ kind: TodoEventKind, for todoID: UUID, at date: Date? = nil,
+        _ kind: TodoEventKind, for todoID: UUID, at date: Date,
         from: Quadrant? = nil, to: Quadrant? = nil, previousDue: Date? = nil, due: Date? = nil
     ) {
         context.insert(TodoEvent(
-            todoID: todoID, kind: kind, date: date ?? now(),
-            from: from, to: to, previousDue: previousDue, due: due
+            todoID: todoID, kind: kind, date: date,
+            from: from, to: to, previousDue: previousDue, due: due, seq: nextSeq(for: todoID)
         ))
+    }
+
+    /// The highest `seq` among the todo's events (saved or pending) plus one; 0 for the first.
+    private func nextSeq(for todoID: UUID) -> Int {
+        var highest = pendingSeq[todoID]
+        if highest == nil {
+            var descriptor = FetchDescriptor<TodoEvent>(
+                predicate: #Predicate { $0.todoID == todoID },
+                sortBy: [SortDescriptor(\.seq, order: .reverse)]
+            )
+            descriptor.fetchLimit = 1
+            highest = (try? context.fetch(descriptor))?.first?.seq
+        }
+        let next = (highest ?? -1) + 1
+        pendingSeq[todoID] = next
+        return next
     }
 
     private func require(_ id: UUID) throws -> Todo {
@@ -496,8 +520,16 @@ public final class TodoStore {
         return todo
     }
 
+    /// Saves the todo and event changes together. On an error the context is rolled back, so a
+    /// failed write doesn't leak its pending changes into the next save.
     private func commit() throws {
-        try context.save()
+        pendingSeq.removeAll()
+        do {
+            try context.save()
+        } catch {
+            context.rollback()
+            throw error
+        }
         didWrite?()
     }
 }

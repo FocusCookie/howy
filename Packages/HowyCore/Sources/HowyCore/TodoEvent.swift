@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SwiftData
 
@@ -47,6 +48,10 @@ public final class TodoEvent {
     public var previousDue: Date?
     /// The due date after the change (due events, `created`).
     public var due: Date?
+    /// Tie-breaker for events of one todo at the same `date`: the store sets it to the highest
+    /// `seq` among the todo's events plus one on every write (`created` is 0). Reads sort by
+    /// `date`, then `seq`.
+    public var seq: Int = 0
 
     public init(
         id: UUID = UUID(),
@@ -56,7 +61,8 @@ public final class TodoEvent {
         from: Quadrant? = nil,
         to: Quadrant? = nil,
         previousDue: Date? = nil,
-        due: Date? = nil
+        due: Date? = nil,
+        seq: Int = 0
     ) {
         self.id = id
         self.todoID = todoID
@@ -66,6 +72,20 @@ public final class TodoEvent {
         self.toQuadrantRaw = to?.rawValue
         self.previousDue = previousDue
         self.due = due
+        self.seq = seq
+    }
+
+    /// The id of a backfilled event: a name-based (version 5) UUID of `todoID` and `kind`.
+    ///
+    /// The backfill can run in the app and the widget at the same time, and each would insert its
+    /// own events. With ids derived from (todo, kind) both write the same ids, so the duplicate
+    /// cleanup can collapse them by `id`.
+    public static func backfillID(todoID: UUID, kind: TodoEventKind) -> UUID {
+        let name = withUnsafeBytes(of: todoID.uuid) { Array($0) } + Array("howy.backfill.\(kind.rawValue)".utf8)
+        var bytes = Array(Insecure.SHA1.hash(data: name).prefix(16))
+        bytes[6] = (bytes[6] & 0x0F) | 0x50
+        bytes[8] = (bytes[8] & 0x3F) | 0x80
+        return UUID(uuid: bytes.withUnsafeBytes { $0.loadUnaligned(as: uuid_t.self) })
     }
 
     /// `nil` for a kind this build doesn't know (written by a newer one).
