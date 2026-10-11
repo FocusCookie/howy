@@ -7,7 +7,8 @@ import SwiftUI
 
 let log = Logger(subsystem: "lueddemann.howy", category: "app")
 
-/// Owns the global shortcuts, the single modal panel, archive purging and the login item.
+/// Owns the global shortcuts, the single modal panel, archive purging, the launch cleanups and
+/// daily backup, and the login item.
 @MainActor
 @Observable
 final class AppController {
@@ -31,6 +32,9 @@ final class AppController {
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var purgeTimer: Timer?
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
+    @ObservationIgnored private var dayChangeObserver: NSObjectProtocol?
+    /// The running cleanups/backup, so a day change and a wake don't start a second one.
+    @ObservationIgnored private var maintenance: Task<Void, Never>?
     @ObservationIgnored private let lastUsed = UserDefaultsLastQuadrantStore()
     @ObservationIgnored private let drafts = UserDefaultsDraftStore()
     /// Fetches a pasted link's page title for the link dialog.
@@ -85,13 +89,21 @@ final class AppController {
             MainActor.assumeIsolated {
                 self?.purgeArchive()
                 NotificationCoordinator.shared.requestSync()
+                self?.runMaintenance(cleanups: false)
             }
+        }
+        // A new day while Howy runs: that day's backup.
+        dayChangeObserver = NotificationCenter.default.addObserver(
+            forName: .NSCalendarDayChanged, object: nil, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { self?.runMaintenance(cleanups: false) }
         }
         // Keep the hotkey responsive: the slow launch work (login item, store open) runs after launch.
         Task { @MainActor [weak self] in
             self?.registerLoginItemOnFirstLaunch()
             self?.purgeArchive()
             self?.collectStagedAttachments()
+            self?.runMaintenance(cleanups: true)
         }
     }
 
@@ -550,6 +562,56 @@ final class AppController {
             if removed > 0 { log.info("Purged \(removed) archived todos") }
         } catch {
             log.error("Purge failed: \(error, privacy: .public)")
+        }
+    }
+
+    // MARK: Cleanups and backups
+
+    /// At launch (`cleanups`): removes duplicate todos and events and orphaned attachment
+    /// folders, then writes the day's backup. On a day change or wake: the backup alone (it
+    /// skips a day that already has one). The store work runs on a background context and the
+    /// file work off the main actor; only one run at a time.
+    private func runMaintenance(cleanups: Bool) {
+        guard maintenance == nil, let store = quietStore() else { return }
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
+        maintenance = Task { @MainActor [weak self] in
+            defer { self?.maintenance = nil }
+            if cleanups {
+                do {
+                    let removed = try await store.removeDuplicates()
+                    if !removed.isEmpty {
+                        log.notice("Removed \(removed.removedTodos) duplicate todos and \(removed.removedEvents) duplicate events")
+                    }
+                } catch {
+                    log.error("Duplicate cleanup failed: \(error, privacy: .public)")
+                }
+                do {
+                    let removed = try await store.removeOrphanedAttachments()
+                    if removed > 0 { log.notice("Removed attachments of \(removed) deleted todos") }
+                } catch {
+                    log.error("Orphan cleanup failed: \(error, privacy: .public)")
+                }
+            }
+            do {
+                let backup = DailyBackup(store: store, directory: try DailyBackup.sharedDirectory(), appVersion: version)
+                if case .created(let folder) = try await backup.run() {
+                    log.info("Backed up to \(folder.lastPathComponent, privacy: .public)")
+                }
+            } catch {
+                log.error("Backup failed: \(error, privacy: .public)")
+            }
+        }
+    }
+
+    /// Settings → Show in Finder: the daily backups' folder (created if no backup exists yet).
+    func showBackupsInFinder() {
+        do {
+            let directory = try DailyBackup.sharedDirectory()
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            NSWorkspace.shared.open(directory)
+        } catch {
+            log.error("Can't show backups: \(error, privacy: .public)")
+            NSSound.beep()
         }
     }
 

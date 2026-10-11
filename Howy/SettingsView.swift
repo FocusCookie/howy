@@ -6,7 +6,8 @@ import SwiftUI
 /// The things worth configuring: how big the panels are drawn, the global shortcuts (one launcher shortcut, or separate Quick Add
 /// and Browse shortcuts), the quadrant new todos start on, how attachments open, what plays when a
 /// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, the
-/// default time of due dates (and a hint when notifications are off), and launching at login.
+/// default time of due dates (and a hint when notifications are off), the daily backups' folder, and
+/// launching at login.
 struct SettingsView: View {
     let controller: AppController
     @State private var newTodoQuadrant = NewTodoQuadrant.load()
@@ -128,7 +129,7 @@ struct SettingsView: View {
         }
     }
 
-    /// Overview, Archive, Import Format and General.
+    /// Overview, Archive, Import & Export (with the daily backups), Due Dates and General.
     @ViewBuilder private var rightSections: some View {
         Section {
             LabeledContent("Width:") {
@@ -170,10 +171,13 @@ struct SettingsView: View {
             LabeledContent("Convert data from other apps:") {
                 Button(copiedFormat ? "Copied" : "Copy for AI") { copyFormat() }
             }
+            LabeledContent("Daily backups:") {
+                Button("Show in Finder") { controller.showBackupsInFinder() }
+            }
         } header: {
-            Text("Import Format")
+            Text("Import & Export")
         } footer: {
-            Text("Export writes a folder with howy.json and attachments/<todo id>/<file name>, and Import reads it back. To bring in todos from another app, copy the format and paste it into an AI chat together with your data; it answers with a howy.json you can import.")
+            Text("Export writes a folder with howy.json and attachments/<todo id>/<file name>, and Import reads it back. To bring in todos from another app, copy the format and paste it into an AI chat together with your data; it answers with a howy.json you can import. Howy also exports everything once a day as a backup and keeps the last 7; import one to restore it.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
         }
