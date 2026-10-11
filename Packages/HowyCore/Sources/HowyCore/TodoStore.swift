@@ -35,8 +35,29 @@ public enum TodoStoreError: Error, Equatable, Sendable {
 /// record nothing. Events are never removed.
 @MainActor
 public final class TodoStore {
-    /// File name of the SQLite store inside the App Group container.
-    public static let storeFileName = "Howy.store"
+    /// The store file of Release builds (the user's real data) and of anything without the
+    /// Info.plist key.
+    public static let defaultStoreFileName = "Howy.store"
+    /// The Info.plist key with this build's store file name (`HOWY_STORE_FILE_NAME` in
+    /// `project.yml`: `Howy-Debug.store` in Debug, `Howy.store` in Release). The app and the
+    /// widget extension of one configuration read the same value, so they open the same file,
+    /// and Debug (CloudKit Development) never opens Release's file (Production).
+    public static let storeFileNameInfoKey = "HowyStoreFileName"
+
+    /// File name of the SQLite store inside the App Group container, for this build.
+    public static var storeFileName: String {
+        storeFileName(info: Bundle.main.infoDictionary)
+    }
+
+    /// The store file name an Info.plist dictionary asks for: its `HowyStoreFileName` when that
+    /// is a plain file name ending in `.store`, otherwise `Howy.store`.
+    static func storeFileName(info: [String: Any]?) -> String {
+        guard let name = info?[storeFileNameInfoKey] as? String,
+              name.hasSuffix(".store"), name.count > ".store".count,
+              !name.contains("/"), !name.contains("$"), !name.hasPrefix(".")
+        else { return defaultStoreFileName }
+        return name
+    }
 
     let modelContainer: ModelContainer
     public let context: ModelContext
@@ -82,6 +103,18 @@ public final class TodoStore {
             try makeContainer(url: sharedStoreURL(), healFlag: sharedHealDefaults(), sync: sync)
         }
         return try TodoStore(modelContainer: container, attachments: AttachmentStore.shared(), now: now, didWrite: didWrite)
+    }
+
+    /// How the shared store really syncs: the setting given to `configureSharedSync(_:)`, or
+    /// `.local` after the CloudKit build failed (`sharedSyncFallbackReason`).
+    public static var sharedSync: StoreSync {
+        SharedContainer.process.sync
+    }
+
+    /// Why the shared store couldn't be opened with CloudKit and runs locally in this process;
+    /// `nil` when it mirrors as configured (or wasn't built yet).
+    public static var sharedSyncFallbackReason: String? {
+        SharedContainer.process.fallbackReason
     }
 
     /// Chooses whether the shared store mirrors to CloudKit. Call it once at launch, before the
@@ -134,19 +167,48 @@ public final class TodoStore {
     static let selfHealFlagKey = "howy.eventBackfillSelfHealDone"
 
     /// A new container on the store file at `url`: migrated to the live schema and self-healed.
+    /// Before a store mirrors for the first time, its dates are quantized once
+    /// (`quantizeDatesBeforeMirroring`); `healFlag` keeps that flag too.
     static func makeContainer(url: URL, healFlag: UserDefaults, sync: StoreSync) throws -> ModelContainer {
+        if sync.mirrors { try quantizeDatesBeforeMirroring(url: url, flags: healFlag) }
+        let container = try openContainer(url: url, sync: sync)
+        try selfHeal(container, flag: healFlag, sync: sync)
+        return container
+    }
+
+    /// The `UserDefaults` key that marks the store file named `fileName` as quantized.
+    static func datesQuantizedFlagKey(fileName: String) -> String {
+        "howy.datesQuantized.\(fileName)"
+    }
+
+    /// Rounds every stored date of the store file at `url` to whole milliseconds, once per file
+    /// (flag in `flags`, keyed by the file name), on a container that doesn't mirror. Runs
+    /// before the mirroring container opens, so the first upload already has whole-millisecond
+    /// dates (rows written before Phase 3a may not). The local container is gone again before
+    /// the mirroring one is built. Returns how many rows it changed; `nil` when the flag was
+    /// already set. If it throws, the flag stays unset.
+    @discardableResult
+    static func quantizeDatesBeforeMirroring(url: URL, flags: UserDefaults) throws -> Int? {
+        let key = datesQuantizedFlagKey(fileName: url.lastPathComponent)
+        guard !flags.bool(forKey: key) else { return nil }
+        let changed = try DateQuantization.run(in: ModelContext(openContainer(url: url, sync: .local)))
+        flags.set(true, forKey: key)
+        log.notice("Quantized the dates of \(changed) rows in \(url.lastPathComponent, privacy: .public) before mirroring")
+        return changed
+    }
+
+    /// A container on the store file at `url`, migrated to the live schema.
+    private static func openContainer(url: URL, sync: StoreSync) throws -> ModelContainer {
         let configuration = ModelConfiguration(
             schema: Schema(versionedSchema: HowySchemaV3.self),
             url: url,
             cloudKitDatabase: sync.cloudKitDatabase
         )
-        let container = try ModelContainer(
+        return try ModelContainer(
             for: Schema(versionedSchema: HowySchemaV3.self),
             migrationPlan: HowyMigrationPlan.self,
             configurations: configuration
         )
-        try selfHeal(container, flag: healFlag, sync: sync)
-        return container
     }
 
     /// One-time self-heal: todos without any event mean the migration's backfill didn't run or
@@ -441,6 +503,18 @@ public final class TodoStore {
         let result = try await StoreMaintenance.removeDuplicates(modelContainer)
         if !result.isEmpty { didWrite?() }
         return result
+    }
+
+    /// Removes todos that came back after they were deleted: rows whose `updatedAt` is at or
+    /// before the newest `deleted` event of their id (see `StoreMaintenance.removeDeletedTodos`),
+    /// on a background context. Their attachment folders are left to
+    /// `removeOrphanedAttachments`. Calls `didWrite` only when it removed something. Returns the
+    /// ids removed.
+    @discardableResult
+    public func removeDeletedTodos() async throws -> Set<UUID> {
+        let removed = try await StoreMaintenance.removeDeletedTodos(modelContainer)
+        if !removed.isEmpty { didWrite?() }
+        return removed
     }
 
     /// How long a fresh attachment folder is safe from `removeOrphanedAttachments`: a new todo's

@@ -64,4 +64,74 @@ import Testing
         #expect(StoreSync.iCloud(containerIdentifier: StoreSync.containerIdentifier).mirrors)
         #expect(StoreSync.containerIdentifier == "iCloud.lueddemann.howy")
     }
+
+    // MARK: Fallback when the CloudKit build fails
+
+    struct NoCloudKit: Error, CustomStringConvertible {
+        var description: String { "missing iCloud entitlement" }
+    }
+
+    @Test func aFailedCloudKitBuildFallsBackToLocalOnce() throws {
+        let cache = SharedContainer()
+        cache.configure(sync: .iCloud(containerIdentifier: StoreSync.containerIdentifier))
+        var asked: [StoreSync] = []
+        func build(_ sync: StoreSync) throws -> ModelContainer {
+            asked.append(sync)
+            if sync.mirrors { throw NoCloudKit() }
+            return try TodoStore.inMemory().modelContainer
+        }
+
+        let first = try cache.container(build)
+
+        #expect(asked == [.iCloud(containerIdentifier: StoreSync.containerIdentifier), .local])
+        #expect(cache.sync == .local)
+        #expect(cache.fallbackReason == "missing iCloud entitlement")
+        #expect(try cache.container(build) === first)
+        #expect(asked.count == 2, "never built again")
+        #expect(!cache.configure(sync: .iCloud(containerIdentifier: StoreSync.containerIdentifier)), "no second CloudKit try")
+    }
+
+    @Test func afterAFallbackOnlyLocalIsRetried() throws {
+        struct Failure: Error {}
+        let cache = SharedContainer()
+        cache.configure(sync: .iCloud(containerIdentifier: StoreSync.containerIdentifier))
+        var asked: [StoreSync] = []
+        #expect(throws: Failure.self) {
+            try cache.container { sync in
+                asked.append(sync)
+                throw Failure()
+            }
+        }
+        #expect(!cache.isBuilt)
+        _ = try cache.container { sync in
+            asked.append(sync)
+            return try TodoStore.inMemory().modelContainer
+        }
+        #expect(asked == [.iCloud(containerIdentifier: StoreSync.containerIdentifier), .local, .local])
+    }
+
+    @Test func aLocalBuildThatFailsIsNoFallback() {
+        struct Failure: Error {}
+        let cache = SharedContainer()
+        #expect(throws: Failure.self) { try cache.container { _ in throw Failure() } }
+        #expect(cache.fallbackReason == nil)
+    }
+
+    // MARK: Store file per configuration
+
+    @Test func theStoreFileNameComesFromInfoPlist() {
+        #expect(TodoStore.storeFileName(info: ["HowyStoreFileName": "Howy-Debug.store"]) == "Howy-Debug.store")
+        #expect(TodoStore.storeFileName(info: ["HowyStoreFileName": "Howy.store"]) == "Howy.store")
+    }
+
+    @Test(arguments: [nil, "", ".store", "Howy", "../Howy.store", "$(HOWY_STORE_FILE_NAME)", ".hidden.store"] as [String?])
+    func aMissingOrOddStoreFileNameIsTheReleaseName(name: String?) {
+        let info: [String: Any]? = name.map { ["HowyStoreFileName": $0] }
+        #expect(TodoStore.storeFileName(info: info) == "Howy.store")
+    }
+
+    @Test func onlyAnAppExtensionPostsTheExtensionSignal() {
+        #expect(StoreChangeSignal.isAppExtension(URL(filePath: "/Applications/Howy.app/Contents/PlugIns/HowyWidgets.appex")))
+        #expect(!StoreChangeSignal.isAppExtension(URL(filePath: "/Applications/Howy.app")))
+    }
 }

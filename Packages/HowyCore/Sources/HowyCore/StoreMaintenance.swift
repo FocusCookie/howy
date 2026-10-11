@@ -40,6 +40,11 @@ actor StoreMaintenance {
     }
 
     @concurrent
+    nonisolated static func removeDeletedTodos(_ container: ModelContainer) async throws -> Set<UUID> {
+        try await StoreMaintenance(modelContainer: container).removeDeletedTodos()
+    }
+
+    @concurrent
     nonisolated static func todoIDs(_ container: ModelContainer) async throws -> Set<UUID> {
         try await StoreMaintenance(modelContainer: container).todoIDs()
     }
@@ -99,6 +104,46 @@ actor StoreMaintenance {
             throw error
         }
         return result
+    }
+
+    // MARK: Deleted todos
+
+    /// Deletes todo rows that a `deleted` event has outdated: every row whose `updatedAt` is at or
+    /// before the newest `deleted` event of its id (compared in milliseconds,
+    /// `DuplicateRules.milliseconds`). Such a row came back after the delete: a twin or a late
+    /// write from another device that arrived once the delete had already removed the local rows.
+    ///
+    /// Every device applies it alike, from synced values only (the rows and the events). A write
+    /// after the delete (an edit on another Mac, or an import, which stamps `updatedAt` with the
+    /// clock's now) is newer than the event and keeps the todo. Records no events (the `deleted`
+    /// one is there). Returns the ids removed; a store without such rows isn't saved.
+    func removeDeletedTodos() throws -> Set<UUID> {
+        assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
+        let deletedKind = TodoEventKind.deleted.rawValue
+        var descriptor = FetchDescriptor<TodoEvent>(predicate: #Predicate { $0.kindRaw == deletedKind })
+        descriptor.propertiesToFetch = [\.todoID, \.date]
+        var deletedAt: [UUID: Int64] = [:]
+        for event in try modelContext.fetch(descriptor) {
+            let stamp = DuplicateRules.milliseconds(event.date)
+            deletedAt[event.todoID] = max(deletedAt[event.todoID] ?? stamp, stamp)
+        }
+        guard !deletedAt.isEmpty else { return [] }
+        let ids = Array(deletedAt.keys)
+        let rows = try modelContext.fetch(FetchDescriptor<Todo>(predicate: #Predicate { ids.contains($0.id) }))
+        var removed = Set<UUID>()
+        for row in rows {
+            guard let stamp = deletedAt[row.id], DuplicateRules.milliseconds(row.updatedAt) <= stamp else { continue }
+            modelContext.delete(row)
+            removed.insert(row.id)
+        }
+        guard !removed.isEmpty else { return [] }
+        do {
+            try modelContext.save()
+        } catch {
+            modelContext.rollback()
+            throw error
+        }
+        return removed
     }
 
     /// The ids that more than one row of `Model` has, read without loading the other values.
