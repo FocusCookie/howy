@@ -113,18 +113,39 @@ Everything happens from a shortcut.
 - The archive empties itself after a period you choose (1–90 days, 7 by
   default).
 
+### Import, export and backups
+
+- **Export…** writes a folder with `howy.json` (every todo, open and done, plus
+  its history) and `attachments/<todo id>/<file name>`. **Import…** reads such a
+  folder back after a preview. It merges by id: todos that already exist are
+  skipped and never changed, and so is history that's already there, so
+  importing the same folder twice changes nothing. Exports from older Howy
+  versions (format version 1) still import.
+- **Copy for AI** (Settings → Import & Export) copies a description of the
+  format. Paste it into an AI chat with data from another app, and it answers
+  with a `howy.json` you can import.
+- **Daily backups:** once a day (at launch, and when the day changes while
+  Howy runs) Howy writes the same kind of export to
+  `~/Library/Group Containers/group.howy/Library/Application Support/Backups/Howy Backup yyyy-MM-dd`
+  and keeps the newest 7. An empty store isn't backed up, so a loss of data
+  never pushes the good backups out. Settings → Import & Export → **Show in
+  Finder** opens the folder; import a backup to restore it.
+
 ### Menu bar and Settings
 
-- The menu has Quick Add, Browse, Archive, _Add to Quadrant_, Settings… and
-  Quit.
+- The menu has Quick Add, Browse, Archive, _Add to Quadrant_, Import…,
+  Export…, Settings… and Quit.
 - In Settings you can set the panel size, record your own shortcuts, choose which quadrant new todos
   start on, choose how attachments open, set the done animation, size the
   Overview, set how long
   the archive keeps todos, set the time used for due dates typed without one,
-  and turn on start at login.
+  open the backups folder, and turn on start at login.
 
 All data stays on your Mac (SwiftData in a sandboxed App Group container). Howy
-has no sync and no account.
+has no sync and no account. It keeps a history of what happens to each todo
+(added, done, moved, due date changes, deleted; ids and times only, no titles)
+for statistics in a later version. At launch it removes duplicate copies of a
+todo and attachment files whose todo is gone.
 
 ## Requirements
 

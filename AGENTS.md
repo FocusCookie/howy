@@ -61,10 +61,16 @@ There is no separate spec. The behaviour is described in `README.md`,
   events. SwiftUI and AppKit only render state and forward keys. Key-code
   mapping (`KeyMapping`) is in core too.
 - **`TodoStore`** is the only way to read or write todos. It uses a versioned
-  SwiftData schema (`Schema.swift`, currently v2 with an optional due date, and a migration plan from a frozen v1) inside
-  the App Group container, shared by the app and the widget. Every write that
-  changes something reloads the widget timelines. Time comes from an injected
-  clock.
+  SwiftData schema (`Schema.swift`, currently v3: a `Todo` without a unique
+  constraint plus the append-only `TodoEvent` log, with a migration plan from
+  frozen v1 and v2) inside the App Group container, shared by the app and the
+  widget. Every write that changes something records its events in the same
+  save and reloads the widget timelines. Time comes from an injected clock.
+- **Cleanups and backups.** At launch the app calls
+  `TodoStore.removeDuplicates`, `TodoStore.removeOrphanedAttachments` and
+  `DailyBackup.run`; they work on a background context (`StoreMaintenance`)
+  and off the main actor. Backups are exports (format v2, with the events) in
+  `Backups/` in the App Group container, newest 7 kept.
 - **Attachments** are files in the App Group container
   (`Attachments/<todo>/<attachment>/…` plus `attachments.json`). No schema
   change was needed for them. See `AttachmentStore`.
