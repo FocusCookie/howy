@@ -1,4 +1,5 @@
 import Foundation
+import os
 import SwiftData
 #if canImport(WidgetKit)
 import WidgetKit
@@ -388,32 +389,51 @@ public final class TodoStore {
     /// files are committed before the todo is saved, and an import's before its insert.
     public static let orphanGracePeriod: TimeInterval = 60 * 60
 
-    /// Deletes the attachment folders (files and `attachments.json`) of todo ids that no longer
-    /// exist in the store, e.g. deleted on another device. Folders changed within
-    /// `gracePeriod` before the clock's now are left alone, and so are staging and import
-    /// areas. The file work runs off the main actor, the id read on a background context.
-    /// Returns the number of folders removed. Writes nothing to the store.
+    /// Takes the attachment folders of todo ids that no longer exist in the store (e.g. deleted
+    /// on another device) out of service. Never deletes them: each moves to
+    /// `Attachments/.trash/<id>/` and is deleted by a later run once it has been there
+    /// `AttachmentStore.trashRetention` (14 days, by the store's clock).
+    ///
+    /// Folders changed within `gracePeriod` before the clock's now are left alone, and so are
+    /// staging and import areas. Two brakes stop a cleanup that would be a mass deletion if the
+    /// store were wrong (say, wiped by an iCloud sign-out): it does nothing, and logs it, when
+    /// the store has no todos, or when more than 3 folders are candidates and more than half of
+    /// them look orphaned. The trash is only emptied on a run that passes the brakes.
+    ///
+    /// The file work runs off the main actor, the id read on a background context. Returns the
+    /// number of folders moved to the trash. Writes nothing to the store.
     @discardableResult
     public func removeOrphanedAttachments(gracePeriod: TimeInterval = orphanGracePeriod) async throws -> Int {
         guard let attachments else { return 0 }
-        let candidates = await Self.todoFolders(in: attachments, changedBefore: now().addingTimeInterval(-gracePeriod))
-        guard !candidates.isEmpty else { return 0 }
+        let stamp = now()
+        let candidates = await Self.todoFolders(in: attachments, changedBefore: stamp.addingTimeInterval(-gracePeriod))
         // Read after listing: a todo saved meanwhile is in here, its folder spared.
         let existing = try await StoreMaintenance(modelContainer: modelContainer).todoIDs()
+        guard !existing.isEmpty else {
+            if !candidates.isEmpty { Self.log.notice("Orphan cleanup skipped: the store has no todos") }
+            return 0
+        }
         let orphans = candidates.subtracting(existing)
-        guard !orphans.isEmpty else { return 0 }
-        await Self.removeFolders(orphans, in: attachments)
-        return orphans.count
+        if candidates.count > 3, orphans.count * 2 > candidates.count {
+            Self.log.notice("Orphan cleanup skipped: \(orphans.count) of \(candidates.count) attachment folders look orphaned")
+            return 0
+        }
+        return await Self.trash(orphans, in: attachments, at: stamp)
     }
+
+    private static let log = Logger(subsystem: "lueddemann.howy", category: "TodoStore")
 
     @concurrent
     nonisolated private static func todoFolders(in attachments: AttachmentStore, changedBefore cutoff: Date) async -> Set<UUID> {
         attachments.todoFolderIDs(changedBefore: cutoff)
     }
 
+    /// Moves `ids` to the trash and empties what has been there longer than the retention.
     @concurrent
-    nonisolated private static func removeFolders(_ ids: Set<UUID>, in attachments: AttachmentStore) async {
-        ids.forEach(attachments.removeAll(for:))
+    nonisolated private static func trash(_ ids: Set<UUID>, in attachments: AttachmentStore, at stamp: Date) async -> Int {
+        let moved = ids.filter { attachments.moveToTrash($0, at: stamp) }.count
+        attachments.purgeTrash(olderThan: stamp.addingTimeInterval(-AttachmentStore.trashRetention))
+        return moved
     }
 
     /// Makes `list` the todo's attachments (see `AttachmentStore.commit`); reloads widgets when

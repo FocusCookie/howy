@@ -7,6 +7,8 @@ import Foundation
 /// - `<root>/<todo id>/<attachment id>/<name>`: a committed file.
 /// - `<root>/staging/<attachment id>/<name>`: a file added during an unsaved edit or draft.
 /// - `<root>/import-<uuid>/<attachment id>/<name>`: a file on its way in from an import.
+/// - `<root>/.trash/<todo id>/…`: a todo folder the orphan cleanup took out of service. Not a
+///   UUID name, so it is never a todo folder; emptied after `trashRetention`.
 ///
 /// An edit only changes a todo's files on `commit`; until then new files wait in staging, so
 /// Esc can throw them away and drafts can carry them. `collectStaging(keeping:)` deletes staged
@@ -15,6 +17,9 @@ public final class AttachmentStore: Sendable {
     public let root: URL
     static let manifestName = "attachments.json"
     static let stagingName = "staging"
+    static let trashName = ".trash"
+    /// How long a trashed folder stays before `purgeTrash` deletes it: 14 days.
+    public static let trashRetention: TimeInterval = 14 * 24 * 3600
 
     public init(root: URL) {
         self.root = root
@@ -185,5 +190,48 @@ public final class AttachmentStore: Sendable {
     /// Deletes all of a todo's files (the todo was deleted or purged).
     public func removeAll(for todoID: UUID) {
         try? fileManager.removeItem(at: todoDirectory(todoID))
+    }
+
+    // MARK: Trash
+
+    private var trashDirectory: URL { root.appending(path: Self.trashName, directoryHint: .isDirectory) }
+
+    /// Moves a todo's whole folder into `.trash/<todo id>/` (a numbered variant if that exists
+    /// already) and dates the trashed entry `date`, which starts its retention. Returns whether
+    /// anything was moved. Nothing is deleted.
+    @discardableResult
+    func moveToTrash(_ todoID: UUID, at date: Date) -> Bool {
+        let source = todoDirectory(todoID)
+        guard fileManager.fileExists(atPath: source.path(percentEncoded: false)) else { return false }
+        do {
+            try fileManager.createDirectory(at: trashDirectory, withIntermediateDirectories: true)
+            var target = trashDirectory.appending(path: todoID.uuidString, directoryHint: .isDirectory)
+            if fileManager.fileExists(atPath: target.path(percentEncoded: false)) {
+                target = trashDirectory.appending(path: "\(todoID.uuidString)-\(UUID().uuidString.prefix(8))", directoryHint: .isDirectory)
+            }
+            try fileManager.moveItem(at: source, to: target)
+            try? fileManager.setAttributes([.modificationDate: date], ofItemAtPath: target.path(percentEncoded: false))
+            return true
+        } catch {
+            return false
+        }
+    }
+
+    /// Deletes trashed entries dated before `cutoff`. Returns how many.
+    @discardableResult
+    func purgeTrash(olderThan cutoff: Date) -> Int {
+        let keys: [URLResourceKey] = [.contentModificationDateKey]
+        guard let entries = try? fileManager.contentsOfDirectory(at: trashDirectory, includingPropertiesForKeys: keys) else { return 0 }
+        var removed = 0
+        for entry in entries {
+            guard let changed = try? entry.resourceValues(forKeys: Set(keys)).contentModificationDate, changed < cutoff else { continue }
+            if (try? fileManager.removeItem(at: entry)) != nil { removed += 1 }
+        }
+        return removed
+    }
+
+    /// The names of the entries in the trash (tests, diagnostics).
+    func trashedNames() -> [String] {
+        ((try? fileManager.contentsOfDirectory(atPath: trashDirectory.path(percentEncoded: false))) ?? []).sorted()
     }
 }

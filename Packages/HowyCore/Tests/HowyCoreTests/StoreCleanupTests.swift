@@ -159,7 +159,11 @@ import Testing
         try fileManager.setAttributes([.modificationDate: clock.now.addingTimeInterval(-age)], ofItemAtPath: url.path(percentEncoded: false))
     }
 
-    @Test func foldersOfMissingTodosAreRemoved() async throws {
+    var trash: URL { base.appending(path: AttachmentStore.trashName, directoryHint: .isDirectory) }
+
+    func trashed(_ id: UUID) -> URL { trash.appending(path: id.uuidString, directoryHint: .isDirectory) }
+
+    @Test func foldersOfMissingTodosMoveToTheTrash() async throws {
         let open = try store.add(title: "Open", quadrant: .urgentImportant)
         let archived = try store.add(title: "Archived", quadrant: .notUrgentImportant)
         try store.complete(id: archived.id)
@@ -169,11 +173,12 @@ import Testing
         try attach(to: gone)
         #expect(files.attachments(for: gone).count == 1)
 
-        let removed = try await store.removeOrphanedAttachments()
+        let moved = try await store.removeOrphanedAttachments()
 
-        #expect(removed == 1)
+        #expect(moved == 1)
         #expect(!exists(folder(gone)))
         #expect(files.attachments(for: gone).isEmpty)
+        #expect(exists(trashed(gone).appending(path: AttachmentStore.manifestName)), "the files are kept, not deleted")
         #expect(store.attachmentList(for: open.id).count == 1)
         #expect(store.attachmentList(for: archived.id).count == 1)
         for id in [open.id, archived.id] {
@@ -182,7 +187,8 @@ import Testing
         }
     }
 
-    @Test func aDeletedTodosLeftoverFolderIsRemoved() async throws {
+    @Test func aDeletedTodosLeftoverFolderMovesToTheTrash() async throws {
+        try store.add(title: "Stays", quadrant: .urgentImportant)
         let todo = try store.add(title: "Synced away", quadrant: .urgentImportant)
         try attach(to: todo.id)
         // Deleted elsewhere (another device): the row goes, the folder stays.
@@ -191,9 +197,11 @@ import Testing
 
         #expect(try await store.removeOrphanedAttachments() == 1)
         #expect(!exists(folder(todo.id)))
+        #expect(exists(trashed(todo.id)))
     }
 
     @Test func recentFoldersAreSparedForTheGracePeriod() async throws {
+        try store.add(title: "Stays", quadrant: .urgentImportant)
         let unsaved = UUID() // a new todo's files are committed just before the todo is saved
         try attach(to: unsaved, age: 60)
 
@@ -203,9 +211,105 @@ import Testing
         clock.advance(by: TodoStore.orphanGracePeriod)
         #expect(try await store.removeOrphanedAttachments() == 1)
         #expect(!exists(folder(unsaved)))
+        #expect(exists(trashed(unsaved)))
+    }
+
+    @Test func anEmptyStoreDeletesAndMovesNothing() async throws {
+        let ids = (0..<5).map { _ in UUID() }
+        for id in ids { try attach(to: id) }
+
+        #expect(try await store.removeOrphanedAttachments() == 0)
+
+        for id in ids { #expect(exists(folder(id))) }
+        #expect(!exists(trash))
+    }
+
+    @Test func aMostlyOrphanedSetTriggersTheBrake() async throws {
+        let live = try store.add(title: "Live", quadrant: .urgentImportant)
+        try attach(to: live.id)
+        let orphans = (0..<4).map { _ in UUID() } // 4 of 5 candidates
+        for id in orphans { try attach(to: id) }
+
+        #expect(try await store.removeOrphanedAttachments() == 0)
+
+        for id in orphans + [live.id] { #expect(exists(folder(id))) }
+        #expect(!exists(trash))
+    }
+
+    @Test func aFewOrphansAmongManyLiveFoldersPassTheBrake() async throws {
+        var liveIDs: [UUID] = []
+        for index in 0..<5 {
+            let todo = try store.add(title: "Live \(index)", quadrant: .urgentImportant)
+            try attach(to: todo.id)
+            liveIDs.append(todo.id)
+        }
+        let orphans = [UUID(), UUID()] // 2 of 7: not more than half
+        for id in orphans { try attach(to: id) }
+
+        #expect(try await store.removeOrphanedAttachments() == 2)
+
+        for id in orphans { #expect(exists(trashed(id))) }
+        for id in liveIDs { #expect(store.attachmentList(for: id).count == 1) }
+    }
+
+    @Test func smallSetsAreNotBraked() async throws {
+        let live = try store.add(title: "Live", quadrant: .urgentImportant)
+        try attach(to: live.id)
+        let orphans = (0..<2).map { _ in UUID() } // 2 of 3: at most 3 candidates, no brake
+        for id in orphans { try attach(to: id) }
+
+        #expect(try await store.removeOrphanedAttachments() == 2)
+    }
+
+    @Test func trashedFoldersAreDeletedAfterFourteenDays() async throws {
+        let live = try store.add(title: "Live", quadrant: .urgentImportant)
+        try attach(to: live.id)
+        let gone = UUID()
+        try attach(to: gone)
+        #expect(try await store.removeOrphanedAttachments() == 1)
+
+        clock.advance(by: 14 * 24 * 3600 - 60)
+        try await store.removeOrphanedAttachments()
+        #expect(exists(trashed(gone)), "still inside the 14 days")
+
+        clock.advance(by: 120)
+        try await store.removeOrphanedAttachments()
+        #expect(!exists(trashed(gone)))
+        #expect(store.attachmentList(for: live.id).count == 1, "live attachments are never touched")
+    }
+
+    @Test func theTrashIsNotEmptiedWhileTheBrakeHolds() async throws {
+        let live = try store.add(title: "Live", quadrant: .urgentImportant)
+        try attach(to: live.id)
+        let gone = UUID()
+        try attach(to: gone)
+        try await store.removeOrphanedAttachments()
+        // The store is wiped; a month later the trash must still be there.
+        try store.todos(id: live.id).forEach(store.context.delete)
+        try store.context.save()
+        clock.advance(by: 30 * 24 * 3600)
+
+        try await store.removeOrphanedAttachments()
+
+        #expect(exists(trashed(gone)))
+        #expect(exists(folder(live.id)))
+    }
+
+    @Test func aSecondTrashingOfTheSameIDKeepsBothCopies() async throws {
+        let live = try store.add(title: "Live", quadrant: .urgentImportant)
+        try attach(to: live.id)
+        let gone = UUID()
+        try attach(to: gone)
+        try await store.removeOrphanedAttachments()
+        try attach(to: gone)
+
+        try await store.removeOrphanedAttachments()
+
+        #expect(files.trashedNames().count == 2)
     }
 
     @Test func stagingImportAreasAndStrayFilesAreLeftAlone() async throws {
+        try store.add(title: "Stays", quadrant: .urgentImportant)
         let staged = try files.stage(data: Data("draft".utf8), as: "draft.txt")
         let area = try files.makeImportArea()
         let stray = base.appending(path: "notes.txt")
