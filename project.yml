@@ -63,12 +63,8 @@ targets:
         INFOPLIST_FILE: Howy/Info.plist
         ENABLE_APP_SANDBOX: YES
         GENERATE_INFOPLIST_FILE: NO
-      # Release adds `icloud-container-environment = Production`; Debug uses Development.
-      configs:
-        Debug:
-          CODE_SIGN_ENTITLEMENTS: Howy/Howy.entitlements
-        Release:
-          CODE_SIGN_ENTITLEMENTS: Howy/Howy-Release.entitlements
+        # Both configurations use CloudKit's Development environment (one entitlements file).
+        CODE_SIGN_ENTITLEMENTS: Howy/Howy.entitlements
     info:
       path: Howy/Info.plist
       properties:

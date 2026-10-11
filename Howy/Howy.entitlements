@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!-- Howy app, Debug: CloudKit Development environment. Edited by hand (project.yml points each configuration at its file). -->
+<!-- Howy app, Debug and Release: CloudKit Development environment (no icloud-container-environment key). Edited by hand. -->
 <plist version="1.0">
 <dict>
 	<key>com.apple.developer.aps-environment</key>

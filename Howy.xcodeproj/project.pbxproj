@@ -93,7 +93,6 @@
 		59A555489BCA3149A8A9B9C0 /* Howy.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Howy.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PanelEffects.swift; sourceTree = "<group>"; };
 		5D8838F23A0C476077574AA5 /* HowyApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HowyApp.swift; sourceTree = "<group>"; };
-		60462FB9425E99E446C789E6 /* Howy-Release.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "Howy-Release.entitlements"; sourceTree = "<group>"; };
 		63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
 		6954A62D6557861C23C1905F /* NotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCoordinator.swift; sourceTree = "<group>"; };
 		7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
@@ -190,7 +189,6 @@
 				9ADDA997876971A3BFFCE218 /* DueExamplesPanel.swift */,
 				9E7FED2B1EF708C91DEA9C54 /* ErrorView.swift */,
 				1FFCC700EF1E05B8C1E3D8BD /* FloatingPanel.swift */,
-				60462FB9425E99E446C789E6 /* Howy-Release.entitlements */,
 				20444C9F3B7F7B7BCF0C2245 /* Howy.entitlements */,
 				5D8838F23A0C476077574AA5 /* HowyApp.swift */,
 				1DFCC3BAAE7282D02BA9592F /* Info.plist */,
@@ -292,7 +290,7 @@
 					56F1319CBBBABE9C9C8A334D = {
 						DevelopmentTeam = GQ9M79TF33;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1], \"com.apple.ApplicationGroups.Mac\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.ApplicationGroups.Mac\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
 					};
 				};
 			};
@@ -570,7 +568,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_ENTITLEMENTS = "Howy/Howy-Release.entitlements";
+				CODE_SIGN_ENTITLEMENTS = Howy/Howy.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
 				ENABLE_APP_SANDBOX = YES;
 				GENERATE_INFOPLIST_FILE = NO;
