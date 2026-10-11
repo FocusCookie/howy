@@ -41,26 +41,59 @@ import Testing
         #expect(local.values[key] as? Int == 90)
     }
 
-    @Test func anEmptyCloudWaitsThenSeedsFromTheLocalChoice() {
-        local.values[key] = 30
+    let day: TimeInterval = 24 * 60 * 60
+
+    @Test func anEmptyCloudWaitsADayThenSeedsFromTheUsersOwnChoice() {
+        local.values[key] = 30 // chosen in Settings on this Mac
         let store = ArchiveRetentionStore(local: local, cloud: cloud, now: start)
         #expect(!store.isKnown)
+        #expect(store.isExplicit)
         #expect(store.retention.days == 30)
-        #expect(store.decisionDeadline == start.addingTimeInterval(ArchiveRetentionStore.decisionDelay))
-        #expect(!store.tick(now: start.addingTimeInterval(59)))
+        #expect(ArchiveRetentionStore.decisionDelay == day)
+        #expect(store.decisionDeadline == start.addingTimeInterval(day))
+        #expect(!store.tick(now: start.addingTimeInterval(60)), "a minute is far too early")
+        #expect(!store.tick(now: start.addingTimeInterval(day - 1)))
         #expect(cloud.values[key] == nil, "not seeded before the deadline")
-        #expect(store.tick(now: start.addingTimeInterval(60)))
+        #expect(store.tick(now: start.addingTimeInterval(day)))
         #expect(store.isKnown)
         #expect(cloud.values[key] as? Int == 30)
-        #expect(!store.tick(now: start.addingTimeInterval(120)), "decides once")
+        #expect(!store.tick(now: start.addingTimeInterval(2 * day)), "decides once")
     }
 
-    @Test func aFreshMacNeverSeedsTheDefault() {
+    @Test func aFreshMacStaysUnknownForADayAndThenNeverSeedsTheDefault() {
         let store = ArchiveRetentionStore(local: local, cloud: cloud, now: start)
-        store.tick(now: start.addingTimeInterval(60))
+        #expect(!store.isExplicit)
+        store.tick(now: start.addingTimeInterval(day - 1))
+        #expect(!store.isKnown, "no purge with the default on a Mac that has seen nothing yet")
+        store.tick(now: start.addingTimeInterval(day))
         #expect(store.isKnown)
         #expect(store.retention == .default)
-        #expect(cloud.values.isEmpty)
+        #expect(cloud.values[key] == nil)
+    }
+
+    @Test func aValueThatCameFromTheCloudIsNeverSeededBack() {
+        cloud.values[key] = 90
+        _ = ArchiveRetentionStore(local: local, cloud: cloud, now: start) // adopts: local 90, marked
+        cloud.values[key] = nil // KVS lost it (an account change, say)
+        let again = ArchiveRetentionStore(local: local, cloud: cloud, now: start.addingTimeInterval(10))
+        #expect(!again.isKnown)
+        #expect(!again.isExplicit, "the 90 came from the cloud, not from a choice here")
+        again.tick(now: start.addingTimeInterval(day + 10))
+        #expect(cloud.values[key] == nil)
+    }
+
+    @Test func theWaitCountsFromTheFirstLaunchNotFromEveryLaunch() {
+        _ = ArchiveRetentionStore(local: local, cloud: cloud, now: start)
+        let relaunched = ArchiveRetentionStore(local: local, cloud: cloud, now: start.addingTimeInterval(20 * 3600))
+        #expect(relaunched.decisionDeadline == start.addingTimeInterval(day))
+        #expect(!relaunched.tick(now: start.addingTimeInterval(23 * 3600)))
+        #expect(relaunched.tick(now: start.addingTimeInterval(day + 1)))
+    }
+
+    @Test func aChoiceMadeInSettingsIsExplicit() {
+        let store = ArchiveRetentionStore(local: local, cloud: cloud, now: start)
+        store.set(ArchiveRetention(days: 14))
+        #expect(store.isExplicit)
     }
 
     @Test func aValueArrivingFromTheCloudIsAdoptedAndNotOverwritten() {
@@ -71,7 +104,7 @@ import Testing
         #expect(store.isKnown)
         #expect(store.retention.days == 90)
         #expect(local.values[key] as? Int == 90)
-        store.tick(now: start.addingTimeInterval(600))
+        store.tick(now: start.addingTimeInterval(day + 600))
         #expect(cloud.values[key] as? Int == 90)
     }
 
@@ -79,7 +112,7 @@ import Testing
         local.values[key] = 3
         let store = ArchiveRetentionStore(local: local, cloud: cloud, now: start)
         cloud.values[key] = 14 // arrived without a change notification yet
-        store.tick(now: start.addingTimeInterval(60))
+        store.tick(now: start.addingTimeInterval(day))
         #expect(store.retention.days == 14)
         #expect(cloud.values[key] as? Int == 14)
     }
