@@ -18,6 +18,14 @@ settings:
     ENABLE_USER_SCRIPT_SANDBOXING: YES
     MARKETING_VERSION: "1.8.0"
     CURRENT_PROJECT_VERSION: "1"
+  configs:
+    # The store file in the App Group, read by HowyCore (`HowyStoreFileName` in both targets'
+    # Info.plist). Debug syncs to CloudKit's Development environment and Release to Production,
+    # so they must never share a file. Release keeps the user's real `Howy.store`.
+    Debug:
+      HOWY_STORE_FILE_NAME: Howy-Debug.store
+    Release:
+      HOWY_STORE_FILE_NAME: Howy.store
 packages:
   HowyCore:
     path: Packages/HowyCore
@@ -33,6 +41,12 @@ targets:
       SystemCapabilities:
         com.apple.ApplicationGroups.Mac:
           enabled: 1
+        # iCloud (CloudKit + key-value store) and push, for the store's CloudKit mirroring.
+        # The app only: the widget extension never mirrors (see docs/plans/icloud-sync.md).
+        com.apple.iCloud:
+          enabled: 1
+        com.apple.Push:
+          enabled: 1
     platform: macOS
     sources:
       - path: Howy
@@ -47,9 +61,14 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: lueddemann.howy
         PRODUCT_NAME: Howy
         INFOPLIST_FILE: Howy/Info.plist
-        CODE_SIGN_ENTITLEMENTS: Howy/Howy.entitlements
         ENABLE_APP_SANDBOX: YES
         GENERATE_INFOPLIST_FILE: NO
+      # Release adds `icloud-container-environment = Production`; Debug uses Development.
+      configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: Howy/Howy.entitlements
+        Release:
+          CODE_SIGN_ENTITLEMENTS: Howy/Howy-Release.entitlements
     info:
       path: Howy/Info.plist
       properties:
@@ -59,18 +78,10 @@ targets:
         LSApplicationCategoryType: public.app-category.productivity
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSUIElement: true
+        HowyStoreFileName: $(HOWY_STORE_FILE_NAME)
         CFBundleURLTypes:
           - CFBundleURLName: lueddemann.howy
             CFBundleURLSchemes: [howy]
-    entitlements:
-      path: Howy/Howy.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.files.user-selected.read-write: true
-        # Fetches a pasted link's page title (the note's link dialog).
-        com.apple.security.network.client: true
-        com.apple.security.application-groups:
-          - group.howy
   HowyWidgets:
     type: app-extension
     attributes:
@@ -102,6 +113,7 @@ targets:
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
+        HowyStoreFileName: $(HOWY_STORE_FILE_NAME)
         NSExtension:
           NSExtensionPointIdentifier: com.apple.widgetkit-extension
     entitlements:
