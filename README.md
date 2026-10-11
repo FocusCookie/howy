@@ -118,18 +118,26 @@ Everything happens from a shortcut.
 - **Export…** writes a folder with `howy.json` (every todo, open and done, plus
   its history) and `attachments/<todo id>/<file name>`. **Import…** reads such a
   folder back after a preview. It merges by id: todos that already exist are
-  skipped and never changed, and so is history that's already there, so
-  importing the same folder twice changes nothing. Exports from older Howy
-  versions (format version 1) still import.
+  skipped and never changed, but their history events that Howy doesn't have
+  yet are added, and events that are already there are skipped, so importing
+  the same folder twice changes nothing. The preview and the summary count the
+  events (added, skipped, invalid). A history event with a damaged optional
+  field is still imported without that field; one with a damaged id, todo id,
+  kind or date is skipped. Exports from older Howy versions (format version 1)
+  still import.
 - **Copy for AI** (Settings → Import & Export) copies a description of the
   format. Paste it into an AI chat with data from another app, and it answers
   with a `howy.json` you can import.
 - **Daily backups:** once a day (at launch, and when the day changes while
   Howy runs) Howy writes the same kind of export to
   `~/Library/Group Containers/group.howy/Library/Application Support/Backups/Howy Backup yyyy-MM-dd`
-  and keeps the newest 7. An empty store isn't backed up, so a loss of data
-  never pushes the good backups out. Settings → Import & Export → **Show in
-  Finder** opens the folder; import a backup to restore it.
+  and keeps the newest 7. A backup is built in a `.partial` folder and renamed
+  once it's complete, so a failed run never costs you an existing backup. Only
+  complete backups dated today or earlier count and get pruned, and nothing is
+  pruned after a backup that couldn't copy an attachment. An empty store isn't
+  backed up, so a loss of data never pushes the good backups out. Settings →
+  Import & Export → **Show in Finder** opens the folder; import a backup to
+  restore it.
 
 ### Menu bar and Settings
 
@@ -145,7 +153,9 @@ All data stays on your Mac (SwiftData in a sandboxed App Group container). Howy
 has no sync and no account. It keeps a history of what happens to each todo
 (added, done, moved, due date changes, deleted; ids and times only, no titles)
 for statistics in a later version. At launch it removes duplicate copies of a
-todo and attachment files whose todo is gone.
+todo, and moves attachment folders whose todo is gone into
+`Attachments/.trash` (emptied after 14 days). It never does that for an empty
+store, or when more than half of the attachment folders look orphaned.
 
 ## Requirements
 

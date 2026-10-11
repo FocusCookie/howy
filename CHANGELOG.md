@@ -12,7 +12,9 @@ All notable changes to Howy are documented here. The format follows
   and history) to
   `~/Library/Group Containers/group.howy/Library/Application Support/Backups/`,
   one folder per day named `Howy Backup yyyy-MM-dd`. It keeps the newest 7 and
-  deletes older ones. The backup runs at launch and when the day changes while
+  deletes older ones (only complete backups dated today or earlier count). A
+  backup is written to a `.partial` folder and renamed when complete, so a
+  failed run keeps your existing backups. The backup runs at launch and when the day changes while
   Howy is running. An empty store isn't backed up, so the older backups survive
   if the data is ever lost. **Settings → Import & Export → Show in Finder**
   opens the folder; to restore, choose a backup in **Import…**.
@@ -25,11 +27,20 @@ All notable changes to Howy are documented here. The format follows
 ### Changed
 
 - **Exports include the history.** Export writes format version 2, which adds
-  an `events` list to `howy.json`. Importing skips history that's already
-  there, so importing the same export twice changes nothing. Older exports
-  (version 1) still import as before.
+  an `events` list to `howy.json`. Importing adds history events Howy doesn't
+  have yet, also for todos that already exist, and skips the rest, so importing
+  the same export twice changes nothing. The import preview and summary count
+  the events. A damaged optional field of an event is dropped with a note; the
+  event is skipped only when its id, todo id, kind or date is damaged. A
+  version 2 file without `events` gets a note. Older exports (version 1) still
+  import as before.
 - **Tidying at launch.** Howy removes duplicate copies of a todo (keeping the
-  most recently changed one) and attachment files whose todo no longer exists.
+  most recently changed one) and moves attachment folders whose todo no longer
+  exists to `Attachments/.trash`, which it empties after 14 days. It does
+  nothing for an empty store, or when more than half of the folders look
+  orphaned. The daily backup runs before this cleanup.
+- The check for a missing history runs once per Mac, not on every start, so
+  todos that arrive before their history don't get made-up events.
 - Settings' **Import Format** section is now **Import & Export**.
 - **New bundle ID and App Group.** The app is now `lueddemann.howy` (widget
   `lueddemann.howy.widgets`) and stores its data in the `group.howy` App Group.
