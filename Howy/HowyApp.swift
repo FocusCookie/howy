@@ -61,6 +61,17 @@ private struct MenuContent: View {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppController.shared.start()
+        // CloudKit mirroring imports when a silent push arrives. The `aps-environment`
+        // entitlement is there; on macOS the app registers with APNs itself.
+        NSApplication.shared.registerForRemoteNotifications()
+    }
+
+    func application(_ application: NSApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        log.info("Registered for remote notifications (CloudKit pushes)")
+    }
+
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        log.error("Remote notification registration failed: \(error, privacy: .public). Push-triggered imports may not arrive.")
     }
 
     /// Quitting with a modal open keeps its draft, like any other close without saving.
