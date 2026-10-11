@@ -380,7 +380,7 @@ public final class TodoStore {
     /// removed something; a clean store isn't written.
     @discardableResult
     public func removeDuplicates() async throws -> DuplicateCleanup {
-        let result = try await StoreMaintenance(modelContainer: modelContainer).removeDuplicates()
+        let result = try await StoreMaintenance.removeDuplicates(modelContainer)
         if !result.isEmpty { didWrite?() }
         return result
     }
@@ -408,7 +408,7 @@ public final class TodoStore {
         let stamp = now()
         let candidates = await Self.todoFolders(in: attachments, changedBefore: stamp.addingTimeInterval(-gracePeriod))
         // Read after listing: a todo saved meanwhile is in here, its folder spared.
-        let existing = try await StoreMaintenance(modelContainer: modelContainer).todoIDs()
+        let existing = try await StoreMaintenance.todoIDs(modelContainer)
         guard !existing.isEmpty else {
             if !candidates.isEmpty { Self.log.notice("Orphan cleanup skipped: the store has no todos") }
             return 0

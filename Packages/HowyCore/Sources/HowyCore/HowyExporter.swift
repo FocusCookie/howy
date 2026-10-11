@@ -14,7 +14,8 @@ public struct ExportResult: Hashable, Sendable {
 /// Writes every todo (open and archived), its committed attachments and the whole event log
 /// (format v2) into an export folder.
 ///
-/// The data is read on the main actor; writing the folder and copying files runs off it.
+/// The data is read on a background context (`StoreMaintenance`); writing the folder and
+/// copying files runs off the main actor too.
 @MainActor
 public struct HowyExporter {
     public let store: TodoStore
@@ -30,24 +31,41 @@ public struct HowyExporter {
     /// asked first). When the folder or `howy.json` can't be written, the half-written folder
     /// is removed and the error thrown.
     public func export(to folder: URL) async throws -> ExportResult {
-        let document = try HowyExport(
-            appVersion: appVersion, exportedAt: store.currentDate,
-            todos: store.allTodos(), events: store.allEvents(), attachments: store.attachments
+        let document = try await StoreMaintenance.exportDocument(
+            store.modelContainer, appVersion: appVersion, exportedAt: store.currentDate, attachments: store.attachments
         )
         return try await Self.write(document, to: folder, files: store.attachments)
     }
 
+    /// The sibling folder an atomic write builds in: `<name>.partial`.
+    nonisolated static func partialURL(for folder: URL) -> URL {
+        folder.deletingLastPathComponent().appending(path: folder.lastPathComponent + ".partial", directoryHint: .isDirectory)
+    }
+
+    /// Writes `document` and the attachment files into `folder`.
+    ///
+    /// Plain (the default): anything already at `folder` is removed first, and a failure removes
+    /// the half-written folder. Export… uses this, because the user's save panel only grants
+    /// access to `folder` itself.
+    ///
+    /// `atomic` (the daily backup): builds the whole folder in `<folder>.partial`, and only once
+    /// `howy.json` is written moves it to `folder`, replacing what is there (`replaceItemAt`
+    /// removes the old one only after the new one is in place). A failure removes only the
+    /// `.partial` folder, so an existing complete folder is never lost to a failed run.
     @concurrent
-    nonisolated static func write(_ document: HowyExport, to folder: URL, files: AttachmentStore?) async throws -> ExportResult {
+    nonisolated static func write(
+        _ document: HowyExport, to folder: URL, files: AttachmentStore?, atomic: Bool = false
+    ) async throws -> ExportResult {
         let fileManager = FileManager.default
         let scoped = folder.startAccessingSecurityScopedResource()
         defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
+        let work = atomic ? partialURL(for: folder) : folder
         do {
-            if fileManager.fileExists(atPath: folder.path(percentEncoded: false)) {
-                try fileManager.removeItem(at: folder)
+            if fileManager.fileExists(atPath: work.path(percentEncoded: false)) {
+                try fileManager.removeItem(at: work)
             }
             try fileManager.createDirectory(
-                at: folder.appending(path: HowyFormat.attachmentsFolderName, directoryHint: .isDirectory),
+                at: work.appending(path: HowyFormat.attachmentsFolderName, directoryHint: .isDirectory),
                 withIntermediateDirectories: true
             )
             var copied = 0
@@ -61,7 +79,7 @@ public struct HowyExporter {
                         problems.append("\(label) not found")
                         continue
                     }
-                    let target = HowyFormat.attachmentURL(in: folder, todoID: todo.id, name: attachment.name)
+                    let target = HowyFormat.attachmentURL(in: work, todoID: todo.id, name: attachment.name)
                     do {
                         try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
                         try fileManager.copyItem(at: source, to: target)
@@ -72,10 +90,17 @@ public struct HowyExporter {
                 }
             }
             try HowyFormat.makeEncoder().encode(document)
-                .write(to: folder.appending(path: HowyFormat.fileName), options: .atomic)
+                .write(to: work.appending(path: HowyFormat.fileName), options: .atomic)
+            if atomic {
+                if fileManager.fileExists(atPath: folder.path(percentEncoded: false)) {
+                    _ = try fileManager.replaceItemAt(folder, withItemAt: work)
+                } else {
+                    try fileManager.moveItem(at: work, to: folder)
+                }
+            }
             return ExportResult(folder: folder, todoCount: document.todos.count, attachmentCount: copied, problems: problems)
         } catch {
-            try? fileManager.removeItem(at: folder)
+            try? fileManager.removeItem(at: work)
             throw error
         }
     }

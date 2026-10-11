@@ -21,8 +21,39 @@ public struct DuplicateCleanup: Hashable, Sendable {
 /// `TodoStore`), so the launch cleanups and the daily backup don't block the main actor.
 ///
 /// Only `TodoStore` and `DailyBackup` use it; models never leave the actor, only values do.
+///
+/// Always go through the `@concurrent` static helpers (`removeDuplicates(_:)`, `todoIDs(_:)`,
+/// `isEmpty(_:)`, `exportDocument(_:…)`): they construct the actor off the main actor, which is
+/// what makes its `ModelContext` (created in the macro's `init`) and so all its reads and
+/// writes run off the main thread. Constructing it on the main actor would put the context
+/// there. The heavy methods assert this in debug builds.
 @ModelActor
 actor StoreMaintenance {
+    // MARK: Entry points
+
+    @concurrent
+    nonisolated static func removeDuplicates(_ container: ModelContainer) async throws -> DuplicateCleanup {
+        try await StoreMaintenance(modelContainer: container).removeDuplicates()
+    }
+
+    @concurrent
+    nonisolated static func todoIDs(_ container: ModelContainer) async throws -> Set<UUID> {
+        try await StoreMaintenance(modelContainer: container).todoIDs()
+    }
+
+    @concurrent
+    nonisolated static func isEmpty(_ container: ModelContainer) async throws -> Bool {
+        try await StoreMaintenance(modelContainer: container).isEmpty()
+    }
+
+    @concurrent
+    nonisolated static func exportDocument(
+        _ container: ModelContainer, appVersion: String?, exportedAt: Date, attachments: AttachmentStore?
+    ) async throws -> HowyExport {
+        try await StoreMaintenance(modelContainer: container)
+            .exportDocument(appVersion: appVersion, exportedAt: exportedAt, attachments: attachments)
+    }
+
     // MARK: Duplicates
 
     /// Collapses rows that share an `id` (schema v3 has no unique constraint; duplicates come
@@ -31,6 +62,7 @@ actor StoreMaintenance {
     /// (the earliest by `date`, then `seq`; same-id events are copies of one event). Records no
     /// events. A clean store isn't saved.
     func removeDuplicates() throws -> DuplicateCleanup {
+        assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
         var result = DuplicateCleanup()
         let todos = try modelContext.fetch(FetchDescriptor<Todo>())
         for rows in Dictionary(grouping: todos, by: \.id).values where rows.count > 1 {
@@ -88,6 +120,7 @@ actor StoreMaintenance {
 
     /// The ids of all todos, open and archived.
     func todoIDs() throws -> Set<UUID> {
+        assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
         var descriptor = FetchDescriptor<Todo>()
         descriptor.propertiesToFetch = [\.id]
         return Set(try modelContext.fetch(descriptor).map(\.id))
@@ -95,13 +128,15 @@ actor StoreMaintenance {
 
     /// Whether the store has neither todos nor events.
     func isEmpty() throws -> Bool {
-        try modelContext.fetchCount(FetchDescriptor<Todo>()) == 0
+        assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
+        return try modelContext.fetchCount(FetchDescriptor<Todo>()) == 0
             && modelContext.fetchCount(FetchDescriptor<TodoEvent>()) == 0
     }
 
     /// Everything an export writes, read on this background context.
     func exportDocument(appVersion: String?, exportedAt: Date, attachments: AttachmentStore?) throws -> HowyExport {
-        try HowyExport(
+        assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
+        return try HowyExport(
             appVersion: appVersion, exportedAt: exportedAt,
             todos: modelContext.fetch(FetchDescriptor<Todo>(sortBy: [SortDescriptor(\.createdAt)])),
             events: modelContext.fetch(FetchDescriptor<TodoEvent>(sortBy: [SortDescriptor(\.date), SortDescriptor(\.seq)])),
