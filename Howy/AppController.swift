@@ -8,7 +8,13 @@ import SwiftUI
 let log = Logger(subsystem: "lueddemann.howy", category: "app")
 
 /// Owns the global shortcuts, the single modal panel, archive purging, the launch cleanups and
-/// daily backup, and the login item.
+/// daily backup, the login item, and the app's side of iCloud sync (`SyncMonitor`, the shared
+/// archive retention).
+///
+/// **Sync gate.** The cleanups, the backup and the purge ask `SyncGate` first (through
+/// `syncMonitor`). While it is closed they are deferred, not dropped: `deferredMaintenance` and
+/// `deferredPurge` remember them, and they are tried again on every sync event, on a key-value
+/// store change, and at the date the gate names (`recheck`).
 @MainActor
 @Observable
 final class AppController {
@@ -39,6 +45,17 @@ final class AppController {
     @ObservationIgnored private var maintenance: Task<Void, Never>?
     @ObservationIgnored private var rerunMaintenance = false
     @ObservationIgnored private var pendingCleanups = false
+    /// Maintenance the sync gate held back: `nil` for none, else whether it included the cleanups.
+    @ObservationIgnored private var deferredMaintenance: Bool?
+    /// An archive purge the sync gate held back.
+    @ObservationIgnored private var deferredPurge = false
+    /// The pending re-check of deferred work at a date the gate named, and that date.
+    @ObservationIgnored private var recheck: Task<Void, Never>?
+    @ObservationIgnored private var recheckDate: Date?
+    @ObservationIgnored private var keyValueObserver: NSObjectProtocol?
+    /// The open Browse or Archive panel's model, refreshed when the store changes elsewhere.
+    @ObservationIgnored private weak var browseModel: BrowseModel?
+    @ObservationIgnored private weak var archiveModel: ArchiveModel?
     @ObservationIgnored private let lastUsed = UserDefaultsLastQuadrantStore()
     @ObservationIgnored private let drafts = UserDefaultsDraftStore()
     /// Fetches a pasted link's page title for the link dialog.
@@ -50,16 +67,30 @@ final class AppController {
     private static let didMigrateBrowseShortcutKey = "didMigrateBrowseShortcutToM"
     private static let panelWidth: CGFloat = 560
 
-    private init() {}
+    /// The shared store's CloudKit mirroring as the app sees it (Phase 3c shows it in Settings).
+    let syncMonitor = SyncMonitor(mode: .iCloud)
+    /// The archive retention, shared through the iCloud key-value store.
+    let retention: ArchiveRetentionStore
+
+    private init() {
+        let keyValueStore = NSUbiquitousKeyValueStore.default
+        // `false`: no key-value store (e.g. no entitlement); the local value is the one.
+        let cloud: NSUbiquitousKeyValueStore? = keyValueStore.synchronize() ? keyValueStore : nil
+        if cloud == nil { log.notice("iCloud key-value store unavailable; archive retention stays local") }
+        retention = ArchiveRetentionStore(local: UserDefaults.standard, cloud: cloud, now: .now)
+    }
 
     /// Chooses how the shared store syncs. Called from `HowyApp.init()`, the first app code to
     /// run: a `howy://` URL that launches the app reaches `application(_:open:)` (and so
     /// `freshStore()`) before `applicationDidFinishLaunching`, and the container is built
     /// once with whatever setting it finds. The app is the one process that may mirror the store
     /// to CloudKit; the widget extension never calls this and stays `.local`.
+    ///
+    /// The mirroring events are observed from here on, before the container exists, so the
+    /// first setup event isn't missed.
     static func configureStoreSync() {
-        // Phase 3b flips this to `.iCloud(containerIdentifier: StoreSync.containerIdentifier)`.
-        let accepted = TodoStore.configureSharedSync(.local)
+        shared.syncMonitor.startObserving()
+        let accepted = TodoStore.configureSharedSync(.iCloud(containerIdentifier: StoreSync.containerIdentifier))
         assert(accepted, "The shared store was opened before its sync setting was chosen")
         if !accepted { log.fault("Shared store sync was configured after the store was opened") }
     }
@@ -114,12 +145,113 @@ final class AppController {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.runMaintenance(cleanups: false) }
         }
+        startSync()
         // Keep the hotkey responsive: the slow launch work (login item, store open) runs after launch.
         Task { @MainActor [weak self] in
             self?.registerLoginItemOnFirstLaunch()
+            self?.openStoreAndReportSync()
             self?.purgeArchive()
             self?.collectStagedAttachments()
             self?.runMaintenance(cleanups: true)
+        }
+    }
+
+    // MARK: Sync
+
+    /// Wires the sync events, the key-value store and the widget's writes to the refreshes and
+    /// the deferred maintenance.
+    private func startSync() {
+        syncMonitor.onImport = { [weak self] in self?.storeChangedRemotely() }
+        syncMonitor.onChange = { [weak self] in self?.retryDeferredWork() }
+        keyValueObserver = NotificationCenter.default.addObserver(
+            forName: NSUbiquitousKeyValueStore.didChangeExternallyNotification,
+            object: NSUbiquitousKeyValueStore.default, queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.retention.cloudChanged()
+                self?.retryDeferredWork()
+            }
+        }
+        // The widget's checkbox writes from its own process; the open panel reads again.
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(), nil,
+            { _, _, _, _, _ in
+                Task { @MainActor in AppController.shared.refreshOpenPanel() }
+            },
+            StoreChangeSignal.extensionName as CFString, nil, .deliverImmediately
+        )
+    }
+
+    /// Builds the shared container (if no deep link did yet) and tells the monitor how it really
+    /// opened: mirroring, or local after the CloudKit build failed.
+    private func openStoreAndReportSync() {
+        guard quietStore() != nil else { return }
+        let reason = TodoStore.sharedSyncFallbackReason
+        syncMonitor.setMode(SyncMonitor.mode(sync: TodoStore.sharedSync, fallbackReason: reason))
+        if let reason { log.error("Sync unavailable: \(reason, privacy: .public)") }
+    }
+
+    /// A sync import finished: the widgets, the due-date notifications and an open panel show
+    /// the new data, and the cleanups run once the gate opens.
+    private func storeChangedRemotely() {
+        TodoStore.reloadWidgetTimelines()
+        NotificationCoordinator.shared.requestSync()
+        refreshOpenPanel()
+        runMaintenance(cleanups: true)
+        purgeArchive()
+    }
+
+    /// Re-reads the store into an open Browse or Archive panel. An edit or create screen is left
+    /// alone: the user is typing there.
+    func refreshOpenPanel() {
+        guard panel != nil else { return }
+        switch panelKind {
+        case .browse:
+            guard let browseModel, let store = quietStore() else { return }
+            browseModel.refresh(using: store)
+        case .archive:
+            guard let archiveModel, let store = quietStore() else { return }
+            archiveModel.refresh(using: store)
+        default:
+            break
+        }
+    }
+
+    private func gate(_ work: MaintenanceWork) -> SyncGate.Decision {
+        syncMonitor.gate(work, retentionKnown: retention.isKnown)
+    }
+
+    /// Runs deferred maintenance and purges whose gate may have opened.
+    private func retryDeferredWork() {
+        retention.tick(now: .now)
+        if deferredPurge {
+            deferredPurge = false
+            purgeArchive()
+        }
+        if let cleanups = deferredMaintenance {
+            deferredMaintenance = nil
+            runMaintenance(cleanups: cleanups)
+        }
+    }
+
+    /// Plans a retry for a closed gate: at the date it names, or when the retention decides on
+    /// its own. Waiting for sync needs no timer: the next sync event retries.
+    private func scheduleRetry(after decision: SyncGate.Decision) {
+        let date: Date? = switch decision {
+        case .waitUntil(let date): date
+        case .waitForRetention: retention.decisionDeadline
+        case .open, .waitForSync: nil
+        }
+        guard let date else { return }
+        if let recheckDate, recheckDate <= date, recheck != nil { return }
+        recheck?.cancel()
+        recheckDate = date
+        recheck = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(max(date.timeIntervalSinceNow, 0) + 0.5))
+            guard !Task.isCancelled, let self else { return }
+            recheck = nil
+            recheckDate = nil
+            retryDeferredWork()
         }
     }
 
@@ -246,6 +378,7 @@ final class AppController {
         if let back { flow.resume(at: back) }
         if fromArchive { flow.highlightArchive() }
         let model = BrowseModel(flow: flow, store: store)
+        browseModel = model
         let panel = present(.browse, activate: activate) { BrowseView(model: model) }
         panel.keyHandler = { event in
             guard let key = QuickEntryKey(event: event) else { return false }
@@ -270,8 +403,9 @@ final class AppController {
             guard let panel else { changes(); completion(); return }
             panel.setOverview(expanded ? OverviewSize.load() : nil, animated: animated, changes: changes, completion: completion)
         }
-        model.makeTileEditor = { [weak self, weak panel] kind in
-            self?.makeTileEditor(kind, store: store, panel: panel)
+        model.makeTileEditor = { [weak self, weak panel, weak model] kind in
+            guard let model else { return nil }
+            return self?.makeTileEditor(kind, store: model.store, panel: panel)
         }
         // Focus loss, ⌘W or another screen: an open tile edit is kept as a draft.
         panel.willClose = { model.stashTileEditor() }
@@ -392,8 +526,9 @@ final class AppController {
     /// With `back`, Esc runs it (returns to Browse) instead of closing; losing focus still closes.
     private func showArchive(returning back: (() -> Void)?, activate: Bool = false) {
         guard let store = freshStore(activate: activate) else { return }
-        do { try store.purgeArchive(retention: .load()) } catch { log.error("Purge failed: \(error, privacy: .public)") }
+        purgeArchive(using: store)
         let model = ArchiveModel(store: store)
+        archiveModel = model
         let panel = present(.archive, activate: activate) {
             ArchiveView(model: model, escapeHint: back == nil ? "esc close" : "esc back")
         }
@@ -572,10 +707,17 @@ final class AppController {
 
     // MARK: Archive purge
 
-    private func purgeArchive() {
-        guard let store = quietStore() else { return }
+    /// Purges the archive with the shared retention, if the sync gate allows; otherwise defers it.
+    private func purgeArchive(using given: TodoStore? = nil) {
+        let decision = gate(.purge)
+        guard decision.isOpen else {
+            deferredPurge = true
+            scheduleRetry(after: decision)
+            return
+        }
+        guard let store = given ?? quietStore() else { return }
         do {
-            let removed = try store.purgeArchive(retention: .load())
+            let removed = try store.purgeArchive(retention: retention.retention)
             if removed > 0 { log.info("Purged \(removed) archived todos") }
         } catch {
             log.error("Purge failed: \(error, privacy: .public)")
@@ -584,15 +726,20 @@ final class AppController {
 
     // MARK: Cleanups and backups
 
-    /// At launch (`cleanups`): removes duplicate todos and events, writes the day's backup, then
-    /// moves orphaned attachment folders to the trash (the backup comes first, so a store that
-    /// went wrong is backed up before anything is touched). On a day change or wake: the backup
-    /// alone, and only if today's isn't complete yet, checked before any store is opened. The
-    /// store work runs on a background context and the file work off the main actor.
+    /// At launch and after each sync import (`cleanups`): removes duplicate todos and events and
+    /// deleted todos that came back, writes the day's backup, then moves orphaned attachment
+    /// folders to the trash (the backup comes first, so a store that went wrong is backed up
+    /// before anything is touched). On a day change or wake: the backup alone, and only if
+    /// today's isn't complete yet, checked before any store is opened. The store work runs on a
+    /// background context and the file work off the main actor.
+    ///
+    /// Everything waits for the sync gate (`SyncGate`); a closed gate defers the run, and a gate
+    /// that closes between steps defers the rest.
     ///
     /// Only one run at a time. A call during a run is coalesced: when the run ends, one more
     /// starts, with the cleanups if any of the swallowed calls asked for them.
     private func runMaintenance(cleanups: Bool) {
+        if deferMaintenance(cleanups: cleanups) { return }
         guard maintenance == nil else {
             pendingCleanups = pendingCleanups || cleanups
             rerunMaintenance = true
@@ -609,6 +756,15 @@ final class AppController {
                 runMaintenance(cleanups: again)
             }
         }
+    }
+
+    /// Defers the run when the gate is closed for any of its work; returns whether it did.
+    private func deferMaintenance(cleanups: Bool) -> Bool {
+        let work: [MaintenanceWork] = cleanups ? [.cleanups, .backup] : [.backup]
+        guard let closed = work.lazy.map(gate).first(where: { !$0.isOpen }) else { return false }
+        deferredMaintenance = (deferredMaintenance ?? false) || cleanups
+        scheduleRetry(after: closed)
+        return true
     }
 
     private func performMaintenance(cleanups: Bool) async {
@@ -631,7 +787,15 @@ final class AppController {
             } catch {
                 log.error("Duplicate cleanup failed: \(error, privacy: .public)")
             }
+            if deferMaintenance(cleanups: true) { return }
+            do {
+                let removed = try await store.removeDeletedTodos()
+                if !removed.isEmpty { log.notice("Removed \(removed.count) deleted todos that came back") }
+            } catch {
+                log.error("Deleted-todo cleanup failed: \(error, privacy: .public)")
+            }
         }
+        if deferMaintenance(cleanups: cleanups) { return }
         do {
             let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String
             let backup = DailyBackup(store: store, directory: directory, appVersion: version)
@@ -642,6 +806,7 @@ final class AppController {
             log.error("Backup failed: \(error, privacy: .public)")
         }
         if cleanups {
+            if deferMaintenance(cleanups: true) { return }
             do {
                 let moved = try await store.removeOrphanedAttachments()
                 if moved > 0 { log.notice("Moved attachments of \(moved) deleted todos to the trash") }
@@ -680,6 +845,13 @@ final class AppController {
     }
 
     // MARK: Settings
+
+    /// A retention chosen in Settings: shared through iCloud, then purged with.
+    func setArchiveRetention(_ value: ArchiveRetention) {
+        guard value != retention.retention || !retention.isKnown else { return }
+        retention.set(value)
+        purgeArchive()
+    }
 
     func showSettings() {
         closePanel()

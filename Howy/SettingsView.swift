@@ -15,7 +15,6 @@ struct SettingsView: View {
     @State private var launcherDefault = LauncherChoice.loadDefault()
     @State private var openMode = AttachmentOpenMode.load()
     @State private var doneAnimation = DoneAnimation.load()
-    @State private var archiveRetention = ArchiveRetention.load()
     @State private var overviewSize = OverviewSize.load()
     @State private var copiedFormat = false
     @State private var dueDefaultTime = DueTime.load()
@@ -154,12 +153,14 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
         Section {
-            Picker("Delete done todos after:", selection: $archiveRetention) {
+            Picker("Delete done todos after:", selection: Binding(
+                get: { controller.retention.retention },
+                set: { controller.setArchiveRetention($0) }
+            )) {
                 ForEach(ArchiveRetention.options) { option in
                     Text(option.displayName).tag(option)
                 }
             }
-            .onChange(of: archiveRetention) { _, value in value.save() }
         } header: {
             Text("Archive")
         } footer: {

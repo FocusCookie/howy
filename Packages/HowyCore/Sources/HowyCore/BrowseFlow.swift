@@ -176,6 +176,9 @@ public final class BrowseFlow {
     /// The list's order when a pointer drag inside it began (`beginReorderDrag`).
     private var reorderDragStart: (quadrant: Quadrant, ids: [UUID], moved: UUID)?
 
+    /// Whether a row is being dragged to a new place (between `beginReorderDrag` and its end).
+    public var isReorderDragging: Bool { reorderDragStart != nil }
+
     /// The due-date dialog over the list, while it is open, and the todo it is for.
     public private(set) var dueDialog: DueDateDialog?
     public private(set) var dueDialogTodoID: UUID?
