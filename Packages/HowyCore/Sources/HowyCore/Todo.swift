@@ -5,20 +5,26 @@ import SwiftData
 ///
 /// The quadrant is stored as a raw `Int` (`quadrantRaw`) so it can be used in `#Predicate`s;
 /// use the `quadrant` accessor everywhere else.
+///
+/// Schema v3: no unique constraint and a default for every attribute, as CloudKit requires.
+/// `id` stays unique by construction (fresh UUIDs; import skips taken ids).
 @Model
 public final class Todo {
-    @Attribute(.unique) public var id: UUID
-    public var title: String
+    public var id: UUID = UUID()
+    public var title: String = ""
     /// Markdown text; may be empty.
-    public var note: String
-    public var quadrantRaw: Int
-    public var createdAt: Date
+    public var note: String = ""
+    public var quadrantRaw: Int = Quadrant.urgentImportant.rawValue
+    public var createdAt: Date = Date.distantPast
     /// Drives newest-first ordering. Set on creation and when the todo moves quadrant.
-    public var sortDate: Date
+    public var sortDate: Date = Date.distantPast
     public var completedAt: Date?
     /// When the todo is due (schema v2); `nil` for none. Completing, archiving and restoring
     /// keep it; the notification fires at this moment.
     public var due: Date?
+    /// When a `TodoStore` write last changed this todo (schema v3). Picks the survivor when
+    /// duplicates of one id meet.
+    public var updatedAt: Date = Date.distantPast
 
     public init(
         id: UUID = UUID(),
@@ -28,7 +34,8 @@ public final class Todo {
         createdAt: Date,
         sortDate: Date? = nil,
         completedAt: Date? = nil,
-        due: Date? = nil
+        due: Date? = nil,
+        updatedAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -38,6 +45,7 @@ public final class Todo {
         self.sortDate = sortDate ?? createdAt
         self.completedAt = completedAt
         self.due = due
+        self.updatedAt = updatedAt ?? createdAt
     }
 
     public var quadrant: Quadrant {
