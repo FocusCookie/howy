@@ -29,10 +29,18 @@ public struct ImportPlan: Sendable {
     public let report: ImportReport
     /// The todos to import, with the attachments whose files were found.
     let todos: [HowyExport.Todo]
+    /// The file's valid events (format v2); `TodoStore.insert` picks the ones to import.
+    let events: [TodoEventRecord]
 }
 
 /// Imports an export folder (`howy.json` + `attachments/`), merging by id: todos whose id
-/// already exists are skipped with their attachments, and existing data never changes.
+/// already exists are skipped with their attachments and events, and existing data never
+/// changes.
+///
+/// History (format v2 `events`) comes in as written; events whose id exists are skipped, so
+/// importing a file twice adds nothing. A todo the file has no event for (any version 1 file)
+/// gets `created`/`completed` events made up from its timestamps. Invalid events are skipped
+/// and listed in `problems`, without counting toward the todo numbers.
 @MainActor
 public struct HowyImporter {
     public let store: TodoStore
@@ -94,7 +102,14 @@ public struct HowyImporter {
             if isExpired(accepted.record) { report.expiredCount += 1 }
             todos.append(accepted)
         }
-        return ImportPlan(folder: folder, report: report, todos: todos)
+        var events: [TodoEventRecord] = []
+        for (index, entry) in (parsed.events ?? []).enumerated() {
+            switch entry {
+            case .success(let event): events.append(event.record)
+            case .failure(let problem): report.problems.append("History entry #\(index + 1): \(problem.message)")
+            }
+        }
+        return ImportPlan(folder: folder, report: report, todos: todos, events: events)
     }
 
     /// The todo's attachments that can be imported; the others are counted and reported.
@@ -188,7 +203,7 @@ public struct HowyImporter {
             if isExpired(todo.record) { report.expiredCount += 1 }
         }
         do {
-            report.importCount = try store.insert(records).count
+            report.importCount = try store.insert(records, events: plan.events).count
         } catch {
             withFiles.forEach { store.attachments?.removeAll(for: $0) }
             throw error

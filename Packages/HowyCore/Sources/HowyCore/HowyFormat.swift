@@ -1,9 +1,14 @@
 import Foundation
 
 /// Howy's import/export format: a folder with `howy.json` and `attachments/<todo id>/<name>`.
+///
+/// Versions:
+/// - 1: `todos` only.
+/// - 2: adds `events`, the todos' history (`TodoEvent`s, of deleted todos too). Version 1 files
+///   still import; their todos get `created`/`completed` events made up from their timestamps.
 public enum HowyFormat {
     /// The `formatVersion` this build writes, and the newest it reads.
-    public static let version = 1
+    public static let version = 2
     public static let fileName = "howy.json"
     public static let attachmentsFolderName = "attachments"
 
@@ -83,25 +88,45 @@ extension Quadrant {
     }
 }
 
-/// The contents of `howy.json` (format v1), as plain data.
+/// The contents of `howy.json` (format v2), as plain data.
 ///
 /// Encoding writes the format. Decoding a whole file goes through `HowyExport.parse`, which
-/// checks `formatVersion` and reads every todo on its own, so one bad entry doesn't sink the rest.
+/// checks `formatVersion` and reads every todo and event on its own, so one bad entry doesn't
+/// sink the rest.
 public struct HowyExport: Encodable, Sendable {
     public var formatVersion: Int
     public var appVersion: String?
     public var exportedAt: Date?
     public var todos: [Todo]
+    /// The history, oldest first; `nil` leaves the key out (a version 1 file).
+    public var events: [Event]?
 
-    public init(formatVersion: Int = HowyFormat.version, appVersion: String? = nil, exportedAt: Date? = nil, todos: [Todo]) {
+    public init(
+        formatVersion: Int = HowyFormat.version, appVersion: String? = nil, exportedAt: Date? = nil,
+        todos: [Todo], events: [Event]? = nil
+    ) {
         self.formatVersion = formatVersion
         self.appVersion = appVersion
         self.exportedAt = exportedAt
         self.todos = todos
+        self.events = events
+    }
+
+    /// The export of these todos (with their committed attachments) and events. Shared by
+    /// `HowyExporter` and `DailyBackup`, each on its own context.
+    init(
+        appVersion: String?, exportedAt: Date,
+        todos: [HowyCore.Todo], events: [TodoEvent], attachments: AttachmentStore?
+    ) {
+        self.init(
+            appVersion: appVersion, exportedAt: exportedAt,
+            todos: todos.map { Todo(record: $0.record, attachments: attachments?.attachments(for: $0.id) ?? []) },
+            events: events.map { Event(record: $0.record) }
+        )
     }
 
     enum CodingKeys: String, CodingKey {
-        case formatVersion, appVersion, exportedAt, todos
+        case formatVersion, appVersion, exportedAt, todos, events
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -110,6 +135,78 @@ public struct HowyExport: Encodable, Sendable {
         try container.encodeIfPresent(appVersion, forKey: .appVersion)
         try container.encodeIfPresent(exportedAt.map(HowyFormat.string(from:)), forKey: .exportedAt)
         try container.encode(todos, forKey: .todos)
+        try container.encodeIfPresent(events, forKey: .events)
+    }
+
+    /// One event in `howy.json`'s `events` (format v2). Optional fields are left out when
+    /// empty; quadrants use their format names, dates the format's ISO 8601.
+    public struct Event: Codable, Hashable, Sendable {
+        public var record: TodoEventRecord
+
+        public init(record: TodoEventRecord) {
+            self.record = record
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case id, todoID, kind, date, seq, fromQuadrant, toQuadrant, previousDue, due
+        }
+
+        public func encode(to encoder: any Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(record.id, forKey: .id)
+            try container.encode(record.todoID, forKey: .todoID)
+            try container.encode(record.kindRaw, forKey: .kind)
+            try container.encode(HowyFormat.string(from: record.date), forKey: .date)
+            try container.encode(record.seq, forKey: .seq)
+            try container.encodeIfPresent(record.fromQuadrant?.formatName, forKey: .fromQuadrant)
+            try container.encodeIfPresent(record.toQuadrant?.formatName, forKey: .toQuadrant)
+            try container.encodeIfPresent(record.previousDue.map(HowyFormat.string(from:)), forKey: .previousDue)
+            try container.encodeIfPresent(record.due.map(HowyFormat.string(from:)), forKey: .due)
+        }
+
+        /// Reads one event; throws an `EntryProblem` saying what's missing or wrong. A kind this
+        /// build doesn't know is kept as written.
+        public init(from decoder: any Decoder) throws {
+            guard let container = try? decoder.container(keyedBy: CodingKeys.self) else {
+                throw EntryProblem("not an event object")
+            }
+            func string(_ key: CodingKeys) throws -> String? {
+                guard container.contains(key), !((try? container.decodeNil(forKey: key)) ?? false) else { return nil }
+                guard let value = try? container.decode(String.self, forKey: key) else {
+                    throw EntryProblem("invalid \(key.stringValue)")
+                }
+                return value
+            }
+            func uuid(_ key: CodingKeys) throws -> UUID {
+                guard let text = try string(key) else { throw EntryProblem("missing \(key.stringValue)") }
+                guard let id = UUID(uuidString: text) else { throw EntryProblem("invalid \(key.stringValue) \"\(text)\"") }
+                return id
+            }
+            func date(_ key: CodingKeys) throws -> Date? {
+                guard let text = try string(key) else { return nil }
+                guard let date = HowyFormat.date(from: text) else { throw EntryProblem("invalid \(key.stringValue) \"\(text)\"") }
+                return date
+            }
+            func quadrant(_ key: CodingKeys) throws -> Quadrant? {
+                guard let name = try string(key) else { return nil }
+                guard let quadrant = Quadrant(formatName: name) else { throw EntryProblem("unknown \(key.stringValue) \"\(name)\"") }
+                return quadrant
+            }
+            let id = try uuid(.id)
+            let todoID = try uuid(.todoID)
+            guard let kind = try string(.kind), !kind.isEmpty else { throw EntryProblem("missing kind") }
+            guard let eventDate = try date(.date) else { throw EntryProblem("missing date") }
+            var seq = 0
+            if container.contains(.seq), !((try? container.decodeNil(forKey: .seq)) ?? false) {
+                guard let value = try? container.decode(Int.self, forKey: .seq) else { throw EntryProblem("invalid seq") }
+                seq = value
+            }
+            record = TodoEventRecord(
+                id: id, todoID: todoID, kindRaw: kind, date: eventDate, seq: seq,
+                fromQuadrant: try quadrant(.fromQuadrant), toQuadrant: try quadrant(.toQuadrant),
+                previousDue: try date(.previousDue), due: try date(.due)
+            )
+        }
     }
 
     /// One todo in `howy.json`.
@@ -222,6 +319,9 @@ public struct HowyExport: Encodable, Sendable {
         var exportedAt: Date?
         /// One per entry in `todos`, in file order.
         var entries: [Result<Todo, EntryProblem>]
+        /// One per entry in `events`, in file order; `nil` when the file has no `events` key
+        /// (version 1).
+        var events: [Result<Event, EntryProblem>]?
     }
 
     /// Reads `howy.json`. Throws when the file as a whole can't be imported (not JSON, no
@@ -241,10 +341,17 @@ public struct HowyExport: Encodable, Sendable {
         case .number: break
         }
         guard let todos = file.todos else { throw .unreadable("it has no todos list") }
+        let events: [Result<Event, EntryProblem>]?
+        switch file.events {
+        case .missing: events = nil
+        case .notAList: throw .unreadable("its events aren't a list")
+        case .list(let entries): events = entries.map(\.result)
+        }
         return Parsed(
             appVersion: file.appVersion,
             exportedAt: file.exportedAt.flatMap(HowyFormat.date(from:)),
-            entries: todos.map(\.result)
+            entries: todos.map(\.result),
+            events: events
         )
     }
 
@@ -260,6 +367,13 @@ public struct HowyExport: Encodable, Sendable {
         var exportedAt: String?
         /// `nil` when the key is missing or isn't a list.
         var todos: [Entry]?
+        var events: Events
+
+        enum Events {
+            case missing
+            case notAList
+            case list([EventEntry])
+        }
 
         init(from decoder: any Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -275,6 +389,13 @@ public struct HowyExport: Encodable, Sendable {
             appVersion = try? container.decodeIfPresent(String.self, forKey: .appVersion)
             exportedAt = try? container.decodeIfPresent(String.self, forKey: .exportedAt)
             todos = try? container.decodeIfPresent([Entry].self, forKey: .todos)
+            if !container.contains(.events) || ((try? container.decodeNil(forKey: .events)) ?? false) {
+                events = .missing
+            } else if let list = try? container.decode([EventEntry].self, forKey: .events) {
+                events = .list(list)
+            } else {
+                events = .notAList
+            }
         }
     }
 
@@ -289,6 +410,21 @@ public struct HowyExport: Encodable, Sendable {
                 result = .failure(problem)
             } catch {
                 result = .failure(EntryProblem("not a todo object"))
+            }
+        }
+    }
+
+    /// One `events` entry; reading it never fails, a bad entry becomes a `.failure`.
+    private struct EventEntry: Decodable {
+        var result: Result<Event, EntryProblem>
+
+        init(from decoder: any Decoder) {
+            do {
+                result = .success(try Event(from: decoder))
+            } catch let problem as EntryProblem {
+                result = .failure(problem)
+            } catch {
+                result = .failure(EntryProblem("not an event object"))
             }
         }
     }

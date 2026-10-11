@@ -11,7 +11,8 @@ public struct ExportResult: Hashable, Sendable {
     public var problems: [String]
 }
 
-/// Writes every todo (open and archived) and its committed attachments into an export folder.
+/// Writes every todo (open and archived), its committed attachments and the whole event log
+/// (format v2) into an export folder.
 ///
 /// The data is read on the main actor; writing the folder and copying files runs off it.
 @MainActor
@@ -29,10 +30,9 @@ public struct HowyExporter {
     /// asked first). When the folder or `howy.json` can't be written, the half-written folder
     /// is removed and the error thrown.
     public func export(to folder: URL) async throws -> ExportResult {
-        let document = HowyExport(
-            appVersion: appVersion,
-            exportedAt: store.currentDate,
-            todos: try store.allTodos().map { HowyExport.Todo(record: $0.record, attachments: store.attachmentList(for: $0.id)) }
+        let document = try HowyExport(
+            appVersion: appVersion, exportedAt: store.currentDate,
+            todos: store.allTodos(), events: store.allEvents(), attachments: store.attachments
         )
         return try await Self.write(document, to: folder, files: store.attachments)
     }

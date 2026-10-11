@@ -129,7 +129,7 @@ import Testing
         let receipt = HowyFormat.attachmentURL(in: exportFolder, todoID: todo.id, name: "receipt.png")
         #expect(try contents(receipt) == "PNG")
         let json = try #require(try contents(exportFolder.appending(path: HowyFormat.fileName)))
-        #expect(json.contains(#""formatVersion" : 1"#))
+        #expect(json.contains(#""formatVersion" : 2"#))
         #expect(json.contains(#""appVersion" : "1.4.0""#))
         #expect(json.contains(#""quadrant" : "urgent-important""#))
         #expect(json.contains(#""completedAt" : null"#))
@@ -362,7 +362,8 @@ import Testing
         ("not json at all", HowyImportError.unreadable("it isn't valid JSON")),
         (#"{ "todos": [] }"#, .missingFormatVersion),
         (#"{ "formatVersion": null, "todos": [] }"#, .missingFormatVersion),
-        (#"{ "formatVersion": 2, "todos": [] }"#, .newerFormatVersion(2)),
+        (#"{ "formatVersion": 3, "todos": [] }"#, .newerFormatVersion(3)),
+        (#"{ "formatVersion": 2, "todos": [], "events": {} }"#, .unreadable("its events aren't a list")),
         (#"{ "formatVersion": 0, "todos": [] }"#, .unknownFormatVersion("0")),
         (#"{ "formatVersion": "one", "todos": [] }"#, .unknownFormatVersion("\"one\"")),
         (#"{ "formatVersion": 1 }"#, .unreadable("it has no todos list")),

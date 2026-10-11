@@ -93,3 +93,54 @@ public final class TodoEvent {
     public var fromQuadrant: Quadrant? { fromQuadrantRaw.flatMap(Quadrant.init(rawValue:)) }
     public var toQuadrant: Quadrant? { toQuadrantRaw.flatMap(Quadrant.init(rawValue:)) }
 }
+
+/// An event's stored values as plain data (export and import). `kindRaw` is kept as written, so
+/// a kind this build doesn't know survives a round trip.
+public struct TodoEventRecord: Hashable, Sendable {
+    public var id: UUID
+    public var todoID: UUID
+    public var kindRaw: String
+    public var date: Date
+    public var seq: Int
+    public var fromQuadrant: Quadrant?
+    public var toQuadrant: Quadrant?
+    public var previousDue: Date?
+    public var due: Date?
+
+    public init(
+        id: UUID, todoID: UUID, kindRaw: String, date: Date, seq: Int = 0,
+        fromQuadrant: Quadrant? = nil, toQuadrant: Quadrant? = nil, previousDue: Date? = nil, due: Date? = nil
+    ) {
+        self.id = id
+        self.todoID = todoID
+        self.kindRaw = kindRaw
+        self.date = date
+        self.seq = seq
+        self.fromQuadrant = fromQuadrant
+        self.toQuadrant = toQuadrant
+        self.previousDue = previousDue
+        self.due = due
+    }
+
+    public var kind: TodoEventKind? { TodoEventKind(rawValue: kindRaw) }
+}
+
+extension TodoEvent {
+    /// The event's values as plain data.
+    public var record: TodoEventRecord {
+        TodoEventRecord(
+            id: id, todoID: todoID, kindRaw: kindRaw, date: date, seq: seq,
+            fromQuadrant: fromQuadrant, toQuadrant: toQuadrant, previousDue: previousDue, due: due
+        )
+    }
+
+    /// An event exactly as recorded (import), unknown kinds included.
+    convenience init(record: TodoEventRecord) {
+        self.init(
+            id: record.id, todoID: record.todoID, kind: .created, date: record.date,
+            from: record.fromQuadrant, to: record.toQuadrant, previousDue: record.previousDue, due: record.due,
+            seq: record.seq
+        )
+        kindRaw = record.kindRaw
+    }
+}

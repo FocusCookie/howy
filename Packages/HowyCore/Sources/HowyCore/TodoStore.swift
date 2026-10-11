@@ -134,35 +134,51 @@ public final class TodoStore {
         return todo
     }
 
-    /// Inserts todos exactly as given, timestamps and `completedAt` included (import). Ids that
-    /// already exist, or repeat within `records`, are skipped; existing todos are never changed.
-    /// Each inserted todo gets a `created` event at its `createdAt` (and a `completed` one at its
-    /// `completedAt` if archived); `updatedAt` is the clock's now.
+    /// Inserts todos and their history exactly as given, timestamps and `completedAt` included
+    /// (import). Ids that already exist, or repeat within `records`, are skipped; existing todos
+    /// are never changed. `updatedAt` is the clock's now.
+    ///
+    /// `events` are inserted as they are, except those whose id already exists (or repeats) and
+    /// those of a todo that already existed. Events of todos that aren't in `records` (deleted
+    /// ones) come in too. An inserted todo that has no event in `events` (a format v1 file) gets
+    /// a `created` event at its `createdAt`, and a `completed` one at its `completedAt` if
+    /// archived.
+    ///
     /// All of it is one write, so widgets reload once; nothing new writes nothing. Returns the
-    /// ids inserted, in order.
+    /// todo ids inserted, in order.
     @discardableResult
-    public func insert(_ records: [TodoRecord]) throws -> [UUID] {
+    public func insert(_ records: [TodoRecord], events: [TodoEventRecord] = []) throws -> [UUID] {
         let validated = try records.map { record in
             var record = record
             record.title = try Self.validated(record.title)
             return record
         }
-        var taken = try allIDs()
+        let existing = try allIDs()
+        var taken = existing
         var inserted: [UUID] = []
         let stamp = now()
+        let withHistory = Set(events.map(\.todoID))
         for record in validated where taken.insert(record.id).inserted {
             context.insert(Todo(
                 id: record.id, title: record.title, note: record.note, quadrant: record.quadrant,
                 createdAt: record.createdAt, sortDate: record.sortDate, completedAt: record.completedAt,
                 due: record.due, updatedAt: stamp
             ))
-            self.record(.created, for: record.id, at: record.createdAt, to: record.quadrant, due: record.due)
-            if let completedAt = record.completedAt {
-                self.record(.completed, for: record.id, at: completedAt)
+            if !withHistory.contains(record.id) {
+                self.record(.created, for: record.id, at: record.createdAt, to: record.quadrant, due: record.due)
+                if let completedAt = record.completedAt {
+                    self.record(.completed, for: record.id, at: completedAt)
+                }
             }
             inserted.append(record.id)
         }
-        guard !inserted.isEmpty else { return [] }
+        var eventIDs = try allEventIDs()
+        var insertedEvents = 0
+        for event in events where !existing.contains(event.todoID) && eventIDs.insert(event.id).inserted {
+            context.insert(TodoEvent(record: event))
+            insertedEvents += 1
+        }
+        guard !inserted.isEmpty || insertedEvents > 0 else { return [] }
         try commit()
         return inserted
     }
@@ -389,6 +405,13 @@ public final class TodoStore {
     /// The ids of all todos.
     func allIDs() throws -> Set<UUID> {
         var descriptor = FetchDescriptor<Todo>()
+        descriptor.propertiesToFetch = [\.id]
+        return Set(try context.fetch(descriptor).map(\.id))
+    }
+
+    /// The ids of all events.
+    func allEventIDs() throws -> Set<UUID> {
+        var descriptor = FetchDescriptor<TodoEvent>()
         descriptor.propertiesToFetch = [\.id]
         return Set(try context.fetch(descriptor).map(\.id))
     }
