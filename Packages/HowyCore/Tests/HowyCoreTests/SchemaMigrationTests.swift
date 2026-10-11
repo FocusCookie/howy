@@ -31,7 +31,7 @@ import Testing
         let done = UUID()
         do {
             let schema = Schema(versionedSchema: HowySchemaV1.self)
-            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none))
             container.mainContext.insert(HowySchemaV1.Todo(
                 id: open, title: "Open", note: "kept", quadrantRaw: Quadrant.urgentUnimportant.rawValue,
                 createdAt: created, sortDate: sorted, completedAt: nil
@@ -69,7 +69,7 @@ import Testing
         do {
             let schema = Schema(versionedSchema: HowySchemaV2.self)
             let container = try ModelContainer(
-                for: schema, migrationPlan: nil, configurations: ModelConfiguration(schema: schema, url: url)
+                for: schema, migrationPlan: nil, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none)
             )
             container.mainContext.insert(HowySchemaV2.Todo(
                 id: open, title: "Open", note: "kept", quadrant: .urgentImportant,
@@ -108,7 +108,7 @@ import Testing
         do {
             let schema = Schema(versionedSchema: HowySchemaV2.self)
             let container = try ModelContainer(
-                for: schema, migrationPlan: nil, configurations: ModelConfiguration(schema: schema, url: url)
+                for: schema, migrationPlan: nil, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none)
             )
             container.mainContext.insert(HowySchemaV2.Todo(
                 id: id, title: "Done", note: "", quadrant: .urgentImportant,
@@ -132,7 +132,7 @@ import Testing
         let id = UUID()
         do {
             let schema = Schema(versionedSchema: HowySchemaV1.self)
-            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none))
             container.mainContext.insert(HowySchemaV1.Todo(
                 id: id, title: "Old", note: "", quadrantRaw: Quadrant.urgentImportant.rawValue,
                 createdAt: created, sortDate: created, completedAt: nil
@@ -156,7 +156,7 @@ import Testing
     /// Writes a v1 store with `count` todos; every other one is archived. Returns their ids.
     func writeV1Store(at url: URL, count: Int) throws -> [UUID] {
         let schema = Schema(versionedSchema: HowySchemaV1.self)
-        let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+        let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none))
         let ids = (0..<count).map { _ in UUID() }
         for (index, id) in ids.enumerated() {
             container.mainContext.insert(HowySchemaV1.Todo(
@@ -172,7 +172,7 @@ import Testing
     func writeV2Store(at url: URL, count: Int) throws -> [UUID] {
         let schema = Schema(versionedSchema: HowySchemaV2.self)
         let container = try ModelContainer(
-            for: schema, migrationPlan: nil, configurations: ModelConfiguration(schema: schema, url: url)
+            for: schema, migrationPlan: nil, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none)
         )
         let ids = (0..<count).map { _ in UUID() }
         for (index, id) in ids.enumerated() {
@@ -301,6 +301,23 @@ import Testing
 
         let second = try TodoStore.onDisk(url: url, healFlag: flag)
         #expect(try second.allEvents().isEmpty)
+    }
+
+    @Test func aStoreThatMirrorsNeverRunsTheSelfHeal() throws {
+        // On a new device the todos can be there before their events: no made-up events, and the
+        // flag stays as it was. (`selfHeal` never touches CloudKit; the setting only decides.)
+        let flag = makeFlag()
+        let store = try TodoStore.inMemory()
+        store.context.insert(Todo(id: UUID(), title: "Arrived first", quadrant: .urgentImportant, createdAt: created))
+        try store.context.save()
+
+        try TodoStore.selfHeal(store.modelContainer, flag: flag, sync: .iCloud(containerIdentifier: StoreSync.containerIdentifier))
+        #expect(try store.allEvents().isEmpty)
+        #expect(!flag.bool(forKey: TodoStore.selfHealFlagKey))
+
+        try TodoStore.selfHeal(store.modelContainer, flag: flag, sync: .local)
+        #expect(try store.allEvents().count == 1)
+        #expect(flag.bool(forKey: TodoStore.selfHealFlagKey))
     }
 
     @Test func aFailedMigrationBackfillHealsOnceThenNeverAgain() throws {

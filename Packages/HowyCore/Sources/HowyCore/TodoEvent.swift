@@ -67,11 +67,12 @@ public final class TodoEvent {
         self.id = id
         self.todoID = todoID
         self.kindRaw = kind.rawValue
-        self.date = date
+        // Whole milliseconds, as CloudKit keeps them (`Date.wholeMilliseconds`).
+        self.date = date.wholeMilliseconds
         self.fromQuadrantRaw = from?.rawValue
         self.toQuadrantRaw = to?.rawValue
-        self.previousDue = previousDue
-        self.due = due
+        self.previousDue = previousDue.wholeMilliseconds
+        self.due = due.wholeMilliseconds
         self.seq = seq
     }
 

@@ -41,11 +41,12 @@ public final class Todo {
         self.title = title
         self.note = note
         self.quadrantRaw = quadrant.rawValue
-        self.createdAt = createdAt
-        self.sortDate = sortDate ?? createdAt
-        self.completedAt = completedAt
-        self.due = due
-        self.updatedAt = updatedAt ?? createdAt
+        // Whole milliseconds, as CloudKit keeps them (`Date.wholeMilliseconds`).
+        self.createdAt = createdAt.wholeMilliseconds
+        self.sortDate = (sortDate ?? createdAt).wholeMilliseconds
+        self.completedAt = completedAt.wholeMilliseconds
+        self.due = due.wholeMilliseconds
+        self.updatedAt = (updatedAt ?? createdAt).wholeMilliseconds
     }
 
     public var quadrant: Quadrant {

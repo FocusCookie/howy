@@ -72,13 +72,24 @@ actor StoreMaintenance {
     func removeDuplicates() throws -> DuplicateCleanup {
         assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
         var result = DuplicateCleanup()
-        for row in DuplicateRules.losers(try modelContext.fetch(FetchDescriptor<Todo>())) {
-            modelContext.delete(row)
-            result.removedTodos += 1
+        // Ids first, then the full rows of the repeated ones only.
+        let todoIDs = try repeatedIDs(of: Todo.self)
+        if !todoIDs.isEmpty {
+            let ids = Array(todoIDs)
+            let rows = try modelContext.fetch(FetchDescriptor<Todo>(predicate: #Predicate { ids.contains($0.id) }))
+            for row in DuplicateRules.losers(rows) {
+                modelContext.delete(row)
+                result.removedTodos += 1
+            }
         }
-        for row in DuplicateRules.losers(try modelContext.fetch(FetchDescriptor<TodoEvent>())) {
-            modelContext.delete(row)
-            result.removedEvents += 1
+        let eventIDs = try repeatedIDs(of: TodoEvent.self)
+        if !eventIDs.isEmpty {
+            let ids = Array(eventIDs)
+            let rows = try modelContext.fetch(FetchDescriptor<TodoEvent>(predicate: #Predicate { ids.contains($0.id) }))
+            for row in DuplicateRules.losers(rows) {
+                modelContext.delete(row)
+                result.removedEvents += 1
+            }
         }
         guard !result.isEmpty else { return result }
         do {
@@ -88,6 +99,13 @@ actor StoreMaintenance {
             throw error
         }
         return result
+    }
+
+    /// The ids that more than one row of `Model` has, read without loading the other values.
+    private func repeatedIDs<Model: PersistentModel & DuplicateResolvable>(of type: Model.Type) throws -> Set<UUID> {
+        var descriptor = FetchDescriptor<Model>()
+        descriptor.propertiesToFetch = [\.id]
+        return DuplicateRules.repeated(try modelContext.fetch(descriptor).map(\.id))
     }
 
     // MARK: Reads

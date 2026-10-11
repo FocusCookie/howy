@@ -249,6 +249,25 @@ import Testing
         #expect(try await store.removeDuplicates().isEmpty)
     }
 
+    @Test func aWriteCopiesOnlyTheFieldsItChangedToTheOtherRows() throws {
+        let todo = try store.add(title: "Original", note: "survivor note", quadrant: .urgentImportant)
+        let other = Self.copy(of: todo)
+        // The twin has a value of its own for a field this write won't touch (a newer one from
+        // another device, say), and still loses against the survivor.
+        other.note = "x"
+        other.updatedAt = todo.updatedAt.addingTimeInterval(-1)
+        store.context.insert(other)
+        try store.context.save()
+        clock.advance(by: 60)
+
+        try store.update(id: todo.id, title: "Edited", note: "survivor note", quadrant: .urgentImportant)
+
+        #expect(other.title == "Edited")
+        #expect(other.updatedAt == todo.updatedAt)
+        #expect(other.note == "x", "the note wasn't written, so the twin keeps its own")
+        #expect(try store.todo(id: todo.id)?.note == "survivor note")
+    }
+
     // MARK: Events
 
     @Test func identicalEventsAreKeptAndReadOnce() async throws {

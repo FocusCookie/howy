@@ -66,6 +66,10 @@ enum HowySchemaV2: VersionedSchema {
 /// attribute, `updatedAt`) and the append-only `TodoEvent` log.
 /// Add a `HowySchemaV4` (and freeze copies of `Todo` and `TodoEvent` here) before changing
 /// either model again.
+///
+/// After the first CloudKit Production deploy, schema changes must be additive only: no rename,
+/// no retype, no removal of an attribute or model, and every new attribute optional or defaulted.
+/// Production record types can't lose or change fields, and older Macs keep syncing with them.
 enum HowySchemaV3: VersionedSchema {
     static let versionIdentifier = Schema.Version(3, 0, 0)
     static var models: [any PersistentModel.Type] { [Todo.self, TodoEvent.self] }
@@ -121,7 +125,7 @@ enum HowyMigrationPlan: SchemaMigrationPlan {
                     todoID: todo.id, kind: .completed, date: completedAt, seq: 1
                 ))
             }
-            if todo.updatedAt == .distantPast { todo.updatedAt = todo.completedAt ?? todo.sortDate }
+            if todo.updatedAt == .distantPast { todo.updatedAt = (todo.completedAt ?? todo.sortDate).wholeMilliseconds }
         }
         try context.save()
     }

@@ -126,7 +126,7 @@ import Testing
         let created = Date(timeIntervalSinceReferenceDate: 790_000_000)
         do {
             let schema = Schema(versionedSchema: HowySchemaV1.self)
-            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none))
             container.mainContext.insert(HowySchemaV1.Todo(
                 id: id, title: "Old todo", note: "kept", quadrantRaw: Quadrant.urgentUnimportant.rawValue,
                 createdAt: created, sortDate: created, completedAt: nil

@@ -63,10 +63,12 @@ enum DuplicateRules {
         return repeated
     }
 
-    /// A date at whole milliseconds. CloudKit keeps dates to the millisecond, so a row that made
-    /// a round trip through it must still compare equal to the local original.
+    /// A date's comparison key: milliseconds since 1970 (CloudKit's epoch), to the nearest.
+    /// Stored dates are already whole milliseconds (`Date.wholeMilliseconds`), so a CloudKit round
+    /// trip, which may truncate or round, lands on the same key; rounding here also absorbs the
+    /// float error of converting between the 1970 and the 2001 reference.
     static func milliseconds(_ date: Date) -> Int64 {
-        Int64((date.timeIntervalSinceReferenceDate * 1000).rounded(.down))
+        Int64((date.timeIntervalSince1970 * 1000).rounded())
     }
 
     static func milliseconds(_ date: Date?) -> Int64? {
@@ -176,4 +178,28 @@ extension TodoEvent: DuplicateResolvable {
         if let lower = DuplicateRules.ascending(a.previousDue, b.previousDue) { return lower }
         return DuplicateRules.ascending(a.due, b.due) ?? false
     }
+}
+
+extension Date {
+    /// This date rounded to whole milliseconds since 1970. Every date `TodoStore` stores goes
+    /// through it, so a value is what CloudKit (millisecond dates) hands back, and rows that are
+    /// the same compare the same on every device.
+    ///
+    /// The float nearest to a whole millisecond can sit a hair below it, and a conversion that
+    /// truncates (it isn't known whether CloudKit's does) would then land one millisecond early.
+    /// So the result is moved up to the first float whose milliseconds don't truncate below the
+    /// rounded value: rounding and truncating both give the same millisecond.
+    var wholeMilliseconds: Date {
+        let milliseconds = (timeIntervalSince1970 * 1000).rounded()
+        guard milliseconds.isFinite else { return self }
+        var date = Date(timeIntervalSince1970: milliseconds / 1000)
+        for _ in 0..<8 where (date.timeIntervalSince1970 * 1000).rounded(.down) < milliseconds {
+            date = Date(timeIntervalSince1970: date.timeIntervalSince1970.nextUp)
+        }
+        return date
+    }
+}
+
+extension Optional where Wrapped == Date {
+    var wholeMilliseconds: Date? { map(\.wholeMilliseconds) }
 }

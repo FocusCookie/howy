@@ -58,7 +58,8 @@ public final class TodoStore {
         let context = ModelContext(modelContainer)
         context.autosaveEnabled = false // `commit` saves, together with the events
         self.context = context
-        self.now = now
+        // Every date the store writes comes from here or is passed through `wholeMilliseconds`.
+        self.now = { now().wholeMilliseconds }
         self.didWrite = didWrite
     }
 
@@ -144,17 +145,19 @@ public final class TodoStore {
             migrationPlan: HowyMigrationPlan.self,
             configurations: configuration
         )
-        try selfHeal(container, flag: healFlag)
+        try selfHeal(container, flag: healFlag, sync: sync)
         return container
     }
 
     /// One-time self-heal: todos without any event mean the migration's backfill didn't run or
     /// failed. It runs only while `flag` isn't set and sets it after any successful open, the
     /// no-op case of an empty store included. Never on later opens: with CloudKit, todos can
-    /// arrive before their events, and a backfill then would add false events. If the backfill
-    /// throws, the flag stays unset and the next open tries again.
-    static func selfHeal(_ container: ModelContainer, flag: UserDefaults) throws {
-        guard !flag.bool(forKey: selfHealFlagKey) else { return }
+    /// arrive before their events, and a backfill then would add false events. For the same
+    /// reason a store that mirrors (`sync.mirrors`) never runs it, on a new device the todos can
+    /// be there before their events on the very first open; the flag stays as it was. If the
+    /// backfill throws, the flag stays unset and the next open tries again.
+    static func selfHeal(_ container: ModelContainer, flag: UserDefaults, sync: StoreSync = .local) throws {
+        guard !sync.mirrors, !flag.bool(forKey: selfHealFlagKey) else { return }
         try HowyMigrationPlan.backfillEvents(in: ModelContext(container))
         flag.set(true, forKey: selfHealFlagKey)
     }
@@ -166,7 +169,7 @@ public final class TodoStore {
         didWrite: (@MainActor () -> Void)? = nil
     ) throws -> TodoStore {
         let schema = Schema(versionedSchema: HowySchemaV3.self)
-        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        let configuration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true, cloudKitDatabase: .none)
         let container = try ModelContainer(for: schema, migrationPlan: HowyMigrationPlan.self, configurations: configuration)
         return TodoStore(modelContainer: container, attachments: attachments, now: now, didWrite: didWrite)
     }
@@ -184,6 +187,7 @@ public final class TodoStore {
     public func add(id: UUID = UUID(), title: String, note: String = "", quadrant: Quadrant, due: Date? = nil) throws -> Todo {
         let title = try Self.validated(title)
         let stamp = now()
+        let due = due.wholeMilliseconds
         let todo = Todo(id: id, title: title, note: note, quadrant: quadrant, createdAt: stamp, due: due)
         context.insert(todo)
         record(.created, for: todo.id, at: stamp, to: quadrant, due: due)
@@ -263,6 +267,7 @@ public final class TodoStore {
     /// bumps `sortDate` so it shows on top there.
     public func update(id: UUID, title: String, note: String, quadrant: Quadrant, due: Date?) throws {
         let title = try Self.validated(title)
+        let due = due.wholeMilliseconds
         let rows = try require(id)
         let todo = rows.survivor
         // An untouched edit is a no-op: don't write or reload widgets.
@@ -283,6 +288,7 @@ public final class TodoStore {
     }
 
     private func setDue(id: UUID, to due: Date?, snoozed: Bool, at stamp: Date) throws {
+        let due = due.wholeMilliseconds
         let rows = try require(id)
         let todo = rows.survivor
         guard todo.due != due else { return }
@@ -352,6 +358,7 @@ public final class TodoStore {
     /// Takes back a `move` (Browse's ⌘Z): the todo returns to `quadrant` with the `sortDate`
     /// `move` returned, so it is back at the position it had there.
     public func moveBack(id: UUID, to quadrant: Quadrant, sortDate: Date) throws {
+        let sortDate = sortDate.wholeMilliseconds
         let rows = try require(id)
         let todo = rows.survivor
         guard todo.quadrant != quadrant || todo.sortDate != sortDate else { return }
@@ -568,12 +575,12 @@ public final class TodoStore {
         try openRows(in: quadrant).map(\.survivor)
     }
 
-    private func openRows(in quadrant: Quadrant) throws -> [TodoRows] {
+    private func openRows(in quadrant: Quadrant, repeated: Set<UUID>? = nil) throws -> [TodoRows] {
         let raw = quadrant.rawValue
         return try fetchRows(FetchDescriptor<Todo>(
             predicate: #Predicate { $0.completedAt == nil && $0.quadrantRaw == raw },
             sortBy: [SortDescriptor(\.sortDate, order: .reverse), SortDescriptor(\.createdAt, order: .reverse)]
-        ))
+        ), repeated: repeated)
     }
 
     /// All archived todos, most recently completed first.
@@ -587,8 +594,9 @@ public final class TodoStore {
     /// Open todos for every quadrant as value snapshots, newest first (input for `WidgetContentBuilder`).
     public func openSnapshots() throws -> [Quadrant: [TodoSnapshot]] {
         var result: [Quadrant: [TodoSnapshot]] = [:]
+        let repeated = try repeatedTodoIDs() // once for all four quadrants
         for quadrant in Quadrant.allCases {
-            result[quadrant] = try openTodos(in: quadrant).map(snapshot(of:))
+            result[quadrant] = try openRows(in: quadrant, repeated: repeated).map { snapshot(of: $0.survivor) }
         }
         return result
     }
@@ -623,32 +631,85 @@ public final class TodoStore {
     struct TodoRows {
         let survivor: Todo
         let all: [Todo]
+        /// The survivor's values when the rows were read, before the write.
+        private let before: Values
 
         var id: UUID { survivor.id }
 
         init(survivor: Todo, all: [Todo]) {
             self.survivor = survivor
             self.all = all
+            self.before = Values(survivor)
         }
 
         init(single todo: Todo) {
             self.init(survivor: todo, all: [todo])
         }
 
-        /// Copies every stored value of the survivor to the other rows (only those that differ,
-        /// so an unchanged row isn't marked as changed).
+        /// Every stored value but `id`.
+        private struct Values {
+            var title: String
+            var note: String
+            var quadrantRaw: Int
+            var createdAt: Date
+            var sortDate: Date
+            var completedAt: Date?
+            var due: Date?
+            var updatedAt: Date
+
+            init(_ todo: Todo) {
+                title = todo.title
+                note = todo.note
+                quadrantRaw = todo.quadrantRaw
+                createdAt = todo.createdAt
+                sortDate = todo.sortDate
+                completedAt = todo.completedAt
+                due = todo.due
+                updatedAt = todo.updatedAt
+            }
+        }
+
+        /// Copies to the other rows the values this write changed on the survivor (against the
+        /// snapshot taken when the rows were read), so a twin that got a newer value for a field
+        /// the write didn't touch keeps it. Dates compare at the millisecond, and a value that
+        /// is the same isn't set, so an unchanged row isn't marked as changed (and not uploaded).
+        ///
+        /// A twin that would still win over the survivor afterwards gets every value, so the
+        /// write can't be hidden by an older row.
         func mirrorSurvivor() {
             let source = survivor
+            let now = Values(source)
             for row in all where row !== source {
-                if row.title != source.title { row.title = source.title }
-                if row.note != source.note { row.note = source.note }
-                if row.quadrantRaw != source.quadrantRaw { row.quadrantRaw = source.quadrantRaw }
-                if row.createdAt != source.createdAt { row.createdAt = source.createdAt }
-                if row.sortDate != source.sortDate { row.sortDate = source.sortDate }
-                if row.completedAt != source.completedAt { row.completedAt = source.completedAt }
-                if row.due != source.due { row.due = source.due }
-                if row.updatedAt != source.updatedAt { row.updatedAt = source.updatedAt }
+                if now.title != before.title, row.title != now.title { row.title = now.title }
+                if now.note != before.note, row.note != now.note { row.note = now.note }
+                if now.quadrantRaw != before.quadrantRaw, row.quadrantRaw != now.quadrantRaw { row.quadrantRaw = now.quadrantRaw }
+                if Self.differs(now.createdAt, before.createdAt), Self.differs(row.createdAt, now.createdAt) { row.createdAt = now.createdAt }
+                if Self.differs(now.sortDate, before.sortDate), Self.differs(row.sortDate, now.sortDate) { row.sortDate = now.sortDate }
+                if Self.differs(now.completedAt, before.completedAt), Self.differs(row.completedAt, now.completedAt) { row.completedAt = now.completedAt }
+                if Self.differs(now.due, before.due), Self.differs(row.due, now.due) { row.due = now.due }
+                if Self.differs(now.updatedAt, before.updatedAt), Self.differs(row.updatedAt, now.updatedAt) { row.updatedAt = now.updatedAt }
+                if Todo.prefers(row.duplicateKey, over: source.duplicateKey) { copy(source, to: row) }
             }
+        }
+
+        /// Every stored value of `source` onto `row` (only those that differ).
+        private func copy(_ source: Todo, to row: Todo) {
+            if row.title != source.title { row.title = source.title }
+            if row.note != source.note { row.note = source.note }
+            if row.quadrantRaw != source.quadrantRaw { row.quadrantRaw = source.quadrantRaw }
+            if Self.differs(row.createdAt, source.createdAt) { row.createdAt = source.createdAt }
+            if Self.differs(row.sortDate, source.sortDate) { row.sortDate = source.sortDate }
+            if Self.differs(row.completedAt, source.completedAt) { row.completedAt = source.completedAt }
+            if Self.differs(row.due, source.due) { row.due = source.due }
+            if Self.differs(row.updatedAt, source.updatedAt) { row.updatedAt = source.updatedAt }
+        }
+
+        private static func differs(_ a: Date, _ b: Date) -> Bool {
+            DuplicateRules.milliseconds(a) != DuplicateRules.milliseconds(b)
+        }
+
+        private static func differs(_ a: Date?, _ b: Date?) -> Bool {
+            DuplicateRules.milliseconds(a) != DuplicateRules.milliseconds(b)
         }
     }
 
@@ -667,9 +728,15 @@ public final class TodoStore {
     /// `fetchTodos`, with every row of each todo. A todo is in the result when its survivor
     /// matches the descriptor (a duplicate that matches while its survivor doesn't is left out),
     /// at the survivor's place in the fetch order.
-    private func fetchRows(_ descriptor: FetchDescriptor<Todo>) throws -> [TodoRows] {
+    ///
+    /// Not for a descriptor with `fetchLimit` or `fetchOffset`: a page could cut a group of rows
+    /// that share an id, and a todo whose survivor falls outside it would show as missing.
+    /// `repeated` is the result of `repeatedTodoIDs()` when the caller has it already.
+    private func fetchRows(_ descriptor: FetchDescriptor<Todo>, repeated known: Set<UUID>? = nil) throws -> [TodoRows] {
+        precondition(descriptor.fetchLimit == nil && (descriptor.fetchOffset ?? 0) == 0, "fetchRows can't page: duplicates need every row")
         let fetched = try context.fetch(descriptor)
-        let repeated = try repeatedTodoIDs()
+        guard !fetched.isEmpty else { return [] }
+        let repeated = try known ?? repeatedTodoIDs()
         guard !repeated.isEmpty else { return fetched.map(TodoRows.init(single:)) }
         var groups: [UUID: TodoRows] = [:]
         var result: [TodoRows] = []
@@ -686,21 +753,18 @@ public final class TodoStore {
 
     /// Fetches events and collapses those that share an id to their survivor, keeping the
     /// fetch's order (an event is left out when its survivor doesn't match the descriptor).
+    ///
+    /// Only the ids of the fetched events are looked up (one query by id), not the whole log, so
+    /// a read of one todo's events doesn't scan every event.
     private func fetchEvents(_ descriptor: FetchDescriptor<TodoEvent>) throws -> [TodoEvent] {
         let fetched = try context.fetch(descriptor)
-        var idsOnly = FetchDescriptor<TodoEvent>()
-        idsOnly.propertiesToFetch = [\.id]
-        let repeated = DuplicateRules.repeated(try context.fetch(idsOnly).map(\.id))
-        guard !repeated.isEmpty else { return fetched }
-        var survivors: [UUID: TodoEvent] = [:]
-        return try fetched.filter { event in
-            guard repeated.contains(event.id) else { return true }
-            if survivors[event.id] == nil {
-                let id = event.id
-                survivors[id] = DuplicateRules.survivor(of: try context.fetch(FetchDescriptor<TodoEvent>(predicate: #Predicate { $0.id == id })))
-            }
-            return survivors[event.id] === event
-        }
+        guard !fetched.isEmpty else { return [] }
+        let ids = Array(Set(fetched.map(\.id)))
+        let sharing = try context.fetch(FetchDescriptor<TodoEvent>(predicate: #Predicate { ids.contains($0.id) }))
+        let groups = Dictionary(grouping: sharing, by: \.id)
+        guard groups.count < sharing.count else { return fetched } // no id twice
+        let survivors = groups.mapValues { DuplicateRules.survivor(of: $0) }
+        return fetched.filter { survivors[$0.id].flatMap { $0 } === $0 }
     }
 
     /// The todo ids that more than one row has.
@@ -749,6 +813,7 @@ public final class TodoStore {
 
     /// Rewrites a `sortDate` (reorders), stamping `updatedAt` only if it really changes.
     private func setSortDate(of todo: Todo, to date: Date, at stamp: Date) {
+        let date = date.wholeMilliseconds
         guard todo.sortDate != date else { return }
         todo.sortDate = date
         todo.updatedAt = stamp
