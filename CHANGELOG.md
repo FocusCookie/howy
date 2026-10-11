@@ -34,6 +34,12 @@ All notable changes to Howy are documented here. The format follows
 
 - The data store moves to schema version 2 (an optional due date per todo).
   Existing todos are migrated automatically and keep everything.
+- A long title in the editor wraps onto up to three lines instead of scrolling
+  out of view.
+
+### Fixed
+
+- The editor's title no longer jumps a few pixels when it gets or loses focus.
 
 ## [1.6.0] - 2026-10-09
 

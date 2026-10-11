@@ -117,7 +117,6 @@ struct QuickEntryView: View {
     /// `fillsHeight`: the note takes the height offered (in a tile). `showsAttachments`: the
     /// attachment divider and strip below the note.
     @ViewBuilder private func fields(fillsHeight: Bool = false, showsAttachments: Bool = true) -> some View {
-        @Bindable var bindable = flow
         VStack(alignment: .leading, spacing: gap) {
             HStack(spacing: gap) {
                 Button { flow.focus(.pickingQuadrant) } label: {
@@ -131,7 +130,14 @@ struct QuickEntryView: View {
                 }
             }
 
-            TextField("Title", text: $bindable.title)
+            // Vertical: a single-line field swaps in AppKit's field editor on focus, which draws
+            // the text a few points off, so the title jumped. A long title wraps (up to 3 lines);
+            // a pasted line break becomes a space (↩ itself never reaches the field).
+            TextField("Title", text: Binding(
+                get: { flow.title },
+                set: { flow.title = $0.replacingOccurrences(of: "\n", with: " ") }
+            ), axis: .vertical)
+                .lineLimit(1...3)
                 .textFieldStyle(.plain)
                 .panelFont(.title2)
                 .focused($focus, equals: .title)
