@@ -145,12 +145,13 @@ involved.
 A major version: data now belongs to the iCloud account, and sign-out removes
 it from the Mac. The release notes must say so clearly.
 
-- [ ] iCloud capability with CloudKit and container `iCloud.lueddemann.howy`,
-      in `project.yml`, for both app and widget.
-- [ ] Debug uses Development; Release uses Production through the entitlement.
-- [ ] `TodoStore` with `cloudKitDatabase: .private(…)`.
-- [ ] Remote-change handling: widgets, UI, notifications, cleanups.
-- [ ] Archive retention through `NSUbiquitousKeyValueStore`.
+- [x] iCloud capability with CloudKit and container `iCloud.lueddemann.howy`,
+      in `project.yml`, for the app only (the widget doesn't mirror; see
+      "Widget store: `.none`").
+- [x] Debug uses Development; Release uses Production through the entitlement.
+- [x] `TodoStore` with `cloudKitDatabase: .private(…)`.
+- [x] Remote-change handling: widgets, UI, notifications, cleanups.
+- [x] Archive retention through `NSUbiquitousKeyValueStore`.
 - [ ] Account status (`CKContainer.accountStatus` and `CKAccountChanged`),
       the Settings status line, and error notifications.
 - [ ] CloudKit Console steps written down. Schema deployed to Production.
@@ -180,8 +181,8 @@ it from the Mac. The release notes must say so clearly.
         deletes every row whose values aren't the survivor's. Events: the same.
         Tests in `SyncSafeDuplicateTests`, including both insertion orders in two
         stores per differing field.
-  - [ ] Don't run the duplicate cleanup while a remote import is still in flight.
-        (Phase 3b, needs the CloudKit event notifications.)
+  - [x] Don't run the duplicate cleanup while a remote import is still in flight.
+        (Phase 3b: `SyncGate`.)
   - [ ] Test switching an existing v3 store (migrated from v1/v2) from `.none` to
         `.private`. (Phase 3b.)
 
@@ -235,38 +236,38 @@ Decision: the app mirrors, the widget opens the same store file with
 
 #### Phase 3b checklist (from the 3a reviews)
 
-- [ ] **SyncGate** before any destructive maintenance (duplicates, archive
+- [x] **SyncGate** before any destructive maintenance (duplicates, archive
       purge, orphan trash) and the daily backup. Require all of: the first
       import since launch is done, no import or export in flight, and a quiet
       period of about 30 s. Re-run the cleanups after each successful import.
       The purge also waits until the iCloud key-value store (KVS) retention
       value is known.
-- [ ] **Debug and Release stores** use different CloudKit environments, so use
+- [x] **Debug and Release stores** use different CloudKit environments, so use
       a separate store file per configuration (or keep Debug on `.local`), to
       avoid uploading real data to the wrong environment.
-- [ ] **Widget entitlements:** the widget gets NO iCloud, KVS or aps
+- [x] **Widget entitlements:** the widget gets NO iCloud, KVS or aps
       entitlements.
-- [ ] **App entitlements:**
+- [x] **App entitlements:**
   - app: `icloud-container-identifiers`, `icloud-services` CloudKit,
     `ubiquity-kvstore-identifier`, `aps-environment`
   - Release only: `icloud-container-environment = Production`, via a
     per-configuration entitlements file
   - verify with `codesign -d --entitlements -`
-- [ ] **Failed `.iCloud` container build:** fall back to `.local` for that run,
+- [x] **Failed `.iCloud` container build:** fall back to `.local` for that run,
       show "sync unavailable", and don't retry the build on every `shared()`
       call on the main actor.
-- [ ] **Remote changes:** observe
+- [x] **Remote changes:** observe
       `NSPersistentCloudKitContainer.eventChangedNotification`
       (setup/import/export, extracting plain values off the notification) and
       use it for the gate and the status line. After an import, reload widgets,
       rebuild the due notifications and refresh the open UI.
-- [ ] **Account:** observe `CKAccountChanged` and check `accountStatus`. Detect
+- [ ] **Account (Phase 3c):** observe `CKAccountChanged` and check `accountStatus`. Detect
       a wipe or account switch with a remembered identity token, and treat
       `userDeletedZone` as a wipe.
-- [ ] **CKError matrix:** decide which errors are silent and which notify
+- [ ] **CKError matrix (Phase 3c):** decide which errors are silent and which notify
       (quota, schema missing in Production, sync failing for over an hour).
-- [ ] **KVS:** seed the shared value from the local one on first iCloud launch.
-- [ ] **Existing rows keep sub-millisecond dates** written before 3a. Quantize
+- [x] **KVS:** seed the shared value from the local one on first iCloud launch.
+- [x] **Existing rows keep sub-millisecond dates** written before 3a. Quantize
       them once (a one-time pass on a background context) before the first
       upload, or a truncating or rounding CloudKit round trip can still shift
       them by a millisecond.
@@ -281,11 +282,126 @@ Decision: the app mirrors, the widget opens the same store file with
   - a row synced to the other Mac compares identical to its original, e.g. the
     backfilled events (same derived ids on every Mac): after a sync the cleanup
     must report nothing removed
-- [ ] **Known gap: a delete can be resurrected.** A remote twin arriving after a
+- [x] **Known gap: a delete can be resurrected.** A remote twin arriving after a
       delete or purge brings the todo back. Decide in 3b: hide ids whose latest
       event is `.deleted`, or accept and document it.
 - [ ] **Unverified:** whether mirroring merges per field or per record. Nothing
       may rely on per-field merging.
+
+#### Phase 3b (done): sync on, made safe
+
+**Entitlements.** The app has `icloud-container-identifiers`
+(`iCloud.lueddemann.howy`), `icloud-services` (CloudKit),
+`ubiquity-kvstore-identifier` (`$(TeamIdentifierPrefix)lueddemann.howy`) and
+`com.apple.developer.aps-environment` (the macOS key) = `development`. Debug
+signs with `Howy/Howy.entitlements`, Release with `Howy/Howy-Release.entitlements`,
+which adds `icloud-container-environment = Production` (`CODE_SIGN_ENTITLEMENTS`
+per configuration in `project.yml`; both files are edited by hand). The widget
+has only the sandbox and the App Group. `aps-environment` is `development` in
+Release too: every build is signed "Apple Development" with a development
+profile, which only allows that value. Verified with
+`codesign -d --entitlements -` on both builds.
+
+**Store per configuration.** `HOWY_STORE_FILE_NAME` (`Howy-Debug.store` in
+Debug, `Howy.store` in Release) reaches both targets' Info.plist as
+`HowyStoreFileName`; `TodoStore.storeFileName` reads it (anything odd or missing
+means `Howy.store`). So Debug (Development) and Release (Production) never share
+a file, and the widget opens its own app's file. The backups and the
+attachments are scoped the same way (`TodoStore.storeScopedName`): Release keeps
+`Backups/` and `Attachments/`, Debug uses `Backups-Howy-Debug/` and
+`Attachments-Howy-Debug/`. Shared folders would let a Debug run take the day's
+backup slot (so the real store isn't backed up that day), prune real backups, or
+trash real attachment folders as orphans (the orphan brakes don't stop that with
+three folders or fewer). The Debug store and its folders start empty; earlier
+Debug builds used the real `Howy.store`.
+
+**Fallback.** `SharedContainer` builds `.local` on the same file when the
+`.iCloud` build throws, keeps the reason (`TodoStore.sharedSyncFallbackReason`)
+and never tries CloudKit again in that process. `SyncState.Mode.unavailable`
+carries it for the status line.
+
+**Date quantization.** Before a store first mirrors, `makeContainer` opens it
+with `.none` (running the migration), rounds every `Todo` and `TodoEvent` date
+to whole milliseconds (`DateQuantization`), saves, drops that container and only
+then builds the mirroring one. So the first export already sees whole
+milliseconds. The flag is `howy.datesQuantized.<file name>` in the App Group
+defaults. If it throws, the CloudKit build counts as failed: the run falls back
+to local and the next launch tries again.
+
+**Sync events.** `SyncMonitor` (HowyCore) observes
+`NSPersistentCloudKitContainer.eventChangedNotification` from `HowyApp.init`
+(before the container exists). The event is read on the posting queue into a
+`SyncEvent` (kind, start, end, succeeded, error domain/code/description) and
+only that crosses to the main actor. SwiftData's CloudKit store runs on Core
+Data's mirroring, which posts this notification; the internal container isn't
+exposed, so the observation can't be filtered to our store, but there's only one
+mirroring store per process. **Not yet seen in a running build** (hand test
+below). `SyncState` tracks in-flight events, phase, last import/export, last
+error (cleared by the next successful import or export), first import done, a
+failed setup, and the fallback reason.
+
+**SyncGate.** The cleanups (duplicates, deleted todos that came back, orphaned
+attachments), the daily backup and the archive purge run only when the store
+doesn't mirror, or when the first import since launch succeeded (or the last
+setup failed, e.g. no account, so nothing will arrive), nothing is in flight and
+no event came for 30 s. The purge also waits for the retention to be known.
+A closed gate defers the work (`AppController.deferredMaintenance`,
+`deferredPurge`); it is retried on every sync event, on a key-value store change
+and at the date the gate names. A gate that closes between maintenance steps
+defers the rest. After each successful import the app reloads the widgets,
+rebuilds the due notifications, refreshes an open Browse or Archive panel (an
+open edit or create screen is left alone) and schedules a gated maintenance run
+and purge.
+
+Consequence: an offline launch (no import succeeds) runs no backup and no
+cleanup until the network is back. Accepted; the backup is the safety net for a
+wipe, which needs the network too.
+
+**Widget writes while the app runs.** The widget's `.none` store posts
+`StoreChangeSignal.name` as before (notifications) and, being an app extension,
+also `StoreChangeSignal.extensionName`; the app refreshes an open Browse or
+Archive panel on it. Whether the mirroring then exports the widget's write right
+away or only at the next launch or import is a hand test.
+
+**Archive retention.** `ArchiveRetentionStore` (HowyCore) over a
+`KeyValueStoring` protocol (`UserDefaults`, `NSUbiquitousKeyValueStore`). The
+app calls `synchronize()` at launch (`false` → KVS unavailable, local value
+only) and observes `didChangeExternallyNotification`. KVS's value wins and is
+cached in `UserDefaults`. If KVS has none, the value isn't *known* until KVS
+reports a change or 60 s pass; then the local value counts and, if it was set on
+this Mac, seeds KVS. A fresh Mac never seeds the default. The purge waits until
+the value is known. Risk: a Mac with its own older choice whose KVS download
+takes longer than 60 s seeds its value over the other Mac's.
+
+**Deleted todos coming back.** Rule, applied by every device in the gated
+cleanup (`TodoStore.removeDeletedTodos`): a todo row whose `updatedAt` is at or
+before the newest `deleted` event of its id (in milliseconds) is deleted. Only
+synced values decide. An edit made after the delete on another Mac (newer
+`updatedAt`) keeps the todo: edit wins over delete. Re-importing a backup that
+contains a deleted todo keeps it, since the importer stamps `updatedAt` with the
+clock's now. Importing a file whose *events* say a todo was deleted, into a store
+where that todo is unchanged since, removes it at the next cleanup (it follows
+the history, as sync would). A purged todo has no `deleted` event; if a late
+twin brings it back, the next gated purge removes it again. Reads don't hide such
+rows; they show until the cleanup runs (after the quiet period).
+
+**Hand tests added by 3b:**
+
+- Launch the Debug build once and check Console (subsystem `lueddemann.howy`):
+  the store opens with CloudKit (no "CloudKit store unavailable"), the
+  quantization log line, and that sync events arrive (setup, import, export).
+- With nothing in iCloud yet, the gate opens once the first import ends and
+  30 s pass; the backup and cleanups then run (log lines).
+- Not signed in to iCloud: the setup fails and the gate opens after 30 s.
+- Retention: change it on one Mac, the other follows (Settings, archive panel).
+- Widget tick while Howy runs: an open Browse panel updates; the other Mac gets
+  it (now or after the next launch).
+
+**Left for Phase 3c:** account status (`CKContainer.accountStatus`,
+`CKAccountChanged`, identity token, `userDeletedZone` as a wipe), the Settings
+status line (from `AppController.syncMonitor.state`), error notifications and the
+CKError matrix, the CloudKit Console steps and the Production schema deploy, the
+2.0.0 CHANGELOG and README, and the two-Mac hand tests.
 
 ### PR 3: attachment sync
 
