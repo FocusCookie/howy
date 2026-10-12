@@ -1,9 +1,11 @@
+import CloudKit
 import CoreData
 import Foundation
 import Observation
 
 /// The app's live `SyncState`: observes the CloudKit mirroring events and answers the
-/// `SyncGate` from them.
+/// `SyncGate` from them. It also watches the iCloud account and turns both into the Settings
+/// status line (`status`) and the sync notifications (`onAlert`).
 ///
 /// SwiftData's CloudKit store runs on Core Data's `NSPersistentCloudKitContainer` mirroring,
 /// which posts `NSPersistentCloudKitContainer.eventChangedNotification`. The notification's
@@ -13,21 +15,68 @@ import Observation
 ///
 /// The event is read on the posting queue (it isn't `Sendable`), only its plain values
 /// (`SyncEvent`) cross to the main actor. Tests call `receive(_:)` directly.
+///
+/// **Account.** `startAccountChecks(containerIdentifier:)` reads the account at launch and on
+/// every `CKAccountChanged` (`AccountObservation.current(in:)`); tests call `receiveAccount(_:)`.
+/// The account this Mac's store mirrored with is remembered in `defaults` per store file
+/// (`accountKey(storeFileName:)`), outside the synced store, and compared by
+/// `SyncAccountTracker` only while the store really mirrors (`.iCloud`): a run that fell back to
+/// local wiped nothing, so it leaves the remembered account alone, and an account read before the
+/// store is open is compared once it is (`setMode(_:)`).
+///
+/// **Notifications.** Events and account changes go through `SyncIncidents` (the CKError matrix,
+/// once per incident, over an hour); what it returns is handed to `onAlert`. `tick()` checks the
+/// "over an hour" rule between events. When each kind was last posted is saved in `defaults`, so
+/// the cooldown survives a relaunch.
 @MainActor
 @Observable
 public final class SyncMonitor {
     public private(set) var state: SyncState
+    /// The iCloud account as last read; `nil` until the first check returns.
+    public private(set) var account: AccountObservation?
     /// After an import finished successfully: reload what shows the data.
     @ObservationIgnored public var onImport: () -> Void = {}
     /// After every event (and a mode change): check the deferred maintenance again.
     @ObservationIgnored public var onChange: () -> Void = {}
+    /// A sync notification to post (once per incident; see `SyncIncidents`).
+    @ObservationIgnored public var onAlert: (SyncAlert) -> Void = { _ in }
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var observer: (any NSObjectProtocol)?
+    @ObservationIgnored private let defaults: (any KeyValueStoring)?
+    @ObservationIgnored private let accountKey: String
+    @ObservationIgnored private let alertsKey: String
+    @ObservationIgnored private var tracker: SyncAccountTracker
+    @ObservationIgnored private var incidents: SyncIncidents
+    @ObservationIgnored private var container: CKContainer?
+    @ObservationIgnored private var accountObserver: (any NSObjectProtocol)?
+    /// Counts account checks, so only the latest one's answer is taken.
+    @ObservationIgnored private var accountCheck = 0
 
-    public init(mode: SyncState.Mode, now: @escaping () -> Date = { Date() }) {
+    /// `defaults` keeps the remembered account and the notification cooldown (none: nothing is
+    /// remembered across launches, as in most tests); `storeFileName` scopes their keys.
+    public init(
+        mode: SyncState.Mode, now: @escaping () -> Date = { Date() },
+        defaults: (any KeyValueStoring)? = nil, storeFileName: String = TodoStore.storeFileName
+    ) {
         let start = now()
         state = SyncState(mode: mode, startedAt: start)
         self.now = now
+        self.defaults = defaults
+        accountKey = Self.accountKey(storeFileName: storeFileName)
+        alertsKey = Self.alertsKey(storeFileName: storeFileName)
+        tracker = SyncAccountTracker(remembered: defaults?.object(forKey: accountKey) as? String)
+        let posted = (defaults?.object(forKey: alertsKey) as? [String: Double]) ?? [:]
+        incidents = SyncIncidents(lastPosted: posted.mapValues(Date.init(timeIntervalSince1970:)))
+    }
+
+    /// Where the account the store last mirrored with is remembered (per store file: Debug and
+    /// Release mirror, and are wiped, separately).
+    public static func accountKey(storeFileName: String) -> String { "howy.syncAccount.\(storeFileName)" }
+    static func alertsKey(storeFileName: String) -> String { "howy.syncAlertsPosted.\(storeFileName)" }
+
+    /// The line Settings shows now.
+    public var status: SyncStatus {
+        SyncStatus(state: state, account: account, now: now())
     }
 
     /// The mode for how the shared store really opened: `.starting` while it isn't built,
@@ -48,6 +97,8 @@ public final class SyncMonitor {
     public func setMode(_ mode: SyncState.Mode) {
         guard state.mode != mode else { return }
         state.mode = mode
+        // An account read before the store was open is compared now.
+        if mode == .iCloud, let account { compareAccount(account) }
         onChange()
     }
 
@@ -55,7 +106,61 @@ public final class SyncMonitor {
     public func receive(_ event: SyncEvent) {
         let imported = state.apply(event, at: now())
         if imported { onImport() }
+        if state.acceptsEvents { post(incidents.record(event, at: now())) }
         onChange()
+    }
+
+    /// Takes in the account as just read (from `startAccountChecks`, or a test).
+    public func receiveAccount(_ observation: AccountObservation) {
+        account = observation
+        if observation.isGone { incidents.accountUnavailable() }
+        if state.mirrors { compareAccount(observation) }
+    }
+
+    /// Checks the "failing for over an hour" rule between events (the app calls it every few
+    /// minutes).
+    public func tick() {
+        post(incidents.tick(at: now()))
+    }
+
+    /// Reads the account now and on every `CKAccountChanged`. Calling it again only reads again.
+    public func startAccountChecks(containerIdentifier: String) {
+        if container == nil {
+            let container = CKContainer(identifier: containerIdentifier)
+            self.container = container
+            // Posted on an arbitrary queue, by the container instance kept above.
+            accountObserver = NotificationCenter.default.addObserver(
+                forName: .CKAccountChanged, object: nil, queue: nil
+            ) { [weak self] _ in
+                Task { @MainActor in self?.checkAccount() }
+            }
+        }
+        checkAccount()
+    }
+
+    /// Reads the account; a check that a newer one overtook is dropped.
+    public func checkAccount() {
+        guard let container else { return }
+        accountCheck += 1
+        let check = accountCheck
+        Task { @MainActor [weak self] in
+            let observation = await AccountObservation.current(in: container)
+            guard let self, check == self.accountCheck else { return }
+            self.receiveAccount(observation)
+        }
+    }
+
+    private func compareAccount(_ observation: AccountObservation) {
+        let before = tracker.remembered
+        let change = tracker.observe(observation)
+        if tracker.remembered != before { defaults?.set(tracker.remembered, forKey: accountKey) }
+        if let change { post(incidents.accountChanged(change, at: now())) }
+    }
+
+    private func post(_ alerts: [SyncAlert]) {
+        guard !alerts.isEmpty else { return }
+        defaults?.set(incidents.lastPosted.mapValues(\.timeIntervalSince1970), forKey: alertsKey)
+        for alert in alerts { onAlert(alert) }
     }
 
     /// Whether `work` may run now (see `SyncGate`).

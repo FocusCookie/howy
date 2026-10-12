@@ -61,7 +61,8 @@ public struct SyncEvent: Hashable, Sendable {
     public var isFinished: Bool { endDate != nil }
 }
 
-/// A sync error as plain values, for the status line and the notification rules of Phase 3c.
+/// A sync error as plain values, for the status line (`SyncStatus`) and the notification rules
+/// (`SyncError.kind`, `SyncIncidents`).
 public struct SyncError: Hashable, Sendable {
     public var domain: String
     public var code: Int
@@ -69,23 +70,48 @@ public struct SyncError: Hashable, Sendable {
     /// The code of the CloudKit error underneath, when the error itself is another domain's
     /// (Core Data wraps the CloudKit error it got).
     public var underlyingCloudKitCode: Int?
+    /// The CloudKit codes of the per-item errors of a `partialFailure`
+    /// (`CKPartialErrorsByItemIDKey`), anywhere in the error's chain: storage full or a deleted
+    /// zone often only shows there.
+    public var partialCloudKitCodes: Set<Int>
 
-    public init(domain: String, code: Int, description: String, underlyingCloudKitCode: Int? = nil) {
+    public init(
+        domain: String, code: Int, description: String, underlyingCloudKitCode: Int? = nil,
+        partialCloudKitCodes: Set<Int> = []
+    ) {
         self.domain = domain
         self.code = code
         self.description = description
         self.underlyingCloudKitCode = underlyingCloudKitCode
+        self.partialCloudKitCodes = partialCloudKitCodes
     }
 
     public init(_ error: any Error) {
         let error = error as NSError
         var underlying: Int?
+        var partials = Self.partialCodes(of: error)
         var next = error.userInfo[NSUnderlyingErrorKey] as? NSError
-        while let inner = next, underlying == nil {
-            if inner.domain == CKError.errorDomain { underlying = inner.code }
+        var depth = 0
+        while let inner = next, depth < 8 {
+            if underlying == nil, inner.domain == CKError.errorDomain { underlying = inner.code }
+            partials.formUnion(Self.partialCodes(of: inner))
             next = inner.userInfo[NSUnderlyingErrorKey] as? NSError
+            depth += 1
         }
-        self.init(domain: error.domain, code: error.code, description: error.localizedDescription, underlyingCloudKitCode: underlying)
+        self.init(
+            domain: error.domain, code: error.code, description: error.localizedDescription,
+            underlyingCloudKitCode: underlying, partialCloudKitCodes: partials
+        )
+    }
+
+    /// The CloudKit codes of one error's per-item errors.
+    private static func partialCodes(of error: NSError) -> Set<Int> {
+        guard let items = error.userInfo[CKPartialErrorsByItemIDKey] as? NSDictionary else { return [] }
+        var codes: Set<Int> = []
+        for case let item as NSError in items.allValues where item.domain == CKError.errorDomain {
+            codes.insert(item.code)
+        }
+        return codes
     }
 
     /// The CloudKit error code, when it is (or wraps) a CloudKit error.
@@ -111,7 +137,7 @@ public struct SyncError: Hashable, Sendable {
 
 /// What the app knows about the shared store's CloudKit mirroring, fed by `SyncEvent`s
 /// (`apply(_:at:)`). A value, so it is tested by feeding events in; `SyncMonitor` holds the
-/// app's. Phase 3c renders it (the Settings status line, the error notifications).
+/// app's. `SyncStatus` renders it as the Settings status line.
 public struct SyncState: Hashable, Sendable {
     public enum Mode: Hashable, Sendable {
         /// The store doesn't mirror (the widget extension, or a build without sync).
