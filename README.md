@@ -143,7 +143,7 @@ Everything happens from a shortcut.
 
 - The menu has Quick Add, Browse, Archive, _Add to Quadrant_, Import…,
   Export…, Settings… and Quit.
-- In Settings you can set the panel size, record your own shortcuts, choose which quadrant new todos
+- Settings shows the iCloud sync status at the top. There you can also set the panel size, record your own shortcuts, choose which quadrant new todos
   start on, choose how attachments open, set the done animation, size the
   Overview, set how long
   the archive keeps todos, set the time used for due dates typed without one,
