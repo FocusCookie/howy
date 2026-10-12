@@ -103,7 +103,9 @@ gets a new format version. Old export files still import.
   Settings at the sync line. It fires once per incident, for:
   - signed out or iCloud turned off for Howy, so local data was removed
   - iCloud storage full
-  - CloudKit schema missing (Production not deployed)
+  - ~~CloudKit schema missing (Production not deployed)~~ Moot: there is no
+    Production (see "CloudKit environments"); any schema error falls under the
+    next point.
   - sync failing continuously for more than an hour
 
   Being offline or a brief network failure never notifies.
@@ -163,8 +165,8 @@ it from the Mac. The release notes must say so clearly.
 - [x] `TodoStore` with `cloudKitDatabase: .private(…)`.
 - [x] Remote-change handling: widgets, UI, notifications, cleanups.
 - [x] Archive retention through `NSUbiquitousKeyValueStore`.
-- [ ] Account status (`CKContainer.accountStatus` and `CKAccountChanged`),
-      the Settings status line, and error notifications.
+- [x] Account status (`CKContainer.accountStatus` and `CKAccountChanged`),
+      the Settings status line, and error notifications. (Phase 3c.)
 - [x] ~~CloudKit Console steps; schema deployed to Production.~~ Dropped: no
       Production (see "CloudKit environments").
 - [ ] Manual tests on two Macs:
@@ -273,11 +275,12 @@ Decision: the app mirrors, the widget opens the same store file with
       (setup/import/export, extracting plain values off the notification) and
       use it for the gate and the status line. After an import, reload widgets,
       rebuild the due notifications and refresh the open UI.
-- [ ] **Account (Phase 3c):** observe `CKAccountChanged` and check `accountStatus`. Detect
+- [x] **Account (Phase 3c):** observe `CKAccountChanged` and check `accountStatus`. Detect
       a wipe or account switch with a remembered identity token, and treat
       `userDeletedZone` as a wipe.
-- [ ] **CKError matrix (Phase 3c):** decide which errors are silent and which notify
-      (quota, schema missing in Production, sync failing for over an hour).
+- [x] **CKError matrix (Phase 3c):** decide which errors are silent and which notify
+      (quota, ~~schema missing in Production~~ (moot, no Production), sync
+      failing for over an hour).
 - [x] **KVS:** seed the shared value from the local one on first iCloud launch.
 - [x] **Existing rows keep sub-millisecond dates** written before 3a. Quantize
       them once (a one-time pass on a background context) before the first
@@ -471,12 +474,100 @@ any maintenance step destroying data before it has imported from iCloud.
   everyday case of test 7 (with the nudge as fallback for pushes). Tests 2–6
   and 8–10 haven't been run yet.
 
+#### Phase 3c (done): account, status line, notifications
+
+All the logic is in HowyCore, tested with Swift Testing (`SyncIncidentsTests`,
+`SyncAccountTests`, `SyncStatusTests`); the app only feeds events and posts.
+
+**CKError matrix** (`SyncErrorKind`, `SyncError.kind`). Mirroring wraps the
+CloudKit error in a Core Data one and a `partialFailure` carries the real errors
+per item (`CKPartialErrorsByItemIDKey`); every code found is classified and the
+most serious wins (zone deleted > quota > persistent > account > silent).
+
+| Kind | Codes | Effect |
+| --- | --- | --- |
+| silent | `networkUnavailable`, `networkFailure`, `serviceUnavailable`, `requestRateLimited`, `zoneBusy`, `accountTemporarilyUnavailable`, `serverResponseLost`, `operationCancelled` | never notifies, never counts; status "Offline" / "Waiting for iCloud" |
+| account | `notAuthenticated`, `managedAccountRestricted` | no error notice; the account check handles it |
+| quota | `quotaExceeded` | "iCloud storage is full", right away |
+| zone deleted | `userDeletedZone` | "Howy's iCloud data was deleted" (a wipe) |
+| persistent | everything else, and errors without a CloudKit code | "iCloud sync isn't working" after an hour without a successful import or export |
+
+**Once per incident** (`SyncIncidents`). Storage full: until an export
+succeeds. Data removed: until an import or export succeeds; a deleted zone
+within 10 min of an account-change notice is the same incident. Failing: the
+first persistent error starts the clock, a successful import or export (not a
+setup) or losing the account ends it, and it notifies on the event or the
+5-minute `tick()` that passes the hour, unless the latest error is silent
+(offline right now never notifies). Storage-full and failing notices don't
+repeat within 24 h; when each was last posted is kept in `UserDefaults`
+(`howy.syncAlertsPosted.<store file>`), so a relaunch doesn't repeat them.
+
+**Account** (`AccountObservation`, `SyncAccountTracker`). `SyncMonitor` keeps a
+`CKContainer(identifier: "iCloud.lueddemann.howy")`, reads `accountStatus()` and,
+for `.available`, `userRecordID().recordName` at launch, on `CKAccountChanged`
+and on wake (only the latest check's answer counts). `.available` with
+`userRecordID()` failing `notAuthenticated` counts as "iCloud off for Howy"
+(the header: "the device has an iCloud account but the user disables iCloud").
+The record name the store last mirrored with is remembered in
+`UserDefaults.standard` (`howy.syncAccount.<store file>`, per Mac, per store file,
+outside the synced store). Rules: first account seen → remembered quietly
+(covers Macs that synced before 3c); another account → "account changed"; no
+account / iCloud off / restricted while one is remembered → "sync stopped" and
+nothing remembered any more; temporarily unavailable, could not determine, or a
+record name that couldn't be fetched → nothing changes. The comparison only
+runs while the store mirrors (`.iCloud`): a local fallback run wiped nothing,
+and an account read before the container is built is compared at `setMode`.
+
+**Status line** (`SyncStatus`, Settings → iCloud, first section). Mode first
+(off / unavailable / checking), then the account (not signed in, iCloud off for
+Howy, restricted, waiting), then the last error until a success clears it
+(offline, waiting, or "Sync error: <reason>"), then syncing, else "Up to date"
+with when it last synced. Re-read every 15 s. Local only and offline aren't
+shown as errors.
+
+**Notifications** (`NotificationCoordinator.post(_:)`): delivered at once, one
+identifier per kind (`howy.sync.<kind>`, a newer one replaces the older). If
+permission was never asked, a sync notice asks. A click opens Settings and
+highlights the iCloud line for 2 s (`AppController.showSyncSettings()`).
+
+**Hand tests for 3c** (take a manual export first; Console subsystem
+`lueddemann.howy`, "Sync notice:" lines):
+
+1. Mac B: sign out of iCloud while Howy runs → "iCloud sync stopped", the line
+   says "Not signed in to iCloud", the todos are gone; sign back in → no notice,
+   todos come back, line goes "Syncing…" then "Up to date".
+2. Mac B: sign out with Howy quit, relaunch → the notice at launch.
+3. Turn iCloud off for Howy only (System Settings → Apple Account → iCloud →
+   Saved to iCloud) → check which notice and line you get (unverified: whether
+   macOS reports "no account" or "iCloud off for Howy").
+4. Turn Wi-Fi off for over an hour → "Offline", no notice.
+5. Click a notice → Settings opens with the iCloud line highlighted.
+6. A second iCloud account on Mac B (only with a test account) → "iCloud
+   account changed".
+7. iCloud full and a deleted zone can't be tested easily: quota needs a full
+   account, and deleting Howy's data in iCloud settings would delete the real
+   data. Leave them to the unit tests.
+
 #### Known limits
 
 - Whether mirroring merges per field or per record is unverified. Nothing may
   rely on per-field merging; a concurrent edit on two Macs can lose one edit.
 - **Sign-out wipes the local store** (Apple's behaviour); unsynced changes are
-  lost. The daily backup is the safety net; Phase 3c adds detection.
+  lost. The daily backup is the safety net; Howy notifies when it sees the
+  sign-out or account change (Phase 3c).
+- A sign-out and back into the **same** account while Howy wasn't running isn't
+  seen (nothing to compare); mirroring downloads everything again, but changes
+  that hadn't uploaded are lost without a notice.
+- "iCloud off for Howy" is inferred from `userRecordID()` failing
+  `notAuthenticated` while the account is available; not checked on a real Mac.
+  A one-off `notAuthenticated` there (e.g. right after login) would show a false
+  "sync stopped" notice; the remembered account is then dropped, so the next
+  good check re-remembers it quietly.
+- A first notice on a Mac where notifications were never allowed asks for
+  permission then; if they are off, the notice is only logged and the status
+  line is the only sign.
+- The daily backup taken after a wipe is of the empty store; it only displaces
+  the oldest of the 7, and the day's slot is usually taken already.
 - **A Mac without any sync event** (offline, no iCloud account) never opens the
   strict gate for an account problem it can't see: the backup still runs after
   10 min, the cleanups and the purge wait. After a wake they wait for an import
@@ -529,11 +620,10 @@ first (Export…), and keep `Backups/` safe.
 10. **Debug.** Launch Debug on one Mac: it opens `Howy-Debug.store`, downloads
     the real data, and its backups go to `Backups-Howy-Debug`.
 
-**Left for Phase 3c:** account status (`CKContainer.accountStatus`,
-`CKAccountChanged`, identity token, `userDeletedZone` as a wipe), the Settings
-status line (from `AppController.syncMonitor.state`), error notifications and the
-CKError matrix, the CloudKit Console steps and the Production schema deploy, the
-2.0.0 CHANGELOG and README, and the two-Mac hand tests.
+**Phase 3c** is done (see above). The CloudKit Console steps and the
+Production schema deploy were dropped (no Production). **Left:** the two-Mac
+hand tests (the joining list above and the 3c list), the 2.0.0 release (version
+bump, release notes) and the PR.
 
 ### PR 3: attachment sync
 

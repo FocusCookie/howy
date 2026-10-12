@@ -163,8 +163,21 @@ Everything happens from a shortcut.
 - The widget shows what the app last received; it updates while Howy runs.
 - **Signing out of iCloud, switching accounts or turning off iCloud for Howy
   removes the todos from this Mac** (Apple's behaviour). Signing back in
-  downloads them again, but changes that hadn't uploaded yet are lost. The
-  daily backup is the safety net.
+  downloads them again, but changes that hadn't uploaded yet are lost. Howy
+  tells you with a notification when it sees this happen (also at the next
+  launch if it happened while Howy wasn't running), and the daily backup is the
+  safety net (Settings → Import & Export).
+- **Settings → iCloud** shows one status line: checking, syncing, up to date
+  (with when it last synced), offline, waiting for iCloud, not signed in or
+  iCloud off for Howy (Howy then works on this Mac only), or a sync error with
+  a short reason.
+- **Notifications** come once per problem, and clicking one opens Settings at
+  the status line: the todos were removed from this Mac (signed out, iCloud off
+  for Howy, another account, or Howy's data deleted from iCloud), iCloud
+  storage is full, or sync has failed for over an hour. Being offline or a
+  short hiccup at iCloud never notifies. Storage-full and failing notices don't
+  repeat within a day. If notifications were never allowed, the first notice
+  asks for permission.
 - Editing the same todo on two Macs at the same moment can lose one of the
   two edits.
 - Howy waits until it has received the changes from iCloud before it runs its

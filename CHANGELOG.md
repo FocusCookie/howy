@@ -14,13 +14,23 @@ All notable changes to Howy are documented here. The format follows
   arrive by push, and Howy also checks for them when a panel opens, after wake
   and every 5 minutes, so a change can take a few minutes to show up on the
   other Mac. Attachments don't sync yet.
+- **iCloud status in Settings.** A new iCloud section shows one line: syncing,
+  up to date (and when it last synced), offline, not signed in or iCloud off
+  for Howy (local only, not an error), or a sync error with a short reason.
+- **Sync notifications**, once per problem; clicking one opens Settings at the
+  iCloud line. Howy tells you when the todos were removed from this Mac
+  (signed out, iCloud turned off for Howy, another iCloud account, or Howy's
+  data deleted from iCloud) and points to the daily backups, when iCloud
+  storage is full, and when sync has failed for over an hour. Being offline or
+  a brief network problem never notifies.
 
 ### Changed
 
 - **Your todos now belong to your iCloud account.** Signing out of iCloud,
   switching accounts or turning off iCloud for Howy removes the todos from this
   Mac (Apple's behaviour); signing back in downloads them again, but changes
-  that hadn't uploaded yet are lost. The daily backup is the safety net.
+  that hadn't uploaded yet are lost. Howy notifies you when this happens, and
+  the daily backup is the safety net.
 - A Mac that joins with an empty or older store doesn't clean up or empty the
   archive until it has received the changes from iCloud. Todos deleted on another Mac are removed here too, unless they were
   edited after the delete.
