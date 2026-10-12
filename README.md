@@ -9,7 +9,7 @@ floating panels that appear above everything, like Spotlight or Raycast. Desktop
 widgets show your matrix at a glance. Howy has no Dock icon and no main window.
 Everything happens from a shortcut.
 
-## What it can do (v1.0.0)
+## What it can do (v2.0.0)
 
 ### Floating panels, driven by the keyboard
 

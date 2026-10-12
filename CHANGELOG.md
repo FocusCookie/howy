@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-12
+
 ### Added
 
 - **iCloud sync between your Macs.** Todos, their history and the archive
