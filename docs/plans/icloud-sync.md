@@ -548,6 +548,12 @@ highlights the iCloud line for 2 s (`AppController.showSyncSettings()`).
    account, and deleting Howy's data in iCloud settings would delete the real
    data. Leave them to the unit tests.
 
+**Result (2026-10-12):** test 1, sign-out while Howy runs: passed. The sign-out
+notice arrived, the Settings line showed sync as off, and the todos were removed
+from the Mac as expected. After signing back in, the todos downloaded again and
+sync resumed. Tests 2–6 haven't been
+run yet.
+
 #### Known limits
 
 - Whether mirroring merges per field or per record is unverified. Nothing may
