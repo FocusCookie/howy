@@ -456,6 +456,21 @@ any maintenance step destroying data before it has imported from iCloud.
   reports say push-triggered imports otherwise don't arrive on macOS. It costs
   nothing (the `aps-environment` entitlement is there). Check by hand (below).
 
+#### Import nudge and first two-Mac result (2026-10-12)
+
+- **Release crash fixed** (`039ca22`): the duplicate check used a key path that
+  crashed release builds after a sync; it now uses the concrete `id` key path.
+- **Import nudge** (`2ea64cb`): pushes don't arrive reliably, so a Mac could go
+  without importing until its next launch. `AppController.nudgeImport()` posts
+  `NSApplication.didBecomeActiveNotification` (Core Data's
+  "AppActivationImport" trigger, which Howy's non-activating panels never fire)
+  when a panel opens, on wake and every 5 minutes, at most once a minute and
+  only in `.iCloud` mode while Howy isn't active.
+- **Hand test, two Macs:** changes from one Mac arrive on the other after a
+  while, and the Macs stay in sync over time. That covers test 1 (join) and the
+  everyday case of test 7 (with the nudge as fallback for pushes). Tests 2–6
+  and 8–10 haven't been run yet.
+
 #### Known limits
 
 - Whether mirroring merges per field or per record is unverified. Nothing may

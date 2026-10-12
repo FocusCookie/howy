@@ -6,6 +6,27 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **iCloud sync between your Macs.** Todos, their history and the archive
+  period sync through your private iCloud database. It's always on while you're
+  signed in to iCloud; without an account Howy works locally as before. Changes
+  arrive by push, and Howy also checks for them when a panel opens, after wake
+  and every 5 minutes, so a change can take a few minutes to show up on the
+  other Mac. Attachments don't sync yet.
+
+### Changed
+
+- **Your todos now belong to your iCloud account.** Signing out of iCloud,
+  switching accounts or turning off iCloud for Howy removes the todos from this
+  Mac (Apple's behaviour); signing back in downloads them again, but changes
+  that hadn't uploaded yet are lost. The daily backup is the safety net.
+- A Mac that joins with an empty or older store doesn't clean up or empty the
+  archive until it has received the changes from iCloud. Todos deleted on another Mac are removed here too, unless they were
+  edited after the delete.
+- Debug builds use their own store, backups and attachments folders
+  (`Howy-Debug.store`, `Backups-Howy-Debug/`, `Attachments-Howy-Debug/`).
+
 ## [1.8.0] - 2026-10-11
 
 ### Added

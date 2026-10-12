@@ -149,19 +149,42 @@ Everything happens from a shortcut.
   the archive keeps todos, set the time used for due dates typed without one,
   open the backups folder, and turn on start at login.
 
-All data stays on your Mac (SwiftData in a sandboxed App Group container). Howy
-has no sync and no account. It keeps a history of what happens to each todo
+### iCloud sync
+
+- Todos, their history and the archive period sync between your Macs through
+  iCloud (your private iCloud database, no sharing). It's always on while you're
+  signed in to iCloud; without an account Howy works locally.
+- Changes from another Mac arrive by push, and Howy also checks for them when a
+  panel opens, after the Mac wakes and every 5 minutes while it runs. So a
+  change can take a few minutes to show up.
+- Attachments don't sync yet: a todo synced to another Mac shows without them.
+- Drafts, the last quadrant, panel size and the other display settings stay
+  per Mac.
+- The widget shows what the app last received; it updates while Howy runs.
+- **Signing out of iCloud, switching accounts or turning off iCloud for Howy
+  removes the todos from this Mac** (Apple's behaviour). Signing back in
+  downloads them again, but changes that hadn't uploaded yet are lost. The
+  daily backup is the safety net.
+- Editing the same todo on two Macs at the same moment can lose one of the
+  two edits.
+- Howy waits until it has received the changes from iCloud before it runs its
+  cleanups or empties the archive, so a Mac that joins with an empty or older
+  store never deletes anything first.
+
+Howy keeps its data in SwiftData in a sandboxed App Group container, and syncs
+it only to your own iCloud account. It keeps a history of what happens to each todo
 (added, done, moved, due date changes, deleted; ids and times only, no titles)
-for statistics in a later version. A todo that exists twice shows once. At
-launch Howy removes the copies that differ from the most recently changed one
-(exact copies stay; they are harmless), and moves attachment folders whose todo
-is gone into
+for statistics in a later version. A todo that exists twice shows once. Howy
+removes the copies that differ from the most recently changed one (exact copies
+stay; they are harmless), removes todos that were deleted on another Mac, and
+moves attachment folders whose todo is gone into
 `Attachments/.trash` (emptied after 14 days). It never does that for an empty
 store, or when more than half of the attachment folders look orphaned.
 
 ## Requirements
 
 - macOS 27 or later
+- An iCloud account for sync (optional)
 - Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) to build it
 
 ## Building
