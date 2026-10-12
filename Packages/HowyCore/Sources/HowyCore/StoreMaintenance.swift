@@ -80,8 +80,8 @@ actor StoreMaintenance {
         // Ids first (a cheap check; most runs end here), then, on a fresh context, the full
         // rows of the repeated ids only, read right before the delete: rows that arrived since
         // are in the decision, and no twin is deleted from a stale snapshot.
-        let todoIDs = try repeatedIDs(of: Todo.self)
-        let eventIDs = try repeatedIDs(of: TodoEvent.self)
+        let todoIDs = try repeatedIDs(\Todo.id)
+        let eventIDs = try repeatedIDs(\TodoEvent.id)
         guard !todoIDs.isEmpty || !eventIDs.isEmpty else { return result }
         let fresh = ModelContext(modelContainer)
         if !todoIDs.isEmpty {
@@ -154,10 +154,14 @@ actor StoreMaintenance {
     }
 
     /// The ids that more than one row of `Model` has, read without loading the other values.
-    private func repeatedIDs<Model: PersistentModel & DuplicateResolvable>(of type: Model.Type) throws -> Set<UUID> {
+    ///
+    /// Takes the model's own key path: a `\Model.id` written in a generic context resolves through
+    /// the protocol requirement, which SwiftData doesn't know as a stored property (it traps with
+    /// "Couldn't find \Todo.<computed …> on Todo").
+    private func repeatedIDs<Model: PersistentModel>(_ id: KeyPath<Model, UUID>) throws -> Set<UUID> {
         var descriptor = FetchDescriptor<Model>()
-        descriptor.propertiesToFetch = [\.id]
-        return DuplicateRules.repeated(try modelContext.fetch(descriptor).map(\.id))
+        descriptor.propertiesToFetch = [id]
+        return DuplicateRules.repeated(try modelContext.fetch(descriptor).map { $0[keyPath: id] })
     }
 
     // MARK: Reads
