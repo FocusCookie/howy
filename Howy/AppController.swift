@@ -37,6 +37,9 @@ final class AppController {
     @ObservationIgnored private var previousApp: NSRunningApplication?
     @ObservationIgnored private var activationObserver: NSObjectProtocol?
     @ObservationIgnored private var purgeTimer: Timer?
+    @ObservationIgnored private var importNudgeTimer: Timer?
+    /// When `nudgeImport()` last posted (Core Data throttles too; this keeps the posts rare).
+    @ObservationIgnored private var lastImportNudge = Date.distantPast
     @ObservationIgnored private var wakeObserver: NSObjectProtocol?
     @ObservationIgnored private var dayChangeObserver: NSObjectProtocol?
     /// The running cleanups/backup. A call that arrives meanwhile is not dropped: it sets
@@ -150,6 +153,10 @@ final class AppController {
             }
         }
         purgeTimer?.tolerance = 60 * 60
+        importNudgeTimer = Timer.scheduledTimer(withTimeInterval: Self.importNudgeInterval, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.nudgeImport() }
+        }
+        importNudgeTimer?.tolerance = 60
         // Timers don't advance while the Mac sleeps, so also purge (and catch up on due dates
         // that passed meanwhile) on wake.
         wakeObserver = NSWorkspace.shared.notificationCenter.addObserver(
@@ -159,6 +166,7 @@ final class AppController {
                 // What arrived during sleep isn't imported yet: only an import that starts now
                 // counts for the destructive work, which the purge asks the gate about.
                 self?.syncMonitor.noteWake()
+                self?.nudgeImport()
                 self?.purgeArchive()
                 NotificationCoordinator.shared.requestSync()
                 self?.runMaintenance(cleanups: false)
@@ -683,6 +691,8 @@ final class AppController {
         panelKind = kind
         previous?.dismiss() // one panel at a time; its onClose sees it is no longer current
         cancelPendingActivation()
+        // Before the activation observer below exists, so the nudge can't present early.
+        nudgeImport()
 
         let needsActivation = activate && !NSApp.isActive
         // Deep links: always hand focus back when we're done, even if LaunchServices already
@@ -728,6 +738,25 @@ final class AppController {
                 self?.presentPending(newPanel)
             }
         }
+    }
+
+    /// How often `nudgeImport()` runs on its own while Howy is open.
+    private static let importNudgeInterval: TimeInterval = 5 * 60
+
+    /// Makes CloudKit mirroring look for changes from other devices, as a safety net for lost
+    /// pushes: APNs doesn't guarantee delivery, and a Mac whose push connection is broken would
+    /// otherwise only import at launch. Runs when a panel opens, on wake and every 5 minutes.
+    ///
+    /// Core Data imports when the app becomes active ("AppActivationImport"), but Howy's panels
+    /// are non-activating, so it posts that notification itself. It's the only trigger Core Data
+    /// offers; Howy's own observers of it (a panel waiting for activation, Settings re-reading the
+    /// notification permission) tolerate a spurious one. At most once a minute.
+    private func nudgeImport() {
+        guard syncMonitor.state.mode == .iCloud, !NSApp.isActive else { return }
+        let now = Date()
+        guard now.timeIntervalSince(lastImportNudge) >= 60 else { return }
+        lastImportNudge = now
+        NotificationCenter.default.post(name: NSApplication.didBecomeActiveNotification, object: NSApp)
     }
 
     private func presentPending(_ pending: FloatingPanel) {
