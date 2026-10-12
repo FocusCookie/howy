@@ -3,7 +3,8 @@ import HowyCore
 import KeyboardShortcuts
 import SwiftUI
 
-/// The things worth configuring: how big the panels are drawn, the global shortcuts (one launcher shortcut, or separate Quick Add
+/// The iCloud sync status line (first, so a click on a sync notice lands on it), and the things
+/// worth configuring: how big the panels are drawn, the global shortcuts (one launcher shortcut, or separate Quick Add
 /// and Browse shortcuts), the quadrant new todos start on, how attachments open, what plays when a
 /// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, the
 /// default time of due dates (and a hint when notifications are off), the daily backups' folder, and
@@ -50,8 +51,17 @@ struct SettingsView: View {
             .fixedSize()
     }
 
-    /// Appearance, Shortcuts, New Todos, Attachments and Celebration.
+    /// iCloud, Appearance, Shortcuts, New Todos, Attachments and Celebration.
     @ViewBuilder private var leftSections: some View {
+        Section {
+            SyncStatusRow(monitor: controller.syncMonitor, highlightRequest: controller.syncLineHighlightRequest)
+        } header: {
+            Text("iCloud")
+        } footer: {
+            Text("Howy syncs your todos through your iCloud account; attachments stay on this Mac for now. Signing out of iCloud or turning it off for Howy removes the synced todos from this Mac (signing back in brings them back). Howy tells you when that happens, when iCloud is full, or when sync has failed for over an hour. The daily backups are under Import & Export.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
         Section {
             LabeledContent("Panel size:") { zoomSlider }
         } header: {
@@ -297,6 +307,52 @@ extension SettingsView {
         let recording = "Click a shortcut, then press the new keys. Esc cancels, Delete removes it."
         guard controller.shortcutMode == .single else { return recording }
         return "Opens a chooser: ← or 1 for New Todo, → or 2 for Browse, ↩ for the selected one. " + recording
+    }
+}
+
+/// Settings' sync line: `SyncMonitor.status`, re-read every 15 seconds (whether an event still
+/// counts as running, and "last synced", depend on the time). Highlighted for a moment when a sync
+/// notice was clicked (`AppController.syncLineHighlightRequest`, a few seconds old at most).
+private struct SyncStatusRow: View {
+    let monitor: SyncMonitor
+    let highlightRequest: Date?
+    @State private var highlighted = false
+
+    var body: some View {
+        TimelineView(.periodic(from: .now, by: 15)) { _ in
+            let status = monitor.status
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Image(systemName: status.symbolName)
+                    .foregroundStyle(status.isProblem ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
+                    .accessibilityHidden(true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(status.title)
+                        .foregroundStyle(status.isProblem ? AnyShapeStyle(.red) : AnyShapeStyle(.primary))
+                    if case .upToDate(let last?) = status {
+                        Text("Last synced \(last, format: .relative(presentation: .named))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    } else if let detail = status.detail {
+                        Text(detail)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+                Spacer(minLength: 0)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("iCloud sync")
+            .accessibilityValue(status.detail.map { "\(status.title). \($0)" } ?? status.title)
+        }
+        .listRowBackground(highlighted ? Color.accentColor.opacity(0.18) : nil)
+        .animation(.easeInOut(duration: 0.3), value: highlighted)
+        .task(id: highlightRequest) {
+            guard let highlightRequest, Date.now.timeIntervalSince(highlightRequest) < 5 else { return }
+            highlighted = true
+            try? await Task.sleep(for: .seconds(2))
+            highlighted = false
+        }
     }
 }
 

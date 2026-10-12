@@ -15,6 +15,11 @@ let log = Logger(subsystem: "lueddemann.howy", category: "app")
 /// `syncMonitor`). While it is closed they are deferred, not dropped: `deferredMaintenance` and
 /// `deferredPurge` remember them, and they are tried again on every sync event, on a key-value
 /// store change, and at the date the gate names (`recheck`).
+///
+/// **Account and notices.** `syncMonitor` reads the iCloud account at launch, on
+/// `CKAccountChanged` and on wake, and checks the "failing for over an hour" rule every 5 minutes
+/// (with the import nudge). The notices it raises go to `NotificationCoordinator`; a click on
+/// one opens Settings with the sync line highlighted (`showSyncSettings()`).
 @MainActor
 @Observable
 final class AppController {
@@ -76,8 +81,12 @@ final class AppController {
     private static let didMigrateBrowseShortcutKey = "didMigrateBrowseShortcutToM"
     private static let panelWidth: CGFloat = 560
 
-    /// The shared store's CloudKit mirroring as the app sees it (Phase 3c shows it in Settings).
-    let syncMonitor = SyncMonitor(mode: .starting)
+    /// The shared store's CloudKit mirroring and the iCloud account as the app sees them (the
+    /// Settings status line, the sync notices). The remembered account and the notice cooldown
+    /// live in this Mac's `UserDefaults`, outside the synced store.
+    let syncMonitor = SyncMonitor(mode: .starting, defaults: UserDefaults.standard)
+    /// When Settings was last asked to highlight the sync line (a click on a sync notice).
+    private(set) var syncLineHighlightRequest: Date?
     /// The archive retention, shared through the iCloud key-value store.
     let retention: ArchiveRetentionStore
 
@@ -145,7 +154,10 @@ final class AppController {
         }
         launchesAtLogin = SMAppService.mainApp.status == .enabled
         // The notification delegate must be in place before launching finishes.
-        NotificationCoordinator.shared.start { [weak self] id in self?.showEdit(id: id, activate: true) }
+        NotificationCoordinator.shared.start(
+            openTodo: { [weak self] id in self?.showEdit(id: id, activate: true) },
+            openSyncSettings: { [weak self] in self?.showSyncSettings() }
+        )
         purgeTimer = Timer.scheduledTimer(withTimeInterval: 24 * 60 * 60, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 self?.purgeArchive()
@@ -154,7 +166,10 @@ final class AppController {
         }
         purgeTimer?.tolerance = 60 * 60
         importNudgeTimer = Timer.scheduledTimer(withTimeInterval: Self.importNudgeInterval, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.nudgeImport() }
+            MainActor.assumeIsolated {
+                self?.nudgeImport()
+                self?.syncMonitor.tick()
+            }
         }
         importNudgeTimer?.tolerance = 60
         // Timers don't advance while the Mac sleeps, so also purge (and catch up on due dates
@@ -166,6 +181,7 @@ final class AppController {
                 // What arrived during sleep isn't imported yet: only an import that starts now
                 // counts for the destructive work, which the purge asks the gate about.
                 self?.syncMonitor.noteWake()
+                self?.syncMonitor.checkAccount()
                 self?.nudgeImport()
                 self?.purgeArchive()
                 NotificationCoordinator.shared.requestSync()
@@ -197,6 +213,11 @@ final class AppController {
     private func startSync() {
         syncMonitor.onImport = { [weak self] in self?.storeChangedRemotely() }
         syncMonitor.onChange = { [weak self] in self?.retryDeferredWork() }
+        syncMonitor.onAlert = { alert in NotificationCoordinator.shared.post(alert) }
+        // Only a build that mirrors (a valid store file name) has an account worth watching.
+        if TodoStore.hasValidStoreFileName {
+            syncMonitor.startAccountChecks(containerIdentifier: StoreSync.containerIdentifier)
+        }
         // The widget's checkbox writes from its own process; the open panel reads again.
         CFNotificationCenterAddObserver(
             CFNotificationCenterGetDarwinNotifyCenter(), nil,
@@ -963,6 +984,12 @@ final class AppController {
     func showSettings() {
         closePanel()
         settingsWindow.show(controller: self)
+    }
+
+    /// Settings with the sync line highlighted for a moment (a click on a sync notice).
+    func showSyncSettings() {
+        syncLineHighlightRequest = .now
+        showSettings()
     }
 
     /// KeyboardShortcuts stores a name's default on first launch, so early installs kept the old
