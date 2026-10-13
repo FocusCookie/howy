@@ -7,7 +7,8 @@ extension EnvironmentValues {
     /// How much bigger everything in the enclosing panel is drawn (`PanelZoom.scale`); 1 outside panels.
     @Entry var panelScale: CGFloat = 1
     /// The tallest the panel's card may get: the room from its top edge down to the bottom of the
-    /// screen (less a small gap). Infinite outside panels.
+    /// screen, or from its bottom edge up to the top for a card that grows upward (less a small
+    /// gap; `PanelLayout.maxCardHeight`). Infinite outside panels.
     @Entry var panelHeightLimit: CGFloat = .infinity
 }
 

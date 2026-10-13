@@ -439,16 +439,14 @@ private struct SyncStatusRow: View {
 
 /// The Overview setting's preview: the screen the Settings window is on as a rounded rectangle
 /// (its aspect, its menu bar and Dock left out as on screen), with the Overview's frame on it in
-/// the accent colour, worked out by the same `OverviewSize.frame` as the real panel, grown from
-/// where the panel's card sits when it was not moved (`OverviewSize.compactCardCenter`).
+/// the accent colour, worked out by the same `OverviewSize.centeredFrame` as the real panel
+/// (the Overview always opens in the middle of the screen).
 private struct OverviewSizePreview: View {
     let size: OverviewSize
     @State private var screen: NSScreen?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private static let width: CGFloat = 220
-    /// About the height of Browse's small card (the four quadrant cards and the footer).
-    private static let compactCardHeight: CGFloat = 264
 
     var body: some View {
         let shownScreen = screen ?? NSScreen.main
@@ -460,8 +458,7 @@ private struct OverviewSizePreview: View {
             x: (visible.minX - full.minX) * scale, y: (full.maxY - visible.maxY) * scale,
             width: visible.width * scale, height: visible.height * scale
         )
-        let center = OverviewSize.compactCardCenter(in: shown, cardHeight: Self.compactCardHeight * scale, yAxisUp: false)
-        let overview = size.frame(in: shown, centeredOn: center, scale: scale)
+        let overview = size.centeredFrame(in: shown, scale: scale)
         VStack(spacing: 4) {
             ZStack(alignment: .topLeading) {
                 RoundedRectangle(cornerRadius: 8, style: .continuous)

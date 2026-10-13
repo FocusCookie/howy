@@ -100,6 +100,18 @@ import Testing
         #expect(isClose(onLarge.maxY, large.maxY - 240))
     }
 
+    @Test func aGivenAnchorAndColumnKeepTheCardInPlace() {
+        let card = CGRect(x: 100, y: 500, width: 600, height: 300)
+        for anchor in [PanelAnchor.top, .bottom] {
+            for column in [PanelColumn.leading, .center, .trailing] {
+                let position = PanelPlacement.position(fromCardFrame: card, in: Self.visible, anchor: anchor, column: column)
+                #expect(position.anchor == anchor)
+                #expect(position.column == column)
+                #expect(isClose(PanelPlacement.cardFrame(for: position, cardSize: card.size, in: Self.visible), card))
+            }
+        }
+    }
+
     @Test func anchorFromTheVerticalThird() {
         let v = CGRect(x: 0, y: 0, width: 900, height: 900)
         func anchor(centerY: CGFloat) -> PanelAnchor {

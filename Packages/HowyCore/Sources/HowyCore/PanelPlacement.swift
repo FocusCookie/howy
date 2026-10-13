@@ -165,6 +165,12 @@ public enum PanelPlacement {
         let column: PanelColumn = across < 1.0 / 3 ? .leading : across > 2.0 / 3 ? .trailing : .center
         let up = (frame.midY - visible.minY) / visible.height
         let anchor: PanelAnchor = up < 1.0 / 3 ? .bottom : .top
+        return position(fromCardFrame: frame, in: visible, anchor: anchor, column: column)
+    }
+
+    /// The position of a card frame with a given anchor and column (the card stays where it is,
+    /// only the edges that count as fixed change).
+    public static func position(fromCardFrame frame: CGRect, in visible: CGRect, anchor: PanelAnchor, column: PanelColumn) -> PanelPosition {
         let edgeX: CGFloat =
             switch column {
             case .leading: frame.minX
