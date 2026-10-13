@@ -3,222 +3,152 @@ import HowyCore
 import KeyboardShortcuts
 import SwiftUI
 
-/// The iCloud sync status line (first, so a click on a sync notice lands on it), and the things
-/// worth configuring: how big the panels are drawn, the Open Howy shortcut, how attachments open, what plays when a
-/// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, the
-/// default time of due dates (and a hint when notifications are off), the daily backups' folder, and
-/// launching at login.
-struct SettingsView: View {
+// Settings' five tabs (`AppController.SettingsTab`), each a single grouped form as tall as its
+// content; `SettingsWindowController` puts them in a toolbar and sizes the window to the tab.
+
+/// The width of every tab's form.
+private let settingsWidth: CGFloat = 520
+
+extension View {
+    /// One tab's grouped form: `settingsWidth` wide and as tall as its content, so it never scrolls.
+    fileprivate func settingsForm() -> some View {
+        formStyle(.grouped)
+            .scrollDisabled(true)
+            .frame(width: settingsWidth)
+            .fixedSize()
+    }
+}
+
+/// A section footer's explanation.
+private struct FooterText: View {
+    let text: String
+    init(_ text: String) { self.text = text }
+
+    var body: some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
+}
+
+// MARK: General
+
+/// Launching at login, how attachments open, the default time of due dates (and a hint when
+/// notifications are off).
+struct GeneralSettingsView: View {
     let controller: AppController
-    @State private var recorder = ShortcutRecorderModel()
     @State private var openMode = AttachmentOpenMode.load()
-    @State private var doneAnimation = DoneAnimation.load()
-    @State private var overviewSize = OverviewSize.load()
-    @State private var copiedFormat = false
     @State private var dueDefaultTime = DueTime.load()
     private let notifications = NotificationCoordinator.shared
 
-    /// Width of each of the two columns.
-    private static let columnWidth: CGFloat = 440
-
     var body: some View {
-        HStack(alignment: .top, spacing: 0) {
-            column { leftSections }
-            column { rightSections }
+        Form {
+            Section {
+                Toggle("Start Howy at login", isOn: Binding(
+                    get: { controller.launchesAtLogin },
+                    set: { controller.setLaunchesAtLogin($0) }
+                ))
+            }
+            Section {
+                Picker("Open attachments in:", selection: $openMode) {
+                    ForEach(AttachmentOpenMode.allCases) { mode in
+                        Text(mode.displayName).tag(mode)
+                    }
+                }
+                .onChange(of: openMode) { _, value in value.save() }
+            } header: {
+                Text("Attachments")
+            } footer: {
+                FooterText("Click, Space or ↩ opens an attachment this way; ⌥-click or ⌥↩ opens it the other way.")
+            }
+            Section {
+                LabeledContent("Time when none is typed:") {
+                    DatePicker("Time when none is typed", selection: dueTimeBinding, displayedComponents: .hourAndMinute)
+                        .labelsHidden()
+                }
+                if notifications.authorization == .denied {
+                    LabeledContent("Notifications off —") {
+                        Button("Open System Settings") { notifications.openSystemSettings() }
+                    }
+                    .foregroundStyle(.red)
+                }
+            } header: {
+                Text("Due Dates")
+            } footer: {
+                FooterText("⌘T in the editor or T in a list sets a due date: type \"tomorrow\", \"fri 2pm\", \"24.12.\" or \"in a week\". A day without a time is due at this time, and so is \"Tomorrow\" on a notification. Howy notifies you when a todo is due; due dates and the red bells work without notifications too.")
+            }
         }
-        .fixedSize()
+        .settingsForm()
         .onAppear { controller.refreshLaunchesAtLogin() }
         .task { await notifications.refreshAuthorization() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             Task { await notifications.refreshAuthorization() } // back from System Settings
         }
-        .onDisappear { recorder.stop() }
-        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
-            recorder.stop()
-        }
     }
 
-    /// One grouped form column, as tall as its content so it never scrolls.
-    private func column(@ViewBuilder _ content: () -> some View) -> some View {
-        Form { content() }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-            .frame(width: Self.columnWidth)
-            .fixedSize()
-    }
-
-    /// iCloud, Appearance, Shortcuts, New Todos, Attachments and Celebration.
-    @ViewBuilder private var leftSections: some View {
-        Section {
-            SyncStatusRow(monitor: controller.syncMonitor, highlightRequest: controller.syncLineHighlightRequest)
-        } header: {
-            Text("iCloud")
-        } footer: {
-            Text("Howy syncs your todos through your iCloud account; attachments stay on this Mac for now. Signing out of iCloud or turning it off for Howy removes the synced todos from this Mac (signing back in brings them back). Howy tells you when that happens, when iCloud is full, or when sync has failed for over an hour. The daily backups are under Import & Export.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        Section {
-            LabeledContent("Panel size:") { zoomSlider }
-        } header: {
-            Text("Appearance")
-        } footer: {
-            Text("How big text and everything else is in Howy's panels. In an open panel, ⌘+ and ⌘- change it too, and ⌘0 goes back to 100 %.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        Section {
-            LabeledContent("Open Howy:") { ShortcutField(name: .openHowy, model: recorder) }
-            Button("Restore Default") {
-                recorder.restoreDefaults() // ⌃⌥⇧⌘Space
+    /// The default due time as a date today, for the time picker; a new time is saved.
+    private var dueTimeBinding: Binding<Date> {
+        Binding(
+            get: {
+                Calendar.current.date(bySettingHour: dueDefaultTime.hour, minute: dueDefaultTime.minute, second: 0, of: Date()) ?? Date()
+            },
+            set: { date in
+                let c = Calendar.current.dateComponents([.hour, .minute], from: date)
+                let time = DueTime(hour: c.hour ?? 9, minute: c.minute ?? 0)
+                guard time != dueDefaultTime else { return }
+                dueDefaultTime = time
+                time.save()
+                notifications.registerCategory() // the Tomorrow button names the time
             }
-        } header: {
-            Text("Shortcut")
-        } footer: {
-            Text(recorder.message ?? footerHint)
-                .font(.caption)
-                .foregroundStyle(recorder.message == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
-        }
-        Section {
-            Picker("Open attachments in:", selection: $openMode) {
-                ForEach(AttachmentOpenMode.allCases) { mode in
-                    Text(mode.displayName).tag(mode)
-                }
-            }
-            .onChange(of: openMode) { _, value in value.save() }
-        } header: {
-            Text("Attachments")
-        } footer: {
-            Text("Click, Space or ↩ opens an attachment this way; ⌥-click or ⌥↩ opens it the other way.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        Section {
-            Picker("When a todo is done:", selection: $doneAnimation) {
-                ForEach(DoneAnimation.allCases) { style in
-                    Text(style.displayName).tag(style)
-                }
-            }
-            .onChange(of: doneAnimation) { _, value in value.save() }
-        } header: {
-            Text("Celebration")
-        } footer: {
-            Text("A random emoji rises out of the panel when you mark a todo done, with a small confetti burst. Reduce Motion skips the confetti.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    /// Overview, Archive, Import & Export (with the daily backups), Due Dates and General.
-    @ViewBuilder private var rightSections: some View {
-        Section {
-            LabeledContent("Width:") {
-                percentSlider(
-                    "Overview width", value: overviewSize.widthPercent,
-                    set: { overviewSize.with(widthPercent: $0) }
-                )
-            }
-            LabeledContent("Height:") {
-                percentSlider(
-                    "Overview height", value: overviewSize.heightPercent,
-                    set: { overviewSize.with(heightPercent: $0) }
-                )
-            }
-            OverviewSizePreview(size: overviewSize)
-                .frame(maxWidth: .infinity)
-        } header: {
-            Text("Overview")
-        } footer: {
-            Text("How much of the screen Browse's Overview takes (O, or the button between the quadrants). The tiles never get narrower than the editor needs.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        Section {
-            Picker("Delete done todos after:", selection: Binding(
-                get: { controller.retention.retention },
-                set: { controller.setArchiveRetention($0) }
-            )) {
-                ForEach(ArchiveRetention.options) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-        } header: {
-            Text("Archive")
-        } footer: {
-            Text("Done todos and their attachments are deleted from the archive once they're older than this.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        Section {
-            LabeledContent("Convert data from other apps:") {
-                Button(copiedFormat ? "Copied" : "Copy for AI") { copyFormat() }
-            }
-            LabeledContent("Daily backups:") {
-                Button("Show in Finder") { controller.showBackupsInFinder() }
-            }
-        } header: {
-            Text("Import & Export")
-        } footer: {
-            Text("Export writes a folder with howy.json and attachments/<todo id>/<file name>, and Import reads it back. To bring in todos from another app, copy the format and paste it into an AI chat together with your data; it answers with a howy.json you can import. Howy also exports everything once a day as a backup and keeps the last 7; import one to restore it.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        Section {
-            LabeledContent("Time when none is typed:") {
-                DatePicker(
-                    "Time when none is typed",
-                    selection: Binding(
-                        get: { dueDefaultTimeDate },
-                        set: { date in
-                            let c = Calendar.current.dateComponents([.hour, .minute], from: date)
-                            let time = DueTime(hour: c.hour ?? 9, minute: c.minute ?? 0)
-                            guard time != dueDefaultTime else { return }
-                            dueDefaultTime = time
-                            time.save()
-                            notifications.registerCategory() // the Tomorrow button names the time
-                        }
-                    ),
-                    displayedComponents: .hourAndMinute
-                )
-                .labelsHidden()
-            }
-            if notifications.authorization == .denied {
-                LabeledContent("Notifications off —") {
-                    Button("Open System Settings") { notifications.openSystemSettings() }
-                }
-                .foregroundStyle(.red)
-            }
-        } header: {
-            Text("Due Dates")
-        } footer: {
-            Text("⌘T in the editor or T in Browse sets a due date: type \"tomorrow\", \"fri 2pm\", \"24.12.\" or \"in a week\". A day without a time is due at this time, and so is \"Tomorrow\" on a notification. Howy notifies you when a todo is due; due dates and the red bells work without notifications too.")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-        }
-        Section("General") {
-            Toggle("Start Howy at login", isOn: Binding(
-                get: { controller.launchesAtLogin },
-                set: { controller.setLaunchesAtLogin($0) }
-            ))
-        }
+        )
     }
 }
 
-extension SettingsView {
-    /// Puts the import format description on the pasteboard and says "Copied" for a moment.
-    private func copyFormat() {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(HowyFormat.llmDescription, forType: .string)
-        copiedFormat = true
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            copiedFormat = false
-        }
-    }
+// MARK: Appearance
 
-    /// The default due time as a date today, for the time picker.
-    private var dueDefaultTimeDate: Date {
-        Calendar.current.date(bySettingHour: dueDefaultTime.hour, minute: dueDefaultTime.minute, second: 0, of: Date()) ?? Date()
+/// How big the panels are drawn, how big Browse's Overview is, and what plays when a todo is done.
+struct AppearanceSettingsView: View {
+    let controller: AppController
+    @State private var overviewSize = OverviewSize.load()
+    @State private var doneAnimation = DoneAnimation.load()
+
+    var body: some View {
+        Form {
+            Section {
+                LabeledContent("Panel size:") { zoomSlider }
+            } header: {
+                Text("Panels")
+            } footer: {
+                FooterText("How big text and everything else is in Howy's panels. In an open panel, ⌘+ and ⌘- change it too, and ⌘0 goes back to 100 %.")
+            }
+            Section {
+                LabeledContent("Width:") {
+                    percentSlider("Overview width", value: overviewSize.widthPercent) { overviewSize.with(widthPercent: $0) }
+                }
+                LabeledContent("Height:") {
+                    percentSlider("Overview height", value: overviewSize.heightPercent) { overviewSize.with(heightPercent: $0) }
+                }
+                OverviewSizePreview(size: overviewSize)
+                    .frame(maxWidth: .infinity)
+            } header: {
+                Text("Overview")
+            } footer: {
+                FooterText("How much of the screen the Overview takes (O on the grid, or the button between the quadrants). The tiles never get narrower than the editor needs.")
+            }
+            Section {
+                Picker("When a todo is done:", selection: $doneAnimation) {
+                    ForEach(DoneAnimation.allCases) { style in
+                        Text(style.displayName).tag(style)
+                    }
+                }
+                .onChange(of: doneAnimation) { _, value in value.save() }
+            } header: {
+                Text("Celebration")
+            } footer: {
+                FooterText("A random emoji rises out of the panel when you mark a todo done, with a small confetti burst. Reduce Motion skips the confetti.")
+            }
+        }
+        .settingsForm()
     }
 
     private var overviewRange: ClosedRange<Double> {
@@ -273,9 +203,178 @@ extension SettingsView {
                 .accessibilityHidden(true)
         }
     }
+}
 
-    private var footerHint: String {
-        "Opens the quadrants, or closes Howy when it is open. Click the shortcut, then press the new keys. Esc cancels, Delete removes it."
+// MARK: iCloud
+
+/// The sync status line (highlighted for a moment when a sync notice was clicked) and what
+/// syncing does.
+struct ICloudSettingsView: View {
+    let controller: AppController
+
+    var body: some View {
+        Form {
+            Section {
+                SyncStatusRow(monitor: controller.syncMonitor, highlightRequest: controller.syncLineHighlightRequest)
+            } header: {
+                Text("Sync")
+            } footer: {
+                FooterText("Howy syncs your todos through your iCloud account; attachments stay on this Mac for now. Signing out of iCloud or turning it off for Howy removes the synced todos from this Mac (signing back in brings them back). Howy tells you when that happens, when iCloud is full, or when sync has failed for over an hour. The daily backups are under Data.")
+            }
+        }
+        .settingsForm()
+    }
+}
+
+// MARK: Data
+
+/// How long the archive keeps done todos, import and export (with the format for an AI chat), and
+/// the daily backups' folder.
+struct DataSettingsView: View {
+    let controller: AppController
+    @State private var copiedFormat = false
+
+    var body: some View {
+        Form {
+            Section {
+                Picker("Delete done todos after:", selection: Binding(
+                    get: { controller.retention.retention },
+                    set: { controller.setArchiveRetention($0) }
+                )) {
+                    ForEach(ArchiveRetention.options) { option in
+                        Text(option.displayName).tag(option)
+                    }
+                }
+            } header: {
+                Text("Archive")
+            } footer: {
+                FooterText("Done todos and their attachments are deleted from the archive once they're older than this.")
+            }
+            Section {
+                LabeledContent("Todos and attachments:") {
+                    HStack {
+                        Button("Import…") { controller.importFolder() }
+                        Button("Export…") { controller.exportAll() }
+                    }
+                }
+                LabeledContent("Convert data from other apps:") {
+                    Button(copiedFormat ? "Copied" : "Copy for AI") { copyFormat() }
+                }
+                LabeledContent("Daily backups:") {
+                    Button("Show in Finder") { controller.showBackupsInFinder() }
+                }
+            } header: {
+                Text("Import & Export")
+            } footer: {
+                FooterText("Export writes a folder with howy.json and attachments/<todo id>/<file name>, and Import reads it back (also in Howy's menu). To bring in todos from another app, copy the format and paste it into an AI chat together with your data; it answers with a howy.json you can import. Howy also exports everything once a day as a backup and keeps the last 7; import one to restore it.")
+            }
+        }
+        .settingsForm()
+    }
+
+    /// Puts the import format description on the pasteboard and says "Copied" for a moment.
+    private func copyFormat() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(HowyFormat.llmDescription, forType: .string)
+        copiedFormat = true
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            copiedFormat = false
+        }
+    }
+}
+
+// MARK: Keys
+
+/// The Open Howy recorder, then every key Howy knows (`KeysReference`), by screen, read-only.
+/// Only the reference scrolls, so the window stays a laptop screen's height.
+struct KeysSettingsView: View {
+    @State private var recorder = ShortcutRecorderModel()
+
+    /// How tall the reference is before it scrolls.
+    private static let referenceHeight: CGFloat = 440
+    /// The keys column's width.
+    private static let keysWidth: CGFloat = 190
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Form {
+                Section {
+                    LabeledContent("Open Howy:") { ShortcutField(name: .openHowy, model: recorder) }
+                    Button("Restore Default") {
+                        recorder.restoreDefaults() // ⌃⌥⇧⌘Space
+                    }
+                } header: {
+                    Text("Shortcut")
+                } footer: {
+                    Text(recorder.message ?? "Opens the quadrants, or closes Howy when it is open. Click the shortcut, then press the new keys. Esc cancels, Delete removes it.")
+                        .font(.caption)
+                        .foregroundStyle(recorder.message == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
+                }
+            }
+            .settingsForm()
+            Form {
+                ForEach(KeysReference.screens) { screen in
+                    Section {
+                        ForEach(screen.rows) { row in
+                            referenceRow(row)
+                        }
+                    } header: {
+                        Text(screen.title)
+                    } footer: {
+                        if let note = screen.note { FooterText(note) }
+                    }
+                }
+            }
+            .formStyle(.grouped)
+            .contentMargins(.top, 0, for: .scrollContent)
+            .frame(width: settingsWidth, height: Self.referenceHeight)
+        }
+        .onDisappear { recorder.stop() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in
+            recorder.stop()
+        }
+    }
+
+    private func referenceRow(_ row: KeysReference.Row) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            keys(row.keys)
+                .frame(width: Self.keysWidth, alignment: .leading)
+            Text(row.action)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .accessibilityElement(children: .combine)
+    }
+
+    /// The alternatives as keycaps with a "/" between them: [↑][↓] / [j][k].
+    @ViewBuilder private func keys(_ keys: KeysReference.Row.Keys) -> some View {
+        switch keys {
+        case .keys(let alternatives):
+            HStack(spacing: 4) {
+                ForEach(Array(alternatives.enumerated()), id: \.offset) { index, alternative in
+                    if index > 0 { Text("/").foregroundStyle(.tertiary) }
+                    ForEach(Array(Self.caps(alternative).enumerated()), id: \.offset) { _, text in cap(text) }
+                }
+            }
+        case .openHowyShortcut:
+            if let shortcut = recorder.shortcut(for: .openHowy) {
+                HStack(spacing: 4) {
+                    ForEach(Array(ShortcutField.caps(for: shortcut).enumerated()), id: \.offset) { _, text in cap(text) }
+                }
+            } else {
+                Text("Open Howy (not set)").foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    /// "⌘↑ ⌘↓" → ["⌘", "↑", "⌘", "↓"]; "h j k l" → ["h", "j", "k", "l"].
+    private static func caps(_ alternative: String) -> [String] {
+        alternative.split(separator: " ").flatMap { KeyHint.caps(String($0)) }
+    }
+
+    private func cap(_ text: String) -> some View {
+        KeyCap(text: text, font: .system(size: 11, weight: .medium), minSize: 20)
     }
 }
 
@@ -413,24 +512,143 @@ private struct ScreenReader: NSViewRepresentable {
     }
 }
 
+
+// MARK: Window
+
+extension AppController.SettingsTab {
+    var label: String {
+        switch self {
+        case .general: "General"
+        case .keys: "Keys"
+        case .appearance: "Appearance"
+        case .iCloud: "iCloud"
+        case .data: "Data"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .general: "gearshape"
+        case .keys: "keyboard"
+        case .appearance: "paintbrush"
+        case .iCloud: "icloud"
+        case .data: "externaldrive"
+        }
+    }
+}
+
+/// Settings' tabs as a toolbar of icons with labels, like macOS apps' settings. The window takes
+/// each tab's size (anchored at its top edge), also when a tab's content grows or shrinks, and
+/// the chosen tab is remembered on this Mac.
+@MainActor
+private final class SettingsTabViewController: NSTabViewController {
+    private static let lastTabKey = "settingsLastTab"
+    private let tabs = AppController.SettingsTab.allCases
+
+    init(controller: AppController) {
+        let lastTab = Self.lastTab // read first: adding the tabs selects (and saves) the first one
+        super.init(nibName: nil, bundle: nil)
+        tabStyle = .toolbar
+        transitionOptions = [] // the window resize is the transition
+        for tab in tabs {
+            let hosting = NSHostingController(rootView: Self.view(for: tab, controller: controller))
+            hosting.sizingOptions = [.preferredContentSize]
+            hosting.title = tab.label
+            let item = NSTabViewItem(viewController: hosting)
+            item.label = tab.label
+            item.image = NSImage(systemSymbolName: tab.symbolName, accessibilityDescription: tab.label)
+            addTabViewItem(item)
+        }
+        selectedTabViewItemIndex = tabs.firstIndex(of: lastTab) ?? 0
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    @ViewBuilder
+    private static func view(for tab: AppController.SettingsTab, controller: AppController) -> some View {
+        switch tab {
+        case .general: GeneralSettingsView(controller: controller)
+        case .keys: KeysSettingsView()
+        case .appearance: AppearanceSettingsView(controller: controller)
+        case .iCloud: ICloudSettingsView(controller: controller)
+        case .data: DataSettingsView(controller: controller)
+        }
+    }
+
+    /// The tab used last on this Mac (General the first time).
+    private static var lastTab: AppController.SettingsTab {
+        UserDefaults.standard.string(forKey: lastTabKey).flatMap(AppController.SettingsTab.init(rawValue:)) ?? .general
+    }
+
+    func select(_ tab: AppController.SettingsTab) {
+        guard let index = tabs.firstIndex(of: tab) else { return }
+        selectedTabViewItemIndex = index
+    }
+
+    override func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
+        super.tabView(tabView, didSelect: tabViewItem)
+        if tabs.indices.contains(selectedTabViewItemIndex) {
+            UserDefaults.standard.set(tabs[selectedTabViewItemIndex].rawValue, forKey: Self.lastTabKey)
+        }
+        fitWindow(animate: viewIfLoaded?.window?.isVisible == true)
+    }
+
+    override func preferredContentSizeDidChange(for viewController: NSViewController) {
+        super.preferredContentSizeDidChange(for: viewController)
+        guard viewController === tabViewItems[safe: selectedTabViewItemIndex]?.viewController else { return }
+        fitWindow(animate: viewIfLoaded?.window?.isVisible == true)
+    }
+
+    /// Sizes the window to the selected tab's content, keeping its top edge where it is.
+    func fitWindow(animate: Bool) {
+        guard let window = viewIfLoaded?.window,
+              let content = tabViewItems[safe: selectedTabViewItemIndex]?.viewController else { return }
+        let size = content.preferredContentSize == .zero ? content.view.fittingSize : content.preferredContentSize
+        guard size.width > 0, size.height > 0 else { return }
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))
+        frame.origin = NSPoint(x: window.frame.minX, y: window.frame.maxY - frame.height)
+        guard frame != window.frame else { return }
+        window.setFrame(frame, display: true, animate: animate)
+    }
+}
+
+private extension Array {
+    subscript(safe index: Int) -> Element? { indices.contains(index) ? self[index] : nil }
+}
+
 /// A regular titled window for Settings. A menu-bar-only app has no Settings scene to lean on,
 /// and an accessory app's window doesn't reliably become key (clicks then only focus it), so the
 /// app becomes a regular app while Settings is open and goes back to accessory mode afterwards.
+///
+/// It opens on the tab used last, or on the tab a caller asked for (`AppController.settingsTabRequest`,
+/// each request once).
 @MainActor
 final class SettingsWindowController: NSObject, NSWindowDelegate {
     private var window: NSWindow?
+    private var tabs: SettingsTabViewController?
+    /// The request already acted on, so an old one doesn't switch tabs again.
+    private var handledRequest: AppController.SettingsTabRequest?
 
     func show(controller: AppController) {
         if window == nil {
-            let window = NSWindow(contentViewController: NSHostingController(rootView: SettingsView(controller: controller)))
-            window.title = "Howy Settings"
+            let tabs = SettingsTabViewController(controller: controller)
+            let window = NSWindow(contentViewController: tabs)
             window.styleMask = [.titled, .closable]
+            window.toolbarStyle = .preference
             window.isReleasedWhenClosed = false
             window.collectionBehavior = [.moveToActiveSpace]
             window.delegate = self
-            window.center()
             self.window = window
+            self.tabs = tabs
         }
+        if let request = controller.settingsTabRequest, request != handledRequest {
+            handledRequest = request
+            tabs?.select(request.tab)
+        }
+        let isNew = window?.isVisible == false
+        tabs?.fitWindow(animate: !isNew)
+        if isNew { window?.center() }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
         window?.makeKeyAndOrderFront(nil)
@@ -438,6 +656,7 @@ final class SettingsWindowController: NSObject, NSWindowDelegate {
 
     func windowWillClose(_ notification: Notification) {
         window = nil // rebuild next time, so it re-reads login item and settings
+        tabs = nil
         NSApp.returnToAccessoryUnlessWindowsAreOpen(except: notification.object as? NSWindow)
     }
 }

@@ -889,8 +889,8 @@ final class AppController {
         purgeArchive()
     }
 
-    /// The parts of Settings a caller can ask for.
-    enum SettingsTab: Hashable {
+    /// Settings' tabs, in toolbar order. The raw value is saved for the last-used tab.
+    enum SettingsTab: String, CaseIterable, Hashable {
         case general, keys, appearance, iCloud, data
     }
 
@@ -901,8 +901,8 @@ final class AppController {
         let date: Date
     }
 
-    /// The tab a caller last asked Settings to show; `nil` for no request. Settings doesn't have
-    /// tabs yet, so nothing reads it so far.
+    /// The tab a caller last asked Settings to show; `nil` for no request. `SettingsWindowController`
+    /// selects it once per request (otherwise Settings opens on the tab used last).
     private(set) var settingsTabRequest: SettingsTabRequest?
 
     /// Opens Settings, on `tab` when one is given (closing any open panel first).

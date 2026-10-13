@@ -16,8 +16,15 @@ All notable changes to Howy are documented here. The format follows
   j k move inside a tile, and h l (and now ← →) move to the tile beside it;
   ↑ ↓ never leave a tile. Text fields and dialogs keep the letters as typing.
 - **?** on the quadrant grid, a list, the Overview or in the archive opens
-  Settings (the keys reference will live there). In text fields and dialogs
-  "?" is still just typed. The grid's key hints show it.
+  Settings → Keys. In text fields and dialogs "?" is still just typed. The
+  grid's key hints show it.
+- **Keys reference** in Settings → Keys: every key of every screen (grid, list,
+  move picker, Overview, archive, editor, attachments, due-date and link
+  dialogs, panel zoom), with the vim keys beside the arrows, under the Open
+  Howy shortcut. A test checks it against the keys Howy really handles, so it
+  stays right.
+- **Import… and Export…** buttons in Settings → Data, next to Copy for AI and
+  the daily backups (the menu entries stay).
 
 ### Changed
 
@@ -26,8 +33,12 @@ All notable changes to Howy are documented here. The format follows
   keeps an unsaved todo as a draft. It replaces the Quick Add, Browse and
   one-shortcut-mode shortcuts: on the first launch Open Howy takes over your
   Quick Add shortcut (or your one shortcut, if you used one-shortcut mode); the
-  Browse shortcut (⌃⌥⇧⌘M) is gone. Record it in Settings, where "Restore
-  Default" brings back ⌃⌥⇧⌘Space.
+  Browse shortcut (⌃⌥⇧⌘M) is gone. Record it in Settings → Keys, where
+  "Restore Default" brings back ⌃⌥⇧⌘Space.
+- **Settings has tabs**: General, Keys, Appearance, iCloud and Data in a
+  toolbar, like other Mac apps' settings, instead of one wide window. The
+  window takes each tab's size and opens on the tab you used last. A click on
+  a sync notification opens the iCloud tab with the status line highlighted.
 - The grid opens on the quadrant you opened or added to last, instead of
   always on Do First.
 - The menu's "Browse" is now "Open Howy" and shows the shortcut.
