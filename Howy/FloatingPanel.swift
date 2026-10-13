@@ -80,6 +80,18 @@ final class FloatingPanel: NSPanel {
     private var placedOrigin: NSPoint?
     /// True while the position picker's move animates.
     private var isAnimatingMove = false
+    /// Bumped when a picker move starts or is cut short, so a late completion does nothing.
+    private var moveGeneration = 0
+    /// The picker move in flight: where it ends (the layout it takes) and the frame it slides to.
+    private var pendingSlide: (target: PanelPosition, screen: NSScreen, frame: NSRect)?
+    /// The position Howy last laid the window out for (a slot, a drag's result, the saved one).
+    private var placedPosition: PanelPosition?
+    /// True from a left mouse-down in this panel until the button is up: only a move during that
+    /// time is a drag by the user (the system also moves windows, on a display change).
+    private var mouseDownInPanel = false
+    /// The card's inset above or below it before the Overview grew the window (it's not always the
+    /// margin: a window is cut off at the screen's top).
+    private var compactInsetBeforeOverview = PanelPresentation.defaultCompactInset
     /// Saves a dragged position once the drag is over.
     private var dragSave: DispatchWorkItem?
     private var observers: [NSObjectProtocol] = []
@@ -172,8 +184,8 @@ final class FloatingPanel: NSPanel {
     func present() {
         let mouse = NSEvent.mouseLocation
         let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? NSScreen.main
-        if let visible = screen?.visibleFrame {
-            place(at: positionStore.load(), in: visible)
+        if let screen {
+            place(at: positionStore.load(), on: screen)
         }
         presentedAt = Date()
         makeKeyAndOrderFront(nil)
@@ -205,6 +217,8 @@ final class FloatingPanel: NSPanel {
 
     override func sendEvent(_ event: NSEvent) {
         if didClose { return } // fading out: nothing may change behind the fade
+        if event.type == .leftMouseDown { mouseDownInPanel = true }
+        if event.type == .leftMouseUp { mouseDownInPanel = false }
         if event.type == .keyDown, !isComposingText {
             if closeOnShortcut(event) { return }
             if pickerOnShortcut(event) { return }
@@ -276,6 +290,7 @@ final class FloatingPanel: NSPanel {
     /// back to gets the new width.
     func setScale(_ newScale: CGFloat) {
         guard newScale != scale, !didClose else { return }
+        finishSlide()
         scale = newScale
         let visible = (screen ?? NSScreen.main)?.visibleFrame ?? frame
         let newCardWidth = cardWidth(in: visible)
@@ -304,9 +319,11 @@ final class FloatingPanel: NSPanel {
 
     /// Lays the window out for `position` on a screen (`PanelPlacement.layout`), in one step: the
     /// window's frame, the card's place in it and how tall it may get change together.
-    private func place(at position: PanelPosition, in visible: NSRect) {
+    private func place(at position: PanelPosition, on screen: NSScreen) {
+        let visible = screen.visibleFrame
         let cardWidth = cardWidth(in: visible)
-        let layout = PanelPlacement.layout(for: position, cardWidth: cardWidth, in: visible, margin: Self.margin)
+        let layout = PanelPlacement.layout(for: position, cardWidth: cardWidth, in: visible, margin: Self.margin, screen: screen.frame)
+        placedPosition = position
         column = layout.column
         withTransaction(Self.noAnimation) {
             presentation.cardWidth = cardWidth
@@ -336,14 +353,25 @@ final class FloatingPanel: NSPanel {
         return NSScreen.screens.first { NSMouseInRect(center, $0.frame, false) } ?? screen ?? NSScreen.main
     }
 
-    /// A move Howy didn't make is the user dragging the panel: once the drag is over, its new
-    /// place is saved. Not while the Overview is open (that place is the Overview's, not the
-    /// panel's) or while the position picker moves the panel.
+    /// True while the user drags the panel: the button went down in it and is still down. A move
+    /// without that (the system moving the window when the displays change) is not a drag.
+    private var isDraggedByUser: Bool {
+        if NSEvent.pressedMouseButtons & 1 == 0 { mouseDownInPanel = false }
+        return mouseDownInPanel
+    }
+
+    /// A move the user makes by dragging: once the drag is over, the card's new place is saved.
+    /// Not while the Overview is open (that place is the Overview's, not the panel's) or while
+    /// Howy moves the panel itself (the position picker).
     private func windowDidMove() {
-        guard !isPlacing, !isAnimatingMove, !didClose, compactWindowFrame == nil, frame.origin != placedOrigin else { return }
+        guard !isPlacing, !isAnimatingMove, !didClose, compactWindowFrame == nil, frame.origin != placedOrigin,
+              isDraggedByUser else { return }
         dragSave?.cancel()
         let save = DispatchWorkItem { [weak self] in
-            MainActor.assumeIsolated { self?.adoptDraggedPosition() }
+            MainActor.assumeIsolated {
+                self?.dragSave = nil
+                self?.adoptDraggedPosition()
+            }
         }
         dragSave = save
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.dragSaveDelay, execute: save)
@@ -351,40 +379,60 @@ final class FloatingPanel: NSPanel {
 
     private static let dragSaveDelay: TimeInterval = 0.25
 
-    /// Saves where the card was dragged to, and lays the window out for it: a card dropped into
-    /// the lower third now grows upward (the transparent part of the window moves above it), and
-    /// one dropped partly off the screen is pulled back onto it. Waits while the button is down.
-    private func adoptDraggedPosition() {
+    /// Saves where the card was dragged to, and (with `relayout`) lays the window out for it: a
+    /// card dropped into the lower third now grows upward (the transparent part of the window
+    /// moves above it), and one dropped partly off the screen is pulled back onto it. Waits while
+    /// the button is down.
+    private func adoptDraggedPosition(relayout: Bool = true) {
         guard !didClose, compactWindowFrame == nil, !isAnimatingMove else { return }
         if NSEvent.pressedMouseButtons & 1 != 0 {
             windowDidMove() // still dragging: check again shortly
             return
         }
         let card = compactCardFrame
-        guard let visible = screenOfCard(card)?.visibleFrame else { return }
-        let position = PanelPlacement.position(fromCardFrame: card, in: visible)
+        guard let screen = screenOfCard(card) else { return }
+        let position = PanelPlacement.position(fromCardFrame: card, in: screen.visibleFrame)
         positionStore.save(position)
-        place(at: position, in: visible)
+        if relayout { place(at: position, on: screen) }
+    }
+
+    /// A drag's save that is still waiting for its quarter second happens now (the panel is about
+    /// to close, or the Overview is about to take the card's place), unless the button is down.
+    private func flushDragSave(relayout: Bool) {
+        guard let save = dragSave, !save.isCancelled, NSEvent.pressedMouseButtons & 1 == 0 else { return }
+        save.cancel()
+        dragSave = nil
+        adoptDraggedPosition(relayout: relayout)
     }
 
     /// The screens changed (a display unplugged, the resolution or the Dock changed): the open
-    /// panel is laid out again on the screen its card is on, or on the main screen at the
-    /// remembered position when that screen is gone, and kept on it.
+    /// panel is laid out again at its position on the screen its card is on, or on the main screen
+    /// when that screen is gone, and kept on it.
     private func screensChanged() {
         guard isVisible, !didClose, compactWindowFrame == nil, !isAnimatingMove else { return }
+        dragSave?.cancel() // the move of a display change isn't the user's
+        dragSave = nil
+        relayoutOnCurrentScreens(onlyIfNeeded: false)
+    }
+
+    /// Lays the window out again for the screens there are now. `onlyIfNeeded`: only when the card
+    /// is on no screen any more or sticks out of its screen's visible frame.
+    private func relayoutOnCurrentScreens(onlyIfNeeded: Bool) {
         let card = compactCardFrame
         let center = NSPoint(x: card.midX, y: card.midY)
         if let screen = NSScreen.screens.first(where: { NSMouseInRect(center, $0.frame, false) }) {
-            place(at: PanelPlacement.position(fromCardFrame: card, in: screen.visibleFrame), in: screen.visibleFrame)
-        } else if let visible = NSScreen.main?.visibleFrame {
-            place(at: positionStore.load(), in: visible)
+            if onlyIfNeeded, screen.visibleFrame.insetBy(dx: -1, dy: -1).contains(card) { return }
+            let position = placedPosition ?? PanelPlacement.position(fromCardFrame: card, in: screen.visibleFrame)
+            place(at: position, on: screen)
+        } else if let screen = NSScreen.main {
+            place(at: placedPosition ?? positionStore.load(), on: screen)
         }
     }
 
     // MARK: Position picker
 
-    /// Shows the position picker over the card, starting on the slot nearest to the card. Not in
-    /// the Overview, which always sits in the middle of the screen.
+    /// Shows the position picker over the card, starting on the slot the panel was last placed in
+    /// (or the nearest one). Not in the Overview, which always sits in the middle of the screen.
     private func openPicker() {
         guard !didClose, presentation.state == .shown, compactWindowFrame == nil, !isAnimatingMove else {
             NSSound.beep()
@@ -392,8 +440,11 @@ final class FloatingPanel: NSPanel {
         }
         let card = compactCardFrame
         guard let visible = screenOfCard(card)?.visibleFrame else { return }
-        let position = PanelPlacement.position(fromCardFrame: card, in: visible)
+        let position = placedPosition ?? PanelPlacement.position(fromCardFrame: card, in: visible)
         let flow = PositionPickerFlow(position: position, cardSize: card.size, in: visible)
+        // Where the picker may be: the screen's visible part of the window, a little in from its edges.
+        presentation.pickerCard = card
+        presentation.pickerBounds = frame.intersection(visible).insetBy(dx: 8, dy: 8)
         withAnimation(Self.reduceMotion ? nil : .easeOut(duration: 0.15)) { presentation.picker = flow }
     }
 
@@ -409,21 +460,33 @@ final class FloatingPanel: NSPanel {
     /// Moves the card to a slot on the screen it is on, animated (~0.2 s; in one step with
     /// Reduce Motion), and saves the slot's position. The window first takes the target's anchor
     /// around the card where it is, then slides (only its origin changes, so SwiftUI lays out
-    /// nothing while it moves), and then takes the target's own layout.
+    /// nothing while it moves), and then takes the target's own layout. The slide ends where that
+    /// layout puts the card, so the last step doesn't jump.
     private func move(to slot: PanelSlot) {
         let card = compactCardFrame
-        guard let visible = screenOfCard(card)?.visibleFrame else { return }
+        guard let screen = screenOfCard(card) else { return }
+        let visible = screen.visibleFrame
         let target = PanelPlacement.position(for: slot, in: visible)
         positionStore.save(target)
-        let destination = PanelPlacement.cardFrame(for: target, cardSize: card.size, in: visible)
+        let layout = PanelPlacement.layout(for: target, cardWidth: cardWidth(in: visible), in: visible, margin: Self.margin, screen: screen.frame)
+        let destination = layout.cardFrame(height: card.height)
         guard !Self.reduceMotion, destination.origin != card.origin else {
-            place(at: target, in: visible)
+            place(at: target, on: screen)
             return
         }
         // Same spot, the target's anchor and column: the card doesn't move yet.
         let here = PanelPlacement.position(fromCardFrame: card, in: visible, anchor: target.anchor, column: target.column)
-        place(at: here, in: visible)
-        let slide = frame.offsetBy(dx: (destination.minX - card.minX).rounded(), dy: (destination.minY - card.minY).rounded())
+        place(at: here, on: screen)
+        let start = compactCardFrame // `here` may have shifted the card a little
+        let dx = (destination.minX - start.minX).rounded(), dy = (destination.minY - start.minY).rounded()
+        guard dx != 0 || dy != 0 else {
+            place(at: target, on: screen)
+            return
+        }
+        let slide = frame.offsetBy(dx: dx, dy: dy)
+        moveGeneration += 1
+        let generation = moveGeneration
+        pendingSlide = (target, screen, slide)
         isAnimatingMove = true
         NSAnimationContext.runAnimationGroup { context in
             context.duration = Self.moveDuration
@@ -431,12 +494,27 @@ final class FloatingPanel: NSPanel {
             animator().setFrame(slide, display: true)
         } completionHandler: { [weak self] in
             MainActor.assumeIsolated {
-                guard let self else { return }
+                guard let self, self.moveGeneration == generation, let slide = self.pendingSlide else { return }
                 self.isAnimatingMove = false
-                guard !self.didClose else { return }
-                self.place(at: target, in: visible)
+                self.pendingSlide = nil
+                guard !self.didClose, self.compactWindowFrame == nil else { return }
+                self.place(at: slide.target, on: slide.screen)
             }
         }
+    }
+
+    /// Cuts a picker move that is still sliding short: the window takes the target's layout now
+    /// (the Overview or a zoom must not start from a card in mid-flight).
+    private func finishSlide() {
+        guard isAnimatingMove, let slide = pendingSlide else { return }
+        moveGeneration += 1 // the slide's own completion does nothing any more
+        isAnimatingMove = false
+        pendingSlide = nil
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            animator().setFrame(slide.frame, display: false)
+        }
+        place(at: slide.target, on: slide.screen)
     }
 
     private static let moveDuration: TimeInterval = 0.2
@@ -571,9 +649,11 @@ final class FloatingPanel: NSPanel {
     /// between the two, its place and size animating together. `changes` (the tiles switching
     /// between the small grid's layout and the Overview's) run inside the same animation, so the
     /// tiles and the card move as one; `animated: false` (Reduce Motion) makes the change in one
-    /// step, faded in (Reduce Motion). `completion` runs once the card has its new size (after a shrink, once the window is
-    /// back to its normal frame); it doesn't run when a later call or a screen swap superseded this one.
+    /// step, faded in. `completion` runs once the card has its new size (after a shrink, once the
+    /// window is back to its normal frame); it doesn't run when a later call or a screen swap
+    /// superseded this one.
     func setOverview(_ size: OverviewSize?, animated: Bool, changes: @escaping () -> Void, completion: @escaping () -> Void) {
+        finishSlide()
         flushPendingOverviewChanges()
         overviewGeneration += 1
         let generation = overviewGeneration
@@ -625,6 +705,7 @@ final class FloatingPanel: NSPanel {
             }
             return
         }
+        flushDragSave(relayout: true) // a drag just before the Overview keeps its place
         let expanded: CGRect
         if let grownExpandedFrame {
             // Still grown (the card is on its way back): grow to the same place again.
@@ -645,6 +726,7 @@ final class FloatingPanel: NSPanel {
             let grown = frame.union(target.insetBy(dx: -Self.margin, dy: -Self.margin))
                 .intersection(screen.frame.union(frame)).integral
             compactWindowFrame = frame
+            compactInsetBeforeOverview = presentation.compactInset
             grownWindowFrame = grown
             // One step, not animated: the card keeps its place on screen inside the bigger window.
             // The new origin is laid out and drawn together with the window's new frame, so no
@@ -768,9 +850,13 @@ final class FloatingPanel: NSPanel {
         compactWindowFrame = nil
         grownWindowFrame = nil
         grownExpandedFrame = nil
-        withTransaction(Self.noAnimation) { presentation.compactInset = PanelPresentation.defaultCompactInset }
+        withTransaction(Self.noAnimation) {
+            presentation.compactInset = CGPoint(x: PanelPresentation.defaultCompactInset.x, y: compactInsetBeforeOverview.y)
+        }
         placeWindow(compact, display: true)
         contentView?.layoutSubtreeIfNeeded()
+        // The screens may have changed while the Overview was open (`screensChanged` waits).
+        relayoutOnCurrentScreens(onlyIfNeeded: true)
     }
 
     /// True while the panel is on screen and not closing, so new content can move into it.
@@ -814,11 +900,13 @@ final class FloatingPanel: NSPanel {
     /// Closes the panel: callbacks run now, the window fades out quickly and is then removed.
     func dismiss() {
         guard !didClose else { return }
+        flushDragSave(relayout: false) // Esc right after a drag keeps the spot
         didClose = true
         keyHandler = nil
         zoomHandler = nil
         stopWatchingMouse()
         dragSave?.cancel()
+        dragSave = nil
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
         if previewSource != nil, QLPreviewPanel.sharedPreviewPanelExists() {
@@ -880,6 +968,10 @@ final class PanelPresentation {
     var heightLimit = CGFloat.infinity
     /// The position picker over the card while it is open (⌘⇧P).
     var picker: PositionPickerFlow?
+    /// While the picker is open: the card's frame on screen and the area the picker has to stay
+    /// inside (the window's visible part), in screen coordinates.
+    var pickerCard = CGRect.zero
+    var pickerBounds = CGRect.zero
     /// A click in the picker: a slot to move to, or `nil` to close it (set by `FloatingPanel`).
     @ObservationIgnored var choosePosition: ((PanelSlot?) -> Void)?
     /// Hidden for a moment to fade in the Overview's new size under Reduce Motion.
@@ -902,8 +994,9 @@ extension EnvironmentValues {
 }
 
 /// The panel's root: one card for every screen the panel shows, pinned to the top of the (taller,
-/// transparent) window (to its bottom for a card anchored at the bottom, which grows upward), with a Spotlight-style entrance (fade in while settling from a slight
-/// zoom; fade only with Reduce Motion) and a quick fade out. Screens swapped by `replaceContent`
+/// transparent) window (to its bottom for a card anchored at the bottom, which grows upward),
+/// with a Spotlight-style entrance (fade in while settling from a slight zoom; fade only with
+/// Reduce Motion) and a quick fade out. Screens swapped by `replaceContent`
 /// cross-fade, top-aligned, while the card animates to the new height; the window stays put.
 /// For the Overview the card takes `expandedFrame` instead (the window has grown around it).
 private struct PanelRoot: View {
@@ -925,7 +1018,7 @@ private struct PanelRoot: View {
             .frame(width: expanded?.width ?? presentation.cardWidth, height: expanded?.height)
             .overlay {
                 if let picker = presentation.picker {
-                    PositionPickerOverlay(flow: picker) { presentation.choosePosition?($0) }
+                    PositionPickerOverlay(flow: picker, card: presentation.pickerCard, bounds: presentation.pickerBounds) { presentation.choosePosition?($0) }
                         .transition(.opacity)
                 }
             }

@@ -8,16 +8,26 @@ import SwiftUI
 /// there; a click on the dimmed card closes the picker.
 struct PositionPickerOverlay: View {
     let flow: PositionPickerFlow
+    /// The card's frame on screen, and where the picker has to stay (screen coordinates, y up).
+    let card: CGRect
+    let bounds: CGRect
     /// A slot to move to, or `nil` to close the picker.
     let choose: (PanelSlot?) -> Void
     @Environment(\.panelScale) private var scale
+    @State private var pickerSize = CGSize.zero
 
     var body: some View {
         PanelCard<EmptyView>.shape
             .fill(.black.opacity(0.28))
             .contentShape(PanelCard<EmptyView>.shape)
             .onTapGesture { choose(nil) }
-            .overlay { picker.fixedSize() } // may reach past a small card's edges
+            .overlay { // may reach past a small card's edges, but stays inside the window and the screen
+                let shift = PanelPlacement.pickerOffset(pickerSize: pickerSize, cardFrame: card, bounds: bounds)
+                picker.fixedSize()
+                    .onGeometryChange(for: CGSize.self, of: \.size) { pickerSize = $0 }
+                    .offset(x: shift.width, y: -shift.height) // screen y runs up, the view's down
+                    .opacity(pickerSize == .zero ? 0 : 1) // until it is measured
+            }
             .accessibilityElement(children: .contain)
             .accessibilityAddTraits(.isModal)
     }
@@ -48,6 +58,8 @@ struct PositionPickerOverlay: View {
         .shadow(color: .black.opacity(0.25), radius: 16, y: 6)
     }
 
+    private let tileHeight: CGFloat = 80
+
     private func tile(_ slot: PanelSlot) -> some View {
         let selected = slot == flow.selected
         let current = slot == flow.current
@@ -58,7 +70,7 @@ struct PositionPickerOverlay: View {
                 RoundedRectangle(cornerRadius: 2 * scale, style: .continuous)
                     .fill(selected ? Color.white : Color.primary.opacity(0.35))
                     .frame(width: 34 * scale, height: 20 * scale)
-                    .padding(8 * scale)
+                    .padding(EdgeInsets(top: slot.topPadding(tileHeight: tileHeight) * scale, leading: 8 * scale, bottom: 8 * scale, trailing: 8 * scale))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: slot.alignment)
             }
             .overlay {
@@ -67,7 +79,7 @@ struct PositionPickerOverlay: View {
                     lineWidth: current ? 2 : 1
                 )
             }
-            .frame(width: 120 * scale, height: 80 * scale)
+            .frame(width: 120 * scale, height: tileHeight * scale)
             .contentShape(shape)
             .onTapGesture { choose(slot) }
             .accessibilityElement()
@@ -79,14 +91,20 @@ struct PositionPickerOverlay: View {
 }
 
 private extension PanelSlot {
+    /// Space above the little card: the middle row's cards sit on the 22 % line (where those slots
+    /// put the real card), not in the middle of their tile.
+    func topPadding(tileHeight: CGFloat) -> CGFloat {
+        row == 1 ? tileHeight * OverviewSize.compactPanelTopFraction : 8
+    }
+
     var alignment: Alignment {
         switch self {
         case .topLeading: .topLeading
         case .top: .top
         case .topTrailing: .topTrailing
-        case .leading: .leading
-        case .center: .center
-        case .trailing: .trailing
+        case .leading: .topLeading
+        case .center: .top
+        case .trailing: .topTrailing
         case .bottomLeading: .bottomLeading
         case .bottom: .bottom
         case .bottomTrailing: .bottomTrailing
