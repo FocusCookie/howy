@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-13
+
 ### Added
 
 - **Attachment chips** in notes: references to attachments show as chips like
