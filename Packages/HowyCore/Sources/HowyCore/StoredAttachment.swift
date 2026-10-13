@@ -7,7 +7,9 @@ import SwiftData
 /// todos, so CloudKit mirrors it with them (the bytes, kept outside the SQLite file through
 /// `.externalStorage`, go up as a CloudKit asset). The files under `AttachmentStore`'s todo
 /// folders are only a local copy of these bytes, for Quick Look, opening and dragging; a file
-/// missing there is written again from here when it is needed (`TodoStore.attachmentURL`).
+/// missing there is written again from here, off the main actor, when a todo is opened for
+/// editing (`TodoStore.materializeAttachments`); export and backups read the bytes from here
+/// and make no local copies.
 ///
 /// Like `TodoEvent`, it has no relationship to `Todo` and refers to it by `todoID` only, so rows
 /// that share a todo id (duplicates) don't matter to it. Every attribute has a default and none
@@ -85,4 +87,20 @@ extension Array where Element == StoredAttachment {
     var orderedSurvivors: [StoredAttachment] {
         DuplicateRules.collapsed(self).sorted { ($0.position, $0.name) < ($1.position, $1.name) }
     }
+}
+
+extension Array where Element == StoredAttachment {
+    /// The bytes of one attachment, from the rows that share its id: the survivor's, or, when the
+    /// survivor has none (it arrived without them), any twin's. `data` is one value per id
+    /// (never changes), so any row with bytes has the right ones.
+    var bytes: Data? {
+        if let data = DuplicateRules.survivor(of: self)?.data { return data }
+        for row in self { if let data = row.data { return data } }
+        return nil
+    }
+}
+
+extension StoredAttachment {
+    /// Whether `updatedAt` is the placeholder of an adopted attachment (no known age).
+    var hasUnknownAge: Bool { updatedAt < Date(timeIntervalSince1970: 0) }
 }

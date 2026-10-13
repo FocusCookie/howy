@@ -114,7 +114,9 @@ public struct DailyBackup {
                 store.modelContainer, appVersion: appVersion, exportedAt: now, attachments: store.attachments
             )
             try await Self.createDirectory(directory)
-            let result = try await HowyExporter.write(document, to: folder, files: store.attachments, atomic: true)
+            let result = try await HowyExporter.write(
+                document, to: folder, files: store.attachments, container: store.modelContainer, atomic: true
+            )
             if !result.problems.isEmpty {
                 clean = false
                 Self.log.error("Backup \(todayName, privacy: .public) had \(result.problems.count) problems; not pruning: \(result.problems.joined(separator: "; "), privacy: .public)")

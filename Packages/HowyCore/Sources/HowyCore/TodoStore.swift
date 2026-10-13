@@ -601,13 +601,17 @@ public final class TodoStore {
         try commit(ordered)
     }
 
-    /// Deletes the todo (every row with this id, should duplicates exist) and its attachments,
-    /// in the store and on disk. Its events stay, plus one `deleted` one.
+    /// Deletes the todo (every row with this id, should duplicates exist) and its local attachment
+    /// files. Its events stay, plus one `deleted` one.
+    ///
+    /// The attachment rows are not deleted here: if another Mac edits the todo before it sees the
+    /// delete, the todo survives (`StoreMaintenance.removeDeletedTodos` keeps a row written after
+    /// the event) and must still have its attachments. `removeOrphanedAttachments` deletes the
+    /// rows of a todo that is really gone, an hour after the `deleted` event.
     public func delete(id: UUID) throws {
         let rows = try require(id)
         record(.deleted, for: id, at: now(), from: rows.survivor.quadrant)
         rows.all.forEach(context.delete)
-        try attachmentRows(for: id).forEach(context.delete)
         try commit()
         attachments?.removeAll(for: id)
     }
@@ -640,8 +644,13 @@ public final class TodoStore {
     }
 
     /// How long a fresh attachment folder is safe from `removeOrphanedAttachments`: a new todo's
-    /// files are committed before the todo is saved, and an import's before its insert.
+    /// files are committed before the todo is saved, and an import's before its insert. Also how
+    /// long the attachment rows of a deleted todo wait after the `deleted` event.
     public static let orphanGracePeriod: TimeInterval = 60 * 60
+
+    /// How old attachment rows must be before `removeOrphanedAttachments` deletes those of a todo
+    /// with no row and no events at all (a crash between saving the files and creating the todo).
+    public static let unclaimedAttachmentRetention: TimeInterval = 30 * 24 * 3600
 
     /// Takes the attachment folders of todo ids that no longer exist in the store (e.g. deleted
     /// on another device) out of service. Never deletes them: each moves to
@@ -658,11 +667,11 @@ public final class TodoStore {
     ///
     /// The folders are local copies; the attachments themselves are rows in the store. First,
     /// rows of a todo that is gone are deleted (`StoreMaintenance.removeOrphanedAttachmentRows`):
-    /// only when the todo has no row but has history (it existed here, so it was deleted or
-    /// purged, by an older build or on a Mac whose delete didn't take the attachments), its
-    /// newest event is older than `gracePeriod`, and the same two brakes pass. A todo with no
-    /// history at all may simply not have arrived yet, and its attachments stay. That deletion
-    /// syncs, and calls `didWrite`.
+    /// when the todo has no row and its newest `deleted` event is older than `gracePeriod`, or
+    /// when it has no row and no events at all and its rows are older than
+    /// `unclaimedAttachmentRetention`, and the same two brakes pass. A todo that has events but
+    /// no `deleted` one may only have failed to arrive, and a recent one may still be arriving;
+    /// their attachments stay. That deletion syncs, and calls `didWrite`.
     ///
     /// The file work runs off the main actor, the store work on a background context. Returns
     /// the number of folders moved to the trash.
@@ -670,7 +679,8 @@ public final class TodoStore {
     public func removeOrphanedAttachments(gracePeriod: TimeInterval = orphanGracePeriod) async throws -> Int {
         let stamp = now()
         let removedRows = try await StoreMaintenance.removeOrphanedAttachmentRows(
-            modelContainer, lastEventBefore: stamp.addingTimeInterval(-gracePeriod)
+            modelContainer, deletedBefore: stamp.addingTimeInterval(-gracePeriod),
+            unclaimedBefore: stamp.addingTimeInterval(-Self.unclaimedAttachmentRetention)
         )
         if removedRows > 0 {
             Self.log.notice("Removed \(removedRows) attachments of todos that are gone")
@@ -721,13 +731,23 @@ public final class TodoStore {
 
     /// Makes `list` the todo's attachments, in this order, in one save: an attachment the todo
     /// has keeps its bytes (a new name or place is written), a staged one is moved into the
-    /// todo's folder and stored, one with neither a row nor a file is dropped, and the todo's
-    /// attachments not in `list` are deleted (rows and local copies). Calls `didWrite` (widgets
-    /// show a paperclip) only when something changed. Records no events.
+    /// todo's folder and stored, and one with neither a row nor a file is dropped. Calls
+    /// `didWrite` (widgets show a paperclip) only when something changed. Records no events.
+    ///
+    /// `original` is the list the edit started from (the one the user saw when the panel opened,
+    /// or when the stashed draft was first made). Only attachments in it and missing from `list`
+    /// are deleted (rows and local copies): the user removed those. A row in neither (another
+    /// Mac added it since, and sync brought it) is kept and goes after the listed ones. Without
+    /// `original`, `list` is taken as complete and everything not in it is deleted.
+    ///
+    /// A todo whose attachments an older build kept in `attachments.json` (not adopted yet) has
+    /// that list removed by this save: its attachments are in `list`, which `attachmentList`
+    /// showed with them, and the ones missing from `list` were removed by the user.
     ///
     /// Works for an id with no todo yet: a new todo's attachments are saved just before it.
-    public func setAttachments(_ list: [TodoAttachment], for id: UUID) throws {
+    public func setAttachments(_ list: [TodoAttachment], for id: UUID, startedWith original: [TodoAttachment]? = nil) throws {
         let existing = Dictionary(grouping: try attachmentRows(for: id), by: \.id)
+        let removable = original.map { Set($0.map(\.id)) }
         let stamp = now()
         var kept = Set<UUID>()
         var changed = false
@@ -750,12 +770,27 @@ public final class TodoStore {
             }
             kept.insert(attachment.id)
         }
+        // Rows the edit didn't start with (added on another Mac meanwhile) stay, after the list.
+        if let removable {
+            let others = existing.filter { !kept.contains($0.key) && !removable.contains($0.key) }
+            for survivor in Array(others.values.joined()).orderedSurvivors {
+                let position = kept.count
+                for row in others[survivor.id] ?? [] where row.position != position {
+                    row.position = position
+                    row.updatedAt = stamp
+                    changed = true
+                }
+                kept.insert(survivor.id)
+            }
+        }
         for (attachmentID, rows) in existing where !kept.contains(attachmentID) {
             rows.forEach(context.delete)
             changed = true
         }
-        guard changed else { return }
-        try commit()
+        let hasLegacyList = attachments?.legacyAttachments(for: id) != nil
+        guard changed || hasLegacyList else { return }
+        if changed { try commit() }
+        if hasLegacyList { attachments?.removeLegacyList(for: id) }
         attachments?.prune(id, keeping: kept)
     }
 
@@ -776,48 +811,54 @@ public final class TodoStore {
     }
 
     /// Moves the attachments that builds before schema v4 kept only on disk (a todo folder with
-    /// `attachments.json`) into the store, so they sync. Runs on a background context, in the
-    /// app at launch. Only folders of todos the store has are taken, each attachment once (an
-    /// id already stored is skipped); a folder's list is removed once all its readable files are
-    /// stored, and kept for a retry otherwise. Folders of todos the store doesn't have stay as
-    /// they are (the todo may still arrive; the orphan cleanup handles the rest). Adopted rows
-    /// carry no edit time (`updatedAt` is `.distantPast`), so two Macs adopting one file write
-    /// identical rows. Calls `didWrite` only when it stored something. Returns how many.
+    /// `attachments.json`) into the store, so they sync. Runs on background contexts, at launch
+    /// and again with the cleanups after each sync import (a todo may arrive later). Only
+    /// folders of todos the store has are taken, each attachment once (an id already stored is
+    /// skipped), after the rows the todo already has. Todo by todo: each is saved on its own, so
+    /// a file that can't be read, or a failed save, keeps only that todo's list for a retry; the
+    /// list of a todo is removed once all its readable files are stored. Folders of todos the
+    /// store doesn't have stay as they are (the todo may still arrive; the orphan cleanup
+    /// handles the rest). Until a todo is adopted, `attachmentList` shows its old list. Adopted
+    /// rows carry no edit time (`updatedAt` is `.distantPast`), so two Macs adopting one file
+    /// write identical rows. Calls `didWrite` only when it stored something. Returns how many.
     @discardableResult
-    public func adoptLegacyAttachments() async throws -> Int {
+    public func adoptLegacyAttachments() async -> Int {
         guard let attachments else { return 0 }
-        let adopted = try await StoreMaintenance.adoptLegacyAttachments(modelContainer, files: attachments)
-        if adopted > 0 {
-            Self.log.notice("Moved \(adopted) attachments into the store")
+        let result = await StoreMaintenance.adoptLegacyAttachments(modelContainer, files: attachments)
+        if result.incompleteTodos > 0 {
+            Self.log.error("\(result.incompleteTodos) todos have attachment files that couldn't be read; they stay as files for the next run")
+        }
+        if result.failedTodos > 0 {
+            Self.log.error("Moving the attachments of \(result.failedTodos) todos into the store failed; the next run tries again")
+        }
+        if result.adopted > 0 {
+            Self.log.notice("Moved \(result.adopted) attachments into the store")
             didWrite?()
         }
-        return adopted
+        return result.adopted
     }
 
-    /// The file of an attachment, for opening it: the local copy, a staged file, or, when the
-    /// todo has the attachment but this Mac has no copy yet (it came through sync, or the copy
-    /// was removed), the bytes from the store written as a new local copy. `nil` when there are
-    /// no bytes anywhere.
+    /// Writes the local copies this Mac lacks of a todo's attachments from the store's bytes, on
+    /// a background context and off the main actor (a file that came through sync has no copy
+    /// yet). The edit panel calls it when it opens; nothing else writes copies. Returns how
+    /// many it wrote. Attachments whose bytes haven't arrived are skipped.
+    @discardableResult
+    public func materializeAttachments(for todoID: UUID) async throws -> Int {
+        guard let attachments else { return 0 }
+        return try await StoreMaintenance.writeLocalCopies(modelContainer, files: attachments, todoID: todoID)
+    }
+
+    /// The file of an attachment, for opening it: the local copy or a staged file, if there is
+    /// one. Only looks; it never writes (it runs while a view renders). `nil` when this Mac has
+    /// no file yet: `materializeAttachments` makes one from the store.
     public func attachmentURL(for attachment: TodoAttachment, todoID: UUID?) -> URL? {
-        guard let attachments else { return nil }
-        if let url = attachments.url(for: attachment, todoID: todoID) { return url }
-        guard let todoID else { return nil }
-        let attachmentID = attachment.id
-        guard let rows = try? context.fetch(FetchDescriptor<StoredAttachment>(
-                  predicate: #Predicate { $0.id == attachmentID && $0.todoID == todoID }
-              )),
-              let data = DuplicateRules.survivor(of: rows)?.data
-        else { return nil }
-        do {
-            return try attachments.writeCommitted(data, for: attachment, todoID: todoID)
-        } catch {
-            Self.log.error("Writing an attachment's local copy failed: \(error, privacy: .public)")
-            return nil
-        }
+        attachments?.url(for: attachment, todoID: todoID)
     }
 
-    /// Deletes archived todos (and their attachments) completed longer than `retention` before `now`
-    /// (default: the injected clock). A todo completed exactly `retention` ago is kept. Returns the
+    /// Deletes archived todos (and their attachments, rows and files, in the same save: a todo
+    /// completed that long ago coming back through a racing edit is too unlikely to keep rows
+    /// for, and a purge records no event for the orphan cleanup to go by) completed longer than
+    /// `retention` before `now` (default: the injected clock). A todo completed exactly `retention` ago is kept. Returns the
     /// number removed. Their events stay, and the purge records none: the history ends at
     /// `completed`.
     @discardableResult
@@ -964,9 +1005,12 @@ public final class TodoStore {
 
     /// A todo's attachments, in order (one per id, should duplicates exist). Reads the store,
     /// so attachments that came through sync are in it whether or not this Mac has their files.
+    /// Attachments an older build kept in `attachments.json` and that aren't adopted yet follow
+    /// the stored ones, so they show before the adoption ran.
     public func attachmentList(for id: UUID) -> [TodoAttachment] {
         do {
-            return try attachmentRows(for: id).orderedSurvivors.map(\.attachment)
+            let stored = try attachmentRows(for: id).orderedSurvivors.map(\.attachment)
+            return stored + (attachments?.unadoptedAttachments(for: id, excluding: Set(stored.map(\.id))) ?? [])
         } catch {
             Self.log.error("Reading attachments failed: \(error, privacy: .public)")
             return []
@@ -985,7 +1029,13 @@ public final class TodoStore {
         descriptor.propertiesToFetch = [\.id, \.todoID]
         var ids: [UUID: Set<UUID>] = [:]
         for row in try context.fetch(descriptor) { ids[row.todoID, default: []].insert(row.id) }
-        return ids.mapValues(\.count)
+        var counts = ids.mapValues(\.count)
+        // Attachments of an older build, not adopted yet.
+        for todoID in attachments?.legacyTodoIDs() ?? [] {
+            let extra = attachments?.unadoptedAttachments(for: todoID, excluding: ids[todoID] ?? []).count ?? 0
+            if extra > 0 { counts[todoID, default: 0] += extra }
+        }
+        return counts
     }
 
     // MARK: Duplicate-aware fetches

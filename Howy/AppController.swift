@@ -227,14 +227,11 @@ final class AppController {
     }
 
     /// Moves attachments that an older build kept only on disk into the store, so they sync. Not
-    /// behind the sync gate: it only adds, and until it ran those attachments don't show.
+    /// behind the sync gate: it only adds (until it ran, those attachments still show from the
+    /// old list). It runs again with the cleanups, for todos that arrive later.
     private func adoptLegacyAttachments() async {
         guard let store = quietStore() else { return }
-        do {
-            try await store.adoptLegacyAttachments()
-        } catch {
-            log.error("Moving attachments into the store failed: \(error, privacy: .public)")
-        }
+        await store.adoptLegacyAttachments()
     }
 
     /// Opens the shared store (building the container if nothing did yet), which also tells the
@@ -759,8 +756,9 @@ final class AppController {
 
     /// At launch and after each sync import (`cleanups`): the day's backup first (so a store that
     /// went wrong is backed up before anything is touched), then removes duplicate todos and
-    /// events and deleted todos that came back, and moves orphaned attachment folders to the
-    /// trash (`MaintenancePlan`). On a day change or wake: the backup alone, and only if today's
+    /// events and deleted todos that came back, adopts old attachment files into the store, and
+    /// removes the attachments of gone todos and moves their folders to the trash
+    /// (`MaintenancePlan`). On a day change or wake: the backup alone, and only if today's
     /// isn't complete yet, checked before any store is opened. The store work runs on a
     /// background context and the file work off the main actor.
     ///
@@ -852,6 +850,9 @@ final class AppController {
             } catch {
                 log.error("Deleted-todo cleanup failed: \(error, privacy: .public)")
             }
+        case .adoptAttachments:
+            // Todos that arrived by sync since launch may have attachments an older build kept as files.
+            await store.adoptLegacyAttachments()
         case .orphanedAttachments:
             do {
                 let moved = try await store.removeOrphanedAttachments()

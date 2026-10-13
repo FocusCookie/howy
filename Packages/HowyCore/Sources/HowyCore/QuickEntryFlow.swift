@@ -236,6 +236,12 @@ public final class QuickEntryFlow {
     @ObservationIgnored private var deletedFromDialog: [(index: Int, attachment: TodoAttachment)] = []
     /// The attachments, in the order they were added. Changed via `attach` / `removeAttachment`.
     public private(set) var attachments: [TodoAttachment]
+    /// The attachments the edit started with: the todo's list when the panel opened, or, for a
+    /// restored draft, when the draft was first made (it is stashed with the draft). The caller
+    /// saves with it (`TodoStore.setAttachments(_:for:startedWith:)`), so only attachments the
+    /// user removed from it are deleted, and attachments another Mac added meanwhile are
+    /// kept. Empty for a new todo.
+    public private(set) var originalAttachments: [TodoAttachment] = []
     /// The selection while `phase == .browsingAttachments`: an attachment, or `attachments.count`
     /// for the Add button after them (the only stop when there are none).
     public private(set) var selectedAttachmentIndex: Int?
@@ -316,6 +322,9 @@ public final class QuickEntryFlow {
                 title = stashed.title
                 note = stashed.note
                 attachments = stashed.attachments
+                // A draft stashed by an older build has no start list: what it holds is the
+                // most that can be said to have been seen, so only those can be deleted.
+                originalAttachments = stashed.originalAttachments ?? stashed.attachments
                 due = stashed.due
                 isRestoredDraft = true
             } else {
@@ -324,6 +333,7 @@ public final class QuickEntryFlow {
                 title = draft.title
                 note = draft.note
                 attachments = draft.attachments
+                originalAttachments = draft.attachments
                 due = draft.due
             }
         }
@@ -585,7 +595,10 @@ public final class QuickEntryFlow {
         case .editingNote, .browsingAttachments: .note
         default: .quadrant
         }
-        let current = StashedDraft(quadrant: quadrant, title: title, note: note, field: field, attachments: attachments, due: due)
+        let current = StashedDraft(
+            quadrant: quadrant, title: title, note: note, field: field, attachments: attachments, due: due,
+            originalAttachments: isEditing ? originalAttachments : nil
+        )
         if case .edit(let original) = mode {
             let unchanged = original.title == title && original.note == note && original.quadrant == quadrant
                 && original.attachments == attachments && original.due == due

@@ -4,8 +4,8 @@ import Foundation
 ///
 /// Since schema v4 the attachments themselves (the list and the bytes) live in the store as
 /// `StoredAttachment`s, which CloudKit syncs. The todo folders here are a local copy of those
-/// bytes, so Quick Look and other apps get a file URL; `TodoStore` writes a missing one again
-/// from the store when it is needed. Staging and import areas are where new files wait.
+/// bytes, so Quick Look and other apps get a file URL; `TodoStore.materializeAttachments` writes
+/// a missing one again from the store, off the main actor, when a todo is opened for editing. Staging and import areas are where new files wait.
 ///
 /// Layout:
 /// - `<root>/<todo id>/<attachment id>/<name>`: a committed file (the local copy).
@@ -22,14 +22,20 @@ import Foundation
 /// `collectStaging(keeping:)` deletes staged files nothing refers to any more.
 public final class AttachmentStore: Sendable {
     public let root: URL
+    /// The biggest file `stage` accepts, in bytes. The file is stored in the synced store (a
+    /// CloudKit asset), so a huge one would be slow to upload and fill the user's iCloud storage.
+    public let maxFileSize: Int
+    /// 100 MB.
+    public static let defaultMaxFileSize = 100 * 1024 * 1024
     static let manifestName = "attachments.json"
     static let stagingName = "staging"
     static let trashName = ".trash"
     /// How long a trashed folder stays before `purgeTrash` deletes it: 14 days.
     public static let trashRetention: TimeInterval = 14 * 24 * 3600
 
-    public init(root: URL) {
+    public init(root: URL, maxFileSize: Int = AttachmentStore.defaultMaxFileSize) {
         self.root = root
+        self.maxFileSize = maxFileSize
     }
 
     /// `<App Group>/Library/Application Support/Attachments`.
@@ -60,7 +66,7 @@ public final class AttachmentStore: Sendable {
     // MARK: Reading
 
     /// Where an attachment's file is: committed for `todoID` if it is there, else staged.
-    /// `nil` when neither file exists (`TodoStore.attachmentURL` then writes it from the store).
+    /// `nil` when neither file exists (`TodoStore.materializeAttachments` then writes it from the store).
     public func url(for attachment: TodoAttachment, todoID: UUID?) -> URL? {
         if let todoID, let committed = committedFile(attachment, todoID: todoID) { return committed }
         let staged = stagedURL(attachment)
@@ -75,8 +81,23 @@ public final class AttachmentStore: Sendable {
 
     // MARK: Staging
 
-    /// Copies a file into staging under `name`.
+    /// Throws `AttachmentError.tooLarge` when the file at `url` is bigger than `maxFileSize`.
+    /// Called before a file is copied anywhere (`stage` does it too).
+    public func validateSize(ofFileAt url: URL) throws {
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize else { return }
+        try validateSize(size, name: url.lastPathComponent)
+    }
+
+    func validateSize(_ size: Int, name: String) throws {
+        if size > maxFileSize { throw AttachmentError.tooLarge(name: name, size: size, limit: maxFileSize) }
+    }
+
+    /// Copies a file into staging under `name`. Throws `AttachmentError.tooLarge` for a file
+    /// over `maxFileSize`.
     public func stage(copying source: URL, as name: String) throws -> TodoAttachment {
+        try validateSize(ofFileAt: source)
         let attachment = TodoAttachment(name: name)
         let target = stagedURL(attachment)
         try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -86,8 +107,10 @@ public final class AttachmentStore: Sendable {
         return attachment
     }
 
-    /// Writes data (e.g. a pasted image) into staging under `name`.
+    /// Writes data (e.g. a pasted image) into staging under `name`. Throws
+    /// `AttachmentError.tooLarge` for data over `maxFileSize`.
     public func stage(data: Data, as name: String) throws -> TodoAttachment {
+        try validateSize(data.count, name: name)
         let attachment = TodoAttachment(name: name)
         let target = stagedURL(attachment)
         try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -158,6 +181,14 @@ public final class AttachmentStore: Sendable {
             ids.insert(id)
         }
         return ids
+    }
+
+    /// The attachments of the list an older build kept for `todoID` that the store doesn't have
+    /// (not in `stored`) and whose file is on disk: what a todo shows until the adoption moves
+    /// them into the store.
+    func unadoptedAttachments(for todoID: UUID, excluding stored: Set<UUID>) -> [TodoAttachment] {
+        guard let list = legacyAttachments(for: todoID) else { return [] }
+        return list.filter { !stored.contains($0.id) && committedFile($0, todoID: todoID) != nil }
     }
 
     /// The list an older build kept for a todo, in order; `nil` when there is none or it can't
@@ -298,5 +329,19 @@ public final class AttachmentStore: Sendable {
     /// The names of the entries in the trash (tests, diagnostics).
     func trashedNames() -> [String] {
         ((try? fileManager.contentsOfDirectory(atPath: trashDirectory.path(percentEncoded: false))) ?? []).sorted()
+    }
+}
+
+/// Why a file can't be attached.
+public enum AttachmentError: Error, Equatable, LocalizedError, Sendable {
+    /// The file is over the size limit.
+    case tooLarge(name: String, size: Int, limit: Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .tooLarge(let name, let size, let limit):
+            let format = ByteCountFormatStyle(style: .file)
+            return "\u{201C}\(name)\u{201D} is \(size.formatted(format)), more than the \(limit.formatted(format)) Howy can attach and sync. Attach a smaller file."
+        }
     }
 }
