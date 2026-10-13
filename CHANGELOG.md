@@ -24,6 +24,7 @@ All notable changes to Howy are documented here. The format follows
   asks "Also delete the attachment?" when it was the last one.
 - The chips of the selected or hovered attachment are highlighted, and a popover
   on a chip shows the file name (with a thumbnail for an image).
+- **h l** select in a note's attachments, like ← →.
 
 ### Changed
 
@@ -45,6 +46,10 @@ All notable changes to Howy are documented here. The format follows
 - The strip no longer lights up as a drop target for its own thumbnails.
 - A note changed from outside (an undo, a removed chip) keeps the cursor
   where it was instead of jumping to the end.
+- Chips keep their icons when the note starts with a chip (they were drawn at
+  almost zero size).
+- The popover under a chip (links too) is no longer cut off at the card's
+  edge or covered by the attachment strip: it floats above the panel.
 
 ## [2.1.0] - 2026-10-13
 

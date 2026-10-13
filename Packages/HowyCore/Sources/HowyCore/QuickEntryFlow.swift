@@ -126,7 +126,7 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 ///   checklist items with it (`MarkdownTaskToggle`). ⌘O and ⌘E don't either: the editor opens /
 ///   edits the link at the caret (`NoteLinks`), the latter through `beginEditingLink`.
 /// - Title, note: ⌥Enter goes to the attachments.
-/// - Attachments: ←/→ select (clamped); Space/Enter ask to open the selected one, ⌥Enter to open
+/// - Attachments: ←/→ (or h/l) select (clamped); Space/Enter ask to open the selected one, ⌥Enter to open
 ///   it the other way (`takeRequest()`); Enter with none asks to pick files; ⌫ removes the
 ///   selected one (and its references in the note); **I** (`insertKey`) inserts a chip for the
 ///   selected one into the note (see "Attachment chips"); Shift+Tab goes back to the note. Other
@@ -409,7 +409,7 @@ public final class QuickEntryFlow {
     }
 
     private func handleAttachmentKey(_ key: QuickEntryKey) {
-        switch key {
+        switch key.vimArrow() {
         case .left: moveAttachmentSelection(by: -1)
         case .right: moveAttachmentSelection(by: 1)
         case .space, .enter, .optionEnter:

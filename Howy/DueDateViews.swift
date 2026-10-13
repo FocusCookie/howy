@@ -14,7 +14,7 @@ struct DueDateDialogActions {
 
 /// The due-date dialog (`DueDateDialog`): one field, the live preview under it, and buttons for
 /// the mouse. Keys come through the flows (↩, Esc, ⌘⌫); this renders the state, keeps the field
-/// focused and shows the **?** examples beside the panel (`DueExamplesPanel`).
+/// focused and shows the **?** examples beside the panel (`AccessoryPanel`).
 struct DueDateDialogView: View {
     let dialog: DueDateDialog
     let now: Date

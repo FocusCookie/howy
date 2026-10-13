@@ -244,6 +244,18 @@ import Testing
         #expect(flow.phase == .browsingAttachments)
     }
 
+    @Test func vimKeysSelectLikeTheArrows() {
+        let flow = makeNoteFlow()
+        flow.attach(png)
+        flow.attach(pdf)
+        flow.handle(.optionEnter)
+        flow.handle(.letter("h"))
+        #expect(flow.selectedAttachment == png)
+        flow.handle(.letter("l"))
+        #expect(flow.selectedAttachment == pdf)
+        #expect(flow.note.isEmpty) // not typed into the note
+    }
+
     @Test func enterWithoutAttachmentsAsksForFiles() {
         let flow = makeNoteFlow()
         flow.handle(.optionEnter)

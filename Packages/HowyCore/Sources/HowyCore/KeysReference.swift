@@ -160,7 +160,7 @@ public enum KeysReference {
             Row(["↩", "⇥"], "On to the title", [.enter, .tab]),
         ]),
         Screen(id: .attachments, title: "Attachments", note: "⌥↩ in the editor.", rows: [
-            Row(["←→"], "Select an attachment or the Add button", [.left, .right]),
+            Row(["←→", "h l"], "Select an attachment or the Add button", [.left, .right, .letter("h"), .letter("l")]),
             Row(["space", "↩"], "Open it (Add: choose files)", [.space, .enter]),
             Row(["⌥↩"], "Open it the other way (see Settings → General)", [.optionEnter]),
             Row(["⌫"], "Remove it", [.backspace]),

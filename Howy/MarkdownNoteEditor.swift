@@ -208,7 +208,7 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         private var reportedChip: NoteChipAnchor?
         private var reportedSelection: NSRange?
         private weak var scrollView: NSScrollView?
-        private var scrollObserver: (any NSObjectProtocol)?
+        private var scrollObservers: [any NSObjectProtocol] = []
 
         init(_ parent: MarkdownNoteEditor) { self.parent = parent }
 
@@ -293,16 +293,25 @@ struct MarkdownNoteEditor: NSViewRepresentable {
             }
         }
 
+        /// Scrolling, the editor moving in the panel and the panel resizing all move the chip at
+        /// the caret, and its popover with it.
         func observeScrolling(of scrollView: NSScrollView) {
             self.scrollView = scrollView
-            scrollObserver = NotificationCenter.default.addObserver(
-                forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
-            ) { [weak self] _ in
+            let center = NotificationCenter.default
+            let report: @Sendable (Notification) -> Void = { [weak self] note in
+                // Only Sendable bits of the notification go onto the main actor.
+                let resized = note.name == NSWindow.didResizeNotification ? note.object.map { ObjectIdentifier($0 as AnyObject) } : nil
                 MainActor.assumeIsolated {
                     guard let self, let textView = self.textViewForFocus else { return }
+                    if let resized, resized != textView.window.map(ObjectIdentifier.init) { return }
                     self.reportChip(textView)
                 }
             }
+            scrollObservers = [
+                center.addObserver(forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main, using: report),
+                center.addObserver(forName: NSView.frameDidChangeNotification, object: scrollView, queue: .main, using: report),
+                center.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main, using: report),
+            ]
         }
 
         /// Reports the chip at the caret (or the chip selected whole) while focused, with its
@@ -312,21 +321,18 @@ struct MarkdownNoteEditor: NSViewRepresentable {
             let selection = textView.selectedRange()
             if parent.isFocused, textView.window?.firstResponder === textView, !textView.hasMarkedText(),
                let chip = chip(in: textView), selection.length == 0 || selection == chip.range {
-                anchor = NoteChipAnchor(chip: chip, frame: chip.isChip ? frame(of: chip.range, in: textView) : nil)
+                anchor = NoteChipAnchor(chip: chip, frame: chip.isChip ? screenFrame(of: chip.range, in: textView) : nil)
             }
             guard anchor != reportedChip else { return }
             reportedChip = anchor
             DispatchQueue.main.async { [weak self] in self?.parent.onChipChange(anchor) } // not during a view update
         }
 
-        /// A character range's frame in the scroll view (top-left origin), if it is in view.
-        private func frame(of range: NSRange, in textView: NSTextView) -> CGRect? {
-            guard let scrollView, let rect = (textView as? NoteTextView)?.rect(forCharacters: range),
+        /// A character range's frame on screen, if it is in view.
+        private func screenFrame(of range: NSRange, in textView: NSTextView) -> CGRect? {
+            guard let scrollView, let window = textView.window, let rect = (textView as? NoteTextView)?.rect(forCharacters: range),
                   scrollView.contentView.documentVisibleRect.intersects(rect) else { return nil }
-            let converted = scrollView.convert(rect, from: textView)
-            return scrollView.isFlipped
-                ? converted
-                : CGRect(x: converted.minX, y: scrollView.bounds.height - converted.maxY, width: converted.width, height: converted.height)
+            return window.convertToScreen(textView.convert(rect, to: nil))
         }
 
         /// The pointer is over the chip of this attachment (nil: over none).
@@ -678,6 +684,13 @@ final class NoteTextView: NSTextView {
         }
     }
 
+    /// The body text size. Not `font` (the first character's font, or the caret's): a note that
+    /// starts with a chip starts with its hidden, near-zero `[`.
+    private var bodyPointSize: CGFloat { MarkdownStyler.baseFont(scale: bodyScale).pointSize }
+
+    /// The panel zoom the text was last styled at (`MarkdownStyler.apply`).
+    var bodyScale: CGFloat = 1
+
     private func updateChips() {
         let names = coordinator?.parent.attachmentNames ?? []
         let highlighted = coordinator?.parent.highlightedName
@@ -692,13 +705,13 @@ final class NoteTextView: NSTextView {
             return DrawnChip(range: chip.range, rects: segmentRects(forCharacters: chip.range), symbol: symbol,
                              isHighlighted: attachment != nil && attachment?.name == highlighted, attachmentName: attachment?.name)
         }
-        let scale = (font?.pointSize ?? NSFont.systemFontSize) / NSFont.systemFontSize
+        let scale = bodyPointSize / NSFont.systemFontSize
         // Every layout pass asks; only a change moves the views.
         guard drawn != drawnChips || scale != chipScale else { return }
         drawnChips = drawn
         chipScale = scale
         let rects = drawn.flatMap { chip in chip.rects.map { (rect: $0, isHighlighted: chip.isHighlighted) } }
-        let radius = (font?.pointSize ?? NSFont.systemFontSize) * 0.35
+        let radius = bodyPointSize * 0.35
         while chipViews.count < rects.count {
             let view = RoundedHighlightView(color: Self.chipColor, cornerRadius: radius)
             addSubview(view, positioned: .below, relativeTo: nil)
@@ -762,7 +775,7 @@ final class NoteTextView: NSTextView {
                 frames = segmentRects(forCharacters: ghost).map { $0.integral }
                 color = Self.ghostRangeColor
             } else if let caret = caretRect(at: ghost.location) {
-                let width = max(3, 2.5 * (font?.pointSize ?? NSFont.systemFontSize) / NSFont.systemFontSize)
+                let width = max(3, 2.5 * bodyPointSize / NSFont.systemFontSize)
                 frames = [NSRect(x: caret.minX - width / 2, y: caret.minY, width: width, height: caret.height)]
             }
         }
@@ -918,8 +931,8 @@ final class NoteTextView: NSTextView {
     }
 }
 
-/// The chip (or bare URL) at the caret and the chip's frame in the editor (top-left origin; nil
-/// for a bare URL or a chip out of view), for the popover.
+/// The chip (or bare URL) at the caret and the chip's frame on screen (nil for a bare URL or a
+/// chip out of view), for the popover (`ChipPopoverController`).
 struct NoteChipAnchor: Equatable {
     let chip: NoteChip
     let frame: CGRect?
@@ -1036,6 +1049,7 @@ enum MarkdownStyler {
         }
         storage.endEditing()
         textView.typingAttributes = base
+        (textView as? NoteTextView)?.bodyScale = scale
         (textView as? NoteTextView)?.setNeedsChipUpdate()
     }
 

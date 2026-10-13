@@ -13,6 +13,7 @@ struct QuickEntryView: View {
     private enum Field: Hashable { case title }
     @FocusState private var focus: Field?
     @State private var panel = PanelBox()
+    @State private var chipPopover = ChipPopoverController()
     /// Heights measured in an Overview tile: the room above the footer, the fields above the note,
     /// and the attachment divider and strip (the last height they had while shown).
     @State private var tileSpace = TileSpace()
@@ -171,7 +172,9 @@ struct QuickEntryView: View {
             fillsHeight: fillsHeight
         )
         .frame(maxHeight: fillsHeight ? .infinity : nil)
-        .overlay(alignment: .topLeading) { chipPopover }
+        .onChange(of: shownChip, initial: true) { _, anchor in showChipPopover(anchor) }
+        .onChange(of: scale) { showChipPopover(shownChip) }
+        .onDisappear { chipPopover.hide() }
         .overlay(alignment: .topLeading) {
             if flow.note.isEmpty {
                 Text("Note (Markdown)")
@@ -190,37 +193,36 @@ struct QuickEntryView: View {
         }
     }
 
+    /// The chip at the caret whose popover shows: in the note, with no dialog open, in view.
+    private var shownChip: NoteChipAnchor? {
+        guard let anchor = model.noteChip, anchor.chip.isChip, anchor.frame != nil,
+              flow.phase == .editingNote, !flow.hasDialog else { return nil }
+        return anchor
+    }
+
     /// Under the chip at the caret: a link's URL, or an attachment's file name (and thumbnail),
-    /// with Open and Edit.
-    @ViewBuilder private var chipPopover: some View {
-        if let anchor = model.noteChip, anchor.chip.isChip, let frame = anchor.frame,
-           flow.phase == .editingNote, !flow.hasDialog {
-            GeometryReader { editor in
-                Group {
-                    switch anchor.chip {
-                    case .link(let link):
-                        LinkPopover(
-                            link: link,
-                            onOpen: { model.openLink(link) },
-                            onEdit: { flow.beginEditingLink(link) }
-                        )
-                    case .attachment(let chip):
-                        AttachmentChipPopover(
-                            chip: chip,
-                            source: model.attachment(named: chip.name).flatMap(model.url(for:)).map { .file($0) },
-                            onOpen: { model.openAttachment(named: chip.name, alternate: NSEvent.modifierFlags.contains(.option)) },
-                            onEdit: { withAnimation(.snappy(duration: 0.15)) { flow.beginEditingAttachment(chip) } }
-                        )
-                    }
-                }
-                // Starts under the chip, but not so far right that it leaves the card.
-                .offset(x: max(0, min(frame.minX, editor.size.width - Self.popoverRoom * scale)), y: frame.maxY + 4 * scale)
+    /// with Open and Edit. In its own child window (`ChipPopoverController`), so it can reach past
+    /// the card's edge and stays above the attachment strip.
+    private func showChipPopover(_ anchor: NoteChipAnchor?) {
+        guard let anchor, let frame = anchor.frame, let window = panel.window else { return chipPopover.hide() }
+        chipPopover.show(under: frame, in: window, scale: scale) {
+            switch anchor.chip {
+            case .link(let link):
+                LinkPopover(
+                    link: link,
+                    onOpen: { model.openLink(link) },
+                    onEdit: { flow.beginEditingLink(link) }
+                )
+            case .attachment(let chip):
+                AttachmentChipPopover(
+                    chip: chip,
+                    source: model.attachment(named: chip.name).flatMap(model.url(for:)).map { .file($0) },
+                    onOpen: { model.openAttachment(named: chip.name, alternate: NSEvent.modifierFlags.contains(.option)) },
+                    onEdit: { withAnimation(.snappy(duration: 0.15)) { flow.beginEditingAttachment(chip) } }
+                )
             }
         }
     }
-
-    /// The width kept free for the popover at the editor's right edge, at 100 %.
-    private static let popoverRoom: CGFloat = 330
 
     /// The due-date dialog over the whole card (`dueDialogOverlay` dims the rest and makes room).
     @ViewBuilder private var dueDialog: some View {

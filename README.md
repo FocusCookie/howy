@@ -32,8 +32,8 @@ Everything happens from a shortcut.
   (**N**) todos right in their tile, and drag todos between quadrants.
 - **Vim keys** work next to the arrows wherever there's nothing to type into:
   **h j k l** on the grid and in the move picker, **j k** in a list and in the
-  archive, and in the Overview **j k** inside a tile and **h l** to the tile
-  beside it. In text fields and dialogs the letters are just typing.
+  archive, **h l** in a note's attachments, and in the Overview **j k** inside a
+  tile and **h l** to the tile beside it. In text fields and dialogs the letters are just typing.
 - **?** on the grid, in a list, in the Overview or in the archive opens
   Settings → Keys, a reference of every key on every screen.
 - **Esc** never loses your typing. Unsaved text is kept as a draft, even across
