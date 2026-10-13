@@ -1,10 +1,10 @@
 import HowyCore
 import SwiftUI
 
-/// Quick entry's 2×2 quadrant picker. The highlighted tile glows in its quadrant colour; on panel
+/// The editor's 2×2 quadrant picker (⇧⇥ from the title). The highlighted tile glows in its quadrant colour; on panel
 /// open the tiles slide in from slightly outside their corners. (Browse's grid with open counts,
 /// which grows into the Overview, is `OverviewView`. Its tiles are notched around the middle
-/// button; quick entry has no such button, so these are plain.)
+/// button; the editor has no such button, so these are plain.)
 struct QuadrantGrid: View {
     let highlighted: Quadrant?
     let onChoose: (Quadrant) -> Void

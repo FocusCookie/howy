@@ -319,7 +319,10 @@ struct BrowseView: View {
                     short: "↑↓ select · ↩ edit · N new · D done · T due · M ⌘1–4 move\(undo) · esc back"
                 )
             } else {
-                KeyHints("←↑↓→ or 1–4 · ↩ open · O overview\(undo) · esc close", short: "←↑↓→ or 1–4 · ↩ open\(undo) · esc close")
+                KeyHints(
+                    "←↑↓→ or 1–4 · ↩ open · N new · O overview\(undo) · ? keys · esc close",
+                    short: "←↑↓→ or 1–4 · ↩ open · N new\(undo) · ? keys · esc close"
+                )
             }
         }
         .panelFont(.caption)

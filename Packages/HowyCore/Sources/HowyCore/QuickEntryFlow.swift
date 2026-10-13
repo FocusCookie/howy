@@ -45,6 +45,10 @@ public enum QuickEntryKey: Hashable, Sendable {
     /// A plain letter key, lower-cased. Typing in the fields; a shortcut where there is nothing
     /// to type into (Browse: `a` opens the archive, `d` marks the selected todo done).
     case letter(Character)
+    /// "?" (⇧/ on a US keyboard, mapped by its character so every layout works): the keys
+    /// reference on Browse's grid, list and Overview and in the archive (`.showKeys`). Typing in
+    /// the text fields, tile editors and dialogs, like `other`.
+    case questionMark
     /// Any other key that is plain typing (letters, shifted keys, backspace...). The text field
     /// handles it, except where the flow has nothing to type into (picker, delete prompt).
     case other
@@ -150,16 +154,16 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 /// one it is the field's). ⌘D and ⌥↩ are swallowed. The date goes into `due` and is saved with the
 /// todo (`savedDraft.due`) and kept in a stashed draft.
 ///
-/// Modes: `.create` starts in the picker on the preselected / last-used quadrant and records the
-/// chosen quadrant as last-used on save. With `startingInTitle` it starts in the title instead,
-/// for callers that picked the quadrant themselves. `.edit` starts in the title field with the
-/// todo's values; Shift+Tab from the title reaches the picker to change the quadrant. Editing
-/// does not change the last-used quadrant.
+/// Modes: `.create(quadrant)` starts in the title field on that quadrant (the caller chose it: N
+/// on Browse's grid or list, "Add to Quadrant", a widget's quadrant label) and records the quadrant
+/// it is saved into as last-used. `.edit` starts in the title field with the todo's values.
+/// In both, Shift+Tab from the title reaches the picker to change the quadrant. Editing does not
+/// change the last-used quadrant.
 ///
 /// Drafts (with a `DraftStore`): closing without saving keeps what was typed, like Spotlight.
 /// - Create mode: Esc and `abandon()` (focus loss, hotkey, replaced) stash quadrant, title, note
-///   and field; the next create flow restores them. A `preselected` quadrant overrides only the
-///   stashed quadrant. An empty draft clears the stash. Saving clears it.
+///   and field; the next create flow restores them, on its own quadrant (which overrides only the
+///   stashed one) and never in the picker. An empty draft clears the stash. Saving clears it.
 /// - Edit mode: `abandon()` stashes a changed edit for that todo id and the next edit of the same
 ///   todo restores it. Esc discards (and clears the stash), as do saving and deleting.
 @MainActor
@@ -174,10 +178,8 @@ public final class QuickEntryFlow {
     }
 
     public enum Mode: Hashable, Sendable {
-        /// `preselected` overrides the last-used quadrant (e.g. a widget's quadrant label tap).
-        /// `startingInTitle` skips the picker for a caller that already chose the quadrant
-        /// (e.g. the menu bar's "Add to Quadrant"); ⇧⇥ from the title still reaches the picker.
-        case create(preselected: Quadrant? = nil, startingInTitle: Bool = false)
+        /// A new todo in this quadrant, starting in the title; ⇧⇥ from the title reaches the picker.
+        case create(Quadrant)
         case edit(QuickEntryDraft)
     }
 
@@ -230,13 +232,11 @@ public final class QuickEntryFlow {
     @ObservationIgnored private let lastUsed: any LastQuadrantStore
     @ObservationIgnored private let drafts: (any DraftStore)?
 
-    /// `startQuadrant` (Settings) decides where a fresh create flow starts when nothing is preselected.
     /// `linkTitles` looks up the page title for a pasted link (none: the domain stays).
     public init(
         mode: Mode,
         lastUsed: any LastQuadrantStore,
         drafts: (any DraftStore)? = nil,
-        startQuadrant: NewTodoQuadrant = .lastUsed,
         linkTitles: (any LinkTitleLookup)? = nil,
         dueDates: DueDateContext = DueDateContext()
     ) {
@@ -246,24 +246,23 @@ public final class QuickEntryFlow {
         self.linkTitles = linkTitles
         self.dueContext = dueDates
         switch mode {
-        case .create(let preselected, let startingInTitle):
+        case .create(let start):
+            quadrant = start
             if let stashed = drafts?.createDraft() {
                 phase = Self.phase(for: stashed.field)
-                quadrant = preselected ?? stashed.quadrant
                 title = stashed.title
                 note = stashed.note
                 attachments = stashed.attachments
                 due = stashed.due
                 isRestoredDraft = true
             } else {
-                phase = .pickingQuadrant
-                quadrant = preselected ?? startQuadrant.resolve(lastUsed: lastUsed.load())
+                phase = .editingTitle
                 title = ""
                 note = ""
                 attachments = []
             }
             // The quadrant came with the request, so the picker has nothing left to ask.
-            if startingInTitle, phase == .pickingQuadrant { phase = .editingTitle }
+            if phase == .pickingQuadrant { phase = .editingTitle }
         case .edit(let draft):
             if let id = draft.todoID, let stashed = drafts?.editDraft(for: id) {
                 phase = Self.phase(for: stashed.field)
@@ -333,7 +332,7 @@ public final class QuickEntryFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .enter, .tab: phase = .editingTitle
             case .shiftTab, .moveUp, .moveDown, .commandDigit: return false
-            case .other, .letter, .space, .optionEnter, .optionDigit, .backspace, .commandDelete, .undo:
+            case .other, .questionMark, .letter, .space, .optionEnter, .optionDigit, .backspace, .commandDelete, .undo:
                 break // nothing to type into
             case .escape, .closePanel, .commandEnter, .commandDone, .dueDate: break
             case .zoomIn, .zoomOut, .zoomReset: return false // the panel's, not the flow's

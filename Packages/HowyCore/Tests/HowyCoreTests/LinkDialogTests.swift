@@ -12,7 +12,7 @@ struct FakeTitleLookup: LinkTitleLookup {
 @MainActor
 @Suite struct LinkDialogTests {
     func makeFlow(note: String = "go now", lookup: (any LinkTitleLookup)? = nil) -> QuickEntryFlow {
-        let flow = QuickEntryFlow(mode: .create(startingInTitle: true), lastUsed: MemoryLastQuadrantStore(), linkTitles: lookup)
+        let flow = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: MemoryLastQuadrantStore(), linkTitles: lookup)
         flow.title = "Trip"
         flow.note = note
         flow.handle(.enter) // into the note
@@ -113,7 +113,7 @@ struct FakeTitleLookup: LinkTitleLookup {
     }
 
     @Test func onlyFromTheNote() {
-        let flow = QuickEntryFlow(mode: .create(startingInTitle: true), lastUsed: MemoryLastQuadrantStore())
+        let flow = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: MemoryLastQuadrantStore())
         flow.beginAddingLink(url: "https://a.io", replacing: NSRange(location: 0, length: 0))
         #expect(flow.linkDialog == nil)
     }

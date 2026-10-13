@@ -13,7 +13,7 @@ extension DueDateContext {
     let tomorrowNine = DueFixture.date("2026-10-08 09:00")
 
     func makeCreate() -> QuickEntryFlow {
-        let flow = QuickEntryFlow(mode: .create(startingInTitle: true), lastUsed: MemoryLastQuadrantStore(), dueDates: .fixture)
+        let flow = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: MemoryLastQuadrantStore(), dueDates: .fixture)
         flow.title = "Submit tax return"
         return flow
     }
@@ -36,7 +36,9 @@ extension DueDateContext {
         #expect(flow.phase == .editingNote)
         flow.handle(.dueDate)
         #expect(flow.dueDialog != nil)
-        let picker = QuickEntryFlow(mode: .create(), lastUsed: MemoryLastQuadrantStore(), dueDates: .fixture)
+        let picker = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: MemoryLastQuadrantStore(), dueDates: .fixture)
+        picker.handle(.shiftTab)
+        #expect(picker.phase == .pickingQuadrant)
         picker.handle(.dueDate)
         #expect(picker.dueDialog != nil)
     }
@@ -308,7 +310,7 @@ extension DueDateContext {
     var all: [String] { DueDateExamples.all.map(\.phrase) }
 
     func makeEditor() -> QuickEntryFlow {
-        let flow = QuickEntryFlow(mode: .create(startingInTitle: true), lastUsed: MemoryLastQuadrantStore(), dueDates: .fixture)
+        let flow = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: MemoryLastQuadrantStore(), dueDates: .fixture)
         flow.title = "Pay"
         flow.handle(.dueDate)
         return flow

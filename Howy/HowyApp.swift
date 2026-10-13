@@ -11,6 +11,12 @@ struct HowyApp: App {
     /// The earliest app code: before the delegate's `applicationWillFinishLaunching`, a launching
     /// `howy://` URL and any use of the store (see `AppController.configureStoreSync`).
     init() {
+        // First, before anything (the menu's `.globalKeyboardShortcut(.openHowy)`) reads the Open
+        // Howy name, which stores its default when it has none.
+        let migration = OpenHowyShortcutMigration.run()
+        if migration != .alreadyDone {
+            log.notice("Open Howy shortcut migration: \(String(describing: migration), privacy: .public)")
+        }
         AppController.configureStoreSync()
     }
 
@@ -25,24 +31,14 @@ private struct MenuContent: View {
     let controller: AppController
 
     var body: some View {
-        // Shortcut hints only for the shortcuts that are live in the current mode.
-        if controller.shortcutMode == .single {
-            Button("Quick Add") { controller.showQuickEntry() }
-            Button("Browse") { controller.showBrowse() }
-        } else {
-            Button("Quick Add") { controller.showQuickEntry() }
-                .globalKeyboardShortcut(.quickAdd)
-            Button("Browse") { controller.showBrowse() }
-                .globalKeyboardShortcut(.browse)
-        }
+        Button("Open Howy") { controller.showBrowse() }
+            .globalKeyboardShortcut(.openHowy)
         Button("Archive") { controller.showArchive() }
         Divider()
-        // Straight into a quadrant: the modal opens on the title, with the picker already answered.
+        // Straight into a quadrant: the editor opens on the title, the quadrant already chosen.
         Menu("Add to Quadrant") {
             ForEach(Quadrant.allCases) { quadrant in
-                Button(quadrant.displayName) {
-                    controller.showQuickEntry(preselected: quadrant, startingInTitle: true)
-                }
+                Button(quadrant.displayName) { controller.showCreate(in: quadrant) }
             }
         }
         Divider()

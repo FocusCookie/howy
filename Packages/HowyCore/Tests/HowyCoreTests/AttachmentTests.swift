@@ -189,8 +189,7 @@ import Testing
     let pdf = TodoAttachment(name: "report.pdf")
 
     func makeNoteFlow(drafts: MemoryDraftStore? = nil) -> QuickEntryFlow {
-        let flow = QuickEntryFlow(mode: .create(), lastUsed: MemoryLastQuadrantStore(), drafts: drafts)
-        flow.handle(.enter)
+        let flow = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: MemoryLastQuadrantStore(), drafts: drafts)
         flow.handle(.enter)
         return flow
     }
@@ -324,7 +323,7 @@ import Testing
         flow.abandon()
         #expect(drafts.stashedAttachmentIDs() == [png.id])
 
-        let next = QuickEntryFlow(mode: .create(), lastUsed: MemoryLastQuadrantStore(), drafts: drafts)
+        let next = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: MemoryLastQuadrantStore(), drafts: drafts)
         #expect(next.attachments == [png])
         next.title = "T"
         next.save()

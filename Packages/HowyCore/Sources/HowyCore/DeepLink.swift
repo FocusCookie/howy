@@ -3,7 +3,8 @@ import Foundation
 /// The `howy://` URL contract between the widgets and the menu-bar app.
 ///
 /// - `howy://edit/<UUID>` — open the edit modal for a todo
-/// - `howy://quick-add` / `howy://quick-add/<1-4>` — open quick entry (optionally preselecting a quadrant)
+/// - `howy://quick-add/<1-4>` — open the editor for a new todo in that quadrant (a widget's
+///   quadrant label); `howy://quick-add` — open the quadrant grid (older links)
 /// - `howy://archive` — open the archive modal
 public enum DeepLink: Hashable, Sendable {
     case edit(UUID)

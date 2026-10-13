@@ -5,11 +5,12 @@ import Observation
 /// one selected row.
 ///
 /// Keys (`handle(_:)` returns what the caller should do):
-/// - ↑/↓ move the selection (clamped).
+/// - ↑/↓ (or j/k) move the selection (clamped).
 /// - `r` → `.restore(id)`: bring the selected todo back; the row is removed here, the caller
 ///   writes it.
 /// - ⌫ / ⌘⌫ → `.delete(id)`: delete the selected todo for good; the row is removed here, the
 ///   caller writes it.
+/// - "?" → `.showKeys`: the keys reference.
 /// - Esc → `.close`. Everything else is swallowed (`.handled`): there is nothing to type into.
 ///
 /// After a removal the selection stays on the row that moves up into the gap (the new last row
@@ -26,6 +27,8 @@ public final class ArchiveFlow {
         case delete(UUID)
         /// Close the panel (or go back to where the archive was opened from).
         case close
+        /// "?": show the keys reference (Settings → Keys). The list is unchanged.
+        case showKeys
     }
 
     /// The key that restores the selected todo.
@@ -47,13 +50,14 @@ public final class ArchiveFlow {
 
     @discardableResult
     public func handle(_ key: QuickEntryKey) -> Outcome {
-        switch key {
+        switch key.vimArrow(horizontal: false) {
         case .up: moveSelection(by: -1)
         case .down: moveSelection(by: 1)
         case .letter(Self.restoreKey):
             if let id = selectedID, remove(id: id) { return .restore(id) }
         case .backspace, .commandDelete:
             if let id = selectedID, remove(id: id) { return .delete(id) }
+        case .questionMark: return .showKeys
         case .escape: return .close
         default: break
         }

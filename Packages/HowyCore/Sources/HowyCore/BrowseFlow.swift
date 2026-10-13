@@ -4,12 +4,17 @@ import Observation
 /// UI-independent state machine behind the browse panel: a 2×2 picker with open-todo counts,
 /// then one quadrant's open todos as a selectable list.
 ///
+/// Vim keys work next to the arrows wherever there is nothing to type into: h/j/k/l on the grid
+/// and in the move picker, j/k in the list, j/k in an Overview tile and h/l beside ←/→ there.
+/// Never in a tile editor or the due-date dialog, where the letters are typing.
+///
 /// Keys (`handle(_:)` returns what the caller should do):
-/// - Picker: arrows move and clamp; ↓ from the bottom row highlights the Archive button below the
-///   grid and ↑ comes back; 1–4 open that quadrant's list; Enter/Tab open the highlighted one (or
-///   the archive: `.openArchive`); `a` opens the archive; Esc closes (`.close`). Everything else
-///   is swallowed.
-/// - List: ↑/↓ move the selection (clamped); Enter → `.open(id)`; `d` completes the selected
+/// - Picker: arrows (and h/j/k/l) move and clamp; ↓ from the bottom row highlights the Archive
+///   button below the grid and ↑ comes back; 1–4 open that quadrant's list; Enter/Tab open the highlighted one (or
+///   the archive: `.openArchive`); `n` asks for a new todo in the highlighted quadrant (`.newTodo`;
+///   nothing with the Archive button highlighted; the grid stays as it is for coming back); `a`
+///   opens the archive; Esc closes (`.close`). Everything else is swallowed.
+/// - List: ↑/↓ (j/k) move the selection (clamped); Enter → `.open(id)`; `d` completes the selected
 ///   todo (the row is removed here, the caller writes it: `.complete(id)`); ⌫ archives it the
 ///   same way but without the celebration (`.archive(id)`); 1–4 switch quadrant;
 ///   `t` opens the due-date dialog for the selected todo (see "Due date" below);
@@ -20,7 +25,7 @@ import Observation
 ///   the other one; the caller writes it); `m` opens the move picker. Everything else is
 ///   swallowed.
 /// - Move picker (a 2×2 over the list, for the selected todo): 1–4 (or ⌘1–4) move straight away;
-///   arrows move the highlight and clamp; Enter moves to the highlighted quadrant; Esc closes only
+///   arrows (h/j/k/l) move the highlight and clamp; Enter moves to the highlighted quadrant; Esc closes only
 ///   the picker. The todo's own quadrant does nothing. Everything else is swallowed.
 /// - Picker, list and Overview: ⌘Z takes back the last `d` / ⌫ / move / reorder of this panel: a
 ///   completed todo is put back where it was and the caller clears its done mark (`.restore(id)`);
@@ -31,7 +36,9 @@ import Observation
 /// - Overview (all four quadrants as tiles, one focused; `o` from the picker or the list, or
 ///   `toggleOverview()`): every list key acts on the focused tile (`quadrant`, `rows`,
 ///   `selectedIndex`), except that 1–4 and ⌥1–4 focus that quadrant instead of opening its list
-///   (Tab / Shift-Tab focus the next / previous quadrant in priority order, wrapping),
+///   (Tab / Shift-Tab focus the next / previous quadrant in priority order, wrapping; ←/→ and
+///   h/l focus the tile beside the focused one in its row, clamped; ↑/↓ and j/k only move inside
+///   the tile),
 ///   Enter opens the selected todo in the tile's editor (`.editInTile`), `n` opens a create
 ///   editor there for a new todo in the focused quadrant (`.createInTile`), and Esc goes back to
 ///   the picker with the focused quadrant highlighted (`.hideOverview`). Each tile remembers its
@@ -49,11 +56,19 @@ import Observation
 ///   one it is the field's), ⇥ / ⇧⇥ open or close the examples (↑↓ and ↩ pick one there; see
 ///   `DueDateDialog`). Other keys are swallowed. The caller writes `.setDue` to the store.
 ///   Due dates never change the order or the quadrant.
+/// - Grid, list and Overview (no tile editor, move picker or due-date dialog open): "?" →
+///   `.showKeys`, the keys reference. In a tile editor and the due-date dialog it is typing
+///   (`.ignored`); the move picker swallows it.
 /// - Closed: every key is `.ignored`.
 ///
 /// An opened todo's edit modal comes back here (`resume(at:)`, with the `BrowseReturn` taken by
-/// `returnPoint`) on Esc, save or delete; so does the create screen `n` opens from the list
-/// (`BrowseReturn.afterCreate`: the new todo selected after a save).
+/// `returnPoint`) on Esc, save or delete; so does the create screen `n` opens from the grid (back
+/// to the grid, the same quadrant highlighted) or the list (`BrowseReturn.afterCreate`: the new
+/// todo selected after a save).
+///
+/// The grid starts on the quadrant given, else on the one opened last (`lastOpened`: a list
+/// opened, an Overview tile focused; the app shares it with the quadrant a new todo was last
+/// saved into), else on Do First.
 ///
 /// Rows keep the order they are given in (the store's order), until moved here.
 @MainActor
@@ -92,7 +107,7 @@ public final class BrowseFlow {
         /// The Overview closed, back to the picker: shrink the panel. A tile editor that was open
         /// is closed too; stash its edit.
         case hideOverview
-        /// List: create a new todo in this quadrant (the create screen, starting in the title).
+        /// Grid or list: create a new todo in this quadrant (the create screen, starting in the title).
         case newTodo(Quadrant)
         /// Overview: open this todo in the focused tile's editor (it is selected there). Stash any
         /// other tile editor still open first.
@@ -107,6 +122,9 @@ public final class BrowseFlow {
         case setDue(UUID, Date?)
         /// Show the archive.
         case openArchive
+        /// "?" on the grid, the list or the Overview: show the keys reference (Settings → Keys).
+        /// Nothing changes here; the panel may close for it.
+        case showKeys
         /// Close the panel.
         case close
     }
@@ -183,10 +201,18 @@ public final class BrowseFlow {
     public private(set) var dueDialog: DueDateDialog?
     public private(set) var dueDialogTodoID: UUID?
     private let dueContext: DueDateContext
+    /// Remembers the quadrant opened last (a list, a focused Overview tile), where the next
+    /// Browse's grid starts.
+    @ObservationIgnored private let lastOpened: (any LastQuadrantStore)?
 
-    public init(todos: [Quadrant: [TodoSnapshot]], quadrant: Quadrant = .urgentImportant, dueDates: DueDateContext = DueDateContext()) {
+    /// The grid starts on `quadrant`, else on the quadrant `lastOpened` remembers, else on Do First.
+    public init(
+        todos: [Quadrant: [TodoSnapshot]], quadrant: Quadrant? = nil,
+        lastOpened: (any LastQuadrantStore)? = nil, dueDates: DueDateContext = DueDateContext()
+    ) {
         self.todos = todos
-        self.quadrant = quadrant
+        self.quadrant = quadrant ?? lastOpened?.load() ?? .urgentImportant
+        self.lastOpened = lastOpened
         self.dueContext = dueDates
     }
 
@@ -226,7 +252,7 @@ public final class BrowseFlow {
         case .closed:
             return .ignored
         case .picking:
-            switch key {
+            switch key.vimArrow() {
             case .up:
                 if isArchiveHighlighted { isArchiveHighlighted = false } else { move(rows: -1, columns: 0) }
             case .down:
@@ -237,9 +263,12 @@ public final class BrowseFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .letter(Self.archiveKey): return .openArchive
             case .letter(Self.overviewKey): return showOverview()
+            case .letter(Self.newKey):
+                if !isArchiveHighlighted { return .newTodo(quadrant) }
             case .enter, .tab:
                 if isArchiveHighlighted { return .openArchive }
                 choose(quadrant)
+            case .questionMark: return .showKeys
             case .undo:
                 if let outcome = undo() { return outcome }
             case .escape: return close()
@@ -248,7 +277,7 @@ public final class BrowseFlow {
             return .handled
         case .listing:
             if let picker = movePicker { return handleMovePicker(key, picker) }
-            switch key {
+            switch key.vimArrow(horizontal: false) {
             case .up: moveSelection(by: -1)
             case .down: moveSelection(by: 1)
             case .enter:
@@ -270,6 +299,7 @@ public final class BrowseFlow {
                 if let todo = selectedTodo { beginDueDate(id: todo.id) }
             case .letter(Self.archiveKey): return .openArchive
             case .letter(Self.overviewKey): return showOverview()
+            case .questionMark: return .showKeys
             case .undo:
                 if let outcome = undo() { return outcome }
             case .escape, .shiftTab: backToPicker()
@@ -302,9 +332,12 @@ public final class BrowseFlow {
             return .handled
         }
         if let picker = movePicker { return handleMovePicker(key, picker) }
-        switch key {
+        switch key.vimArrow() {
         case .up: moveSelection(by: -1)
         case .down: moveSelection(by: 1)
+        case .left, .right:
+            // The tile beside the focused one, in the same row (clamped); ↑/↓ stay in the tile.
+            return focus(quadrant.moved(rows: 0, columns: key.vimArrow() == .left ? -1 : 1))
         case .enter:
             if let todo = selectedTodo { return openEditor(id: todo.id) }
         case .letter(Self.doneKey):
@@ -331,6 +364,7 @@ public final class BrowseFlow {
         case .letter(Self.dueKey):
             if let todo = selectedTodo { beginDueDate(id: todo.id) }
         case .letter(Self.archiveKey): return .openArchive
+        case .questionMark: return .showKeys
         case .undo:
             if let outcome = undo() { return outcome }
         case .escape: return hideOverview()
@@ -343,7 +377,7 @@ public final class BrowseFlow {
 
     private func handleMovePicker(_ key: QuickEntryKey, _ picker: MovePicker) -> Outcome {
         var target: Quadrant?
-        switch key {
+        switch key.vimArrow() {
         case .digit(let n), .commandDigit(let n): target = Quadrant(shortcutNumber: n)
         case .enter: target = picker.highlighted
         case .up: movePicker?.highlighted = picker.highlighted.moved(rows: -1, columns: 0)
@@ -434,7 +468,7 @@ public final class BrowseFlow {
             return .handled
         case .notOurs, nil:
             switch key {
-            case .letter, .digit, .space, .backspace, .left, .right, .up, .down, .other, .undo, .commandDelete:
+            case .letter, .digit, .space, .backspace, .left, .right, .up, .down, .other, .questionMark, .undo, .commandDelete:
                 return .ignored // typing (and caret moves) in the field
             default:
                 return .handled
@@ -470,6 +504,7 @@ public final class BrowseFlow {
         rememberSelection()
         movePicker = nil
         quadrant = target
+        lastOpened?.save(target)
         selectedIndex = rememberedIndex(in: target)
         return editor.map { .dismissEditor($0, stash: true) } ?? .handled
     }
@@ -647,6 +682,7 @@ public final class BrowseFlow {
     public func choose(_ quadrant: Quadrant) {
         guard phase != .closed else { return }
         self.quadrant = quadrant
+        lastOpened?.save(quadrant)
         isArchiveHighlighted = false
         movePicker = nil
         closeDueDialog()
@@ -697,6 +733,14 @@ public final class BrowseFlow {
             return true
         }
         return false
+    }
+
+    /// Picker: puts the highlight on `quadrant` (coming back from the create screen `n` opened on
+    /// the grid). Nothing is remembered as opened.
+    public func highlight(_ quadrant: Quadrant) {
+        guard phase == .picking else { return }
+        self.quadrant = quadrant
+        isArchiveHighlighted = false
     }
 
     /// Picker: puts the highlight on the Archive button (e.g. coming back from the archive).

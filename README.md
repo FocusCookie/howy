@@ -9,24 +9,35 @@ floating panels that appear above everything, like Spotlight or Raycast. Desktop
 widgets show your matrix at a glance. Howy has no Dock icon and no main window.
 Everything happens from a shortcut.
 
-## What it can do (v2.0.0)
+## What it can do (v2.1.0)
 
 ### Floating panels, driven by the keyboard
 
-- **Quick Add**: press **⌃⌥⇧⌘Space** anywhere. Pick a quadrant (arrow keys or
-  **1–4**), type a title, add an optional Markdown note, and save with **⌘↩**.
-- **Browse**: press **⌃⌥⇧⌘M**. You see the four quadrants with their open
-  counts. Open a quadrant, go through its todos with **↑/↓**, edit with **↩**,
-  add a new todo to that quadrant with **N**, mark done with **D**, undo with **⌘Z**, and reorder with **⌘↑/⌘↓** (or drag).
-  In the edit window, **⌘D** saves and marks the todo done.
-- **Overview**: press **O** in Browse (or click the button between the
-  quadrants) to see all four quadrants side by side. Focus one with **1–4** or
-  **⌥1–4**, edit or add (**N**) todos right in their tile, and drag todos
-  between quadrants.
-- **One-shortcut mode** (optional): a single shortcut opens a small chooser
-  between _New Todo_ and _Browse_.
+- **One shortcut, Open Howy**: press **⌃⌥⇧⌘Space** anywhere (change it in
+  Settings → Keys). You see the four quadrants with their open counts, starting
+  on the quadrant you opened or added to last. Press it again while Howy is
+  open and Howy closes, from any screen, like **⌘W**.
+- **Add a todo**: **N** on the grid adds one to the highlighted quadrant, and
+  **N** in a list to that quadrant. Type a title, add an optional Markdown
+  note, and save with **⌘↩**. Saving or **Esc** brings you back to where you
+  were. **⇧⇥** from the title reaches a small quadrant picker if you want
+  another quadrant.
+- **Browse**: open a quadrant with **1–4** or **↩**, go through its todos with
+  **↑/↓**, edit with **↩**, mark done with **D**, undo with **⌘Z**, and reorder
+  with **⌘↑/⌘↓** (or drag). **M** or **⌘1–4** moves a todo to another quadrant.
+  In the editor, **⌘D** saves and marks the todo done.
+- **Overview**: press **O** on the grid or in a list (or click the button
+  between the quadrants) to see all four quadrants side by side. Focus one with
+  **1–4** or **⌥1–4**, or move to the tile beside it with **←/→**; edit or add
+  (**N**) todos right in their tile, and drag todos between quadrants.
+- **Vim keys** work next to the arrows wherever there's nothing to type into:
+  **h j k l** on the grid and in the move picker, **j k** in a list and in the
+  archive, and in the Overview **j k** inside a tile and **h l** to the tile
+  beside it. In text fields and dialogs the letters are just typing.
+- **?** on the grid, in a list, in the Overview or in the archive opens
+  Settings → Keys, a reference of every key on every screen.
 - **Esc** never loses your typing. Unsaved text is kept as a draft, even across
-  restarts. **⌘W** closes the Howy panel from any screen.
+  restarts. **⌘W** closes Howy from any screen.
 - **Panel zoom**: **⌘+** / **⌘-** make a panel's text and layout bigger or
   smaller in four steps (100–150 %), and **⌘0** goes back to 100 %. The size is
   remembered.
@@ -79,9 +90,9 @@ Everything happens from a shortcut.
   - Times: `10am`, `10 am`, `2pm`, `10:30pm`, `14:30`, `at 10`. A time on its
     own that has already passed today means tomorrow.
   - `at`, `on`, `by`, `the` and `of` are ignored, so `10.10.2026 at 10am`
-    works. A date without a time is due at 9:00 (change it in Settings). Dates
-    in the past, impossible times (`25:00`) and words Howy doesn't know are
-    refused with a message.
+    works. A date without a time is due at 9:00 (change it in Settings →
+    General). Dates in the past, impossible times (`25:00`) and words Howy
+    doesn't know are refused with a message.
 - **In Browse** a dated todo shows a grey clock and a short time (_in 25 min_,
   _16:00_, _Tomorrow 10:00_, _Fri 10:00_, _21 Oct_, or _10 Oct 2027_ in another
   year); an overdue one a red bell
@@ -102,7 +113,8 @@ Everything happens from a shortcut.
 - **Quadrant widget** (small and medium): shows one quadrant of your choice.
   Place four of them side by side.
 - Tick a checkbox to complete a todo straight from the desktop. Click a title to
-  edit it, or click a quadrant label to add a todo to that quadrant.
+  edit it, or click a quadrant label to open the editor for a new todo in that
+  quadrant.
 - A small clock marks todos with a due date; it turns red the moment one is
   overdue.
 - Works in light and dark mode and with tinted widget styles.
@@ -125,7 +137,8 @@ Everything happens from a shortcut.
   field is still imported without that field; one with a damaged id, todo id,
   kind or date is skipped. Exports from older Howy versions (format version 1)
   still import.
-- **Copy for AI** (Settings → Import & Export) copies a description of the
+- **Import…** and **Export…** are in the menu and in Settings → Data.
+- **Copy for AI** (Settings → Data) copies a description of the
   format. Paste it into an AI chat with data from another app, and it answers
   with a `howy.json` you can import.
 - **Daily backups:** once a day (at launch, and when the day changes while
@@ -136,18 +149,26 @@ Everything happens from a shortcut.
   complete backups dated today or earlier count and get pruned, and nothing is
   pruned after a backup that couldn't copy an attachment. An empty store isn't
   backed up, so a loss of data never pushes the good backups out. Settings →
-  Import & Export → **Show in Finder** opens the folder; import a backup to
+  Data → **Show in Finder** opens the folder; import a backup to
   restore it.
 
 ### Menu bar and Settings
 
-- The menu has Quick Add, Browse, Archive, _Add to Quadrant_, Import…,
-  Export…, Settings… and Quit.
-- Settings shows the iCloud sync status at the top. There you can also set the panel size, record your own shortcuts, choose which quadrant new todos
-  start on, choose how attachments open, set the done animation, size the
-  Overview, set how long
-  the archive keeps todos, set the time used for due dates typed without one,
-  open the backups folder, and turn on start at login.
+- The menu has Open Howy (with its shortcut), Archive, _Add to Quadrant ▸ 1–4_
+  (opens the editor for a new todo in that quadrant), Import…, Export…,
+  Settings… and Quit.
+- Settings has five tabs in its toolbar. The window takes each tab's size and
+  opens on the tab you used last.
+  - **General**: start at login, how attachments open, the time used for due
+    dates typed without one (and a link to turn notifications on when they're
+    off).
+  - **Keys**: the Open Howy shortcut (with _Restore Default_), and below it a
+    reference of every key, screen by screen.
+  - **Appearance**: the panel size, the Overview's size (with a preview), and
+    the done animation.
+  - **iCloud**: the sync status line and what syncing does.
+  - **Data**: how long the archive keeps done todos, Import… and Export…, Copy
+    for AI, and the daily backups' folder.
 
 ### iCloud sync
 
@@ -166,13 +187,13 @@ Everything happens from a shortcut.
   downloads them again, but changes that hadn't uploaded yet are lost. Howy
   tells you with a notification when it sees this happen (also at the next
   launch if it happened while Howy wasn't running), and the daily backup is the
-  safety net (Settings → Import & Export).
+  safety net (Settings → Data).
 - **Settings → iCloud** shows one status line: checking, syncing, up to date
   (with when it last synced), offline, waiting for iCloud, not signed in or
   iCloud off for Howy (Howy then works on this Mac only), or a sync error with
   a short reason.
-- **Notifications** come once per problem, and clicking one opens Settings at
-  the status line: the todos were removed from this Mac (signed out, iCloud off
+- **Notifications** come once per problem, and clicking one opens Settings → iCloud
+  with the status line highlighted: the todos were removed from this Mac (signed out, iCloud off
   for Howy, another account, or Howy's data deleted from iCloud), iCloud
   storage is full, or sync has failed for over an hour. Being offline or a
   short hiccup at iCloud never notifies. Storage-full and failing notices don't

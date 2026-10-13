@@ -50,12 +50,47 @@ import Testing
         #expect(flow.handle(.letter("n")) == .newTodo(.notUrgentUnimportant))
     }
 
-    @Test func nInThePickerIsIgnored() {
+    // MARK: Grid
+
+    @Test func nOnTheGridAsksForANewTodoInTheHighlightedQuadrant() {
         let flow = make()
         flow.handle(.right)
-        #expect(flow.handle(.letter("n")) == .handled)
-        #expect(flow.phase == .picking)
+        #expect(flow.handle(.letter(BrowseFlow.newKey)) == .newTodo(.notUrgentImportant))
+        #expect(flow.phase == .picking, "the grid stays as it is, for coming back")
         #expect(flow.quadrant == .notUrgentImportant)
+    }
+
+    @Test func nWithTheArchiveButtonHighlightedDoesNothing() {
+        let flow = make()
+        flow.handle(.down)
+        flow.handle(.down)
+        #expect(flow.isArchiveHighlighted)
+        #expect(flow.handle(.letter(BrowseFlow.newKey)) == .handled)
+    }
+
+    @Test func theGridsReturnPointIsTheGridOnTheHighlightedQuadrant() {
+        let flow = make()
+        flow.handle(.down)
+        #expect(flow.handle(.letter("n")) == .newTodo(.urgentUnimportant))
+        #expect(flow.returnPoint() == BrowseReturn(quadrant: .urgentUnimportant, todoID: nil, index: nil, screen: .grid))
+    }
+
+    @Test(arguments: [false, true])
+    func saveOrEscFromTheGridComesBackToTheGridOnThatQuadrant(saved: Bool) {
+        let flow = make()
+        flow.handle(.right)
+        flow.handle(.down)
+        #expect(flow.handle(.letter("n")) == .newTodo(.notUrgentUnimportant))
+        let back = flow.returnPoint()
+        let new = TodoSnapshot(id: UUID(), title: "new", quadrant: .urgentImportant)
+        // Saved into another quadrant (⇧⇥ in the editor), or not saved at all: the grid either way.
+        let way = saved ? back.afterCreate(new.id, savedInto: .urgentImportant) : back.afterCreate(nil, savedInto: nil)
+        let resumed = BrowseFlow(todos: adding(new, to: flow), lastOpened: MemoryLastQuadrantStore(.notUrgentImportant))
+        resumed.resume(at: way)
+        #expect(resumed.phase == .picking)
+        #expect(resumed.quadrant == .notUrgentUnimportant)
+        #expect(!resumed.isArchiveHighlighted)
+        #expect(resumed.selectedIndex == nil)
     }
 
     @Test func nWithTheMovePickerOpenDoesNothing() {
@@ -73,14 +108,13 @@ import Testing
         flow.handle(.digit(quadrant.shortcutNumber))
         flow.select(id: try id(flow, title))
         #expect(flow.handle(.letter(BrowseFlow.newKey)) == .newTodo(quadrant))
-        return flow.returnPoint(viaLauncher: false)
+        return flow.returnPoint()
     }
 
     @Test func theReturnPointIsTheShownListAndItsSelection() throws {
         let flow = make()
         let back = try openCreate(flow, in: .notUrgentImportant, selecting: "q")
-        #expect(back == BrowseReturn(quadrant: .notUrgentImportant, todoID: try id(flow, "q"), index: 1, viaLauncher: false))
-        #expect(flow.returnPoint(viaLauncher: true).viaLauncher)
+        #expect(back == BrowseReturn(quadrant: .notUrgentImportant, todoID: try id(flow, "q"), index: 1))
     }
 
     @Test func savingIntoTheBrowsedQuadrantComesBackWithTheNewTodoSelectedOnTop() throws {
@@ -149,7 +183,7 @@ import Testing
         let flow = make()
         flow.handle(.digit(4))
         #expect(flow.handle(.letter("n")) == .newTodo(.notUrgentUnimportant))
-        let back = flow.returnPoint(viaLauncher: true)
+        let back = flow.returnPoint()
         #expect(back.todoID == nil && back.index == nil)
         let resumed = BrowseFlow(todos: adding(TodoSnapshot(id: UUID(), title: "z", quadrant: .urgentImportant), to: flow))
         resumed.resume(at: back.afterCreate(nil, savedInto: .notUrgentUnimportant))
@@ -157,21 +191,13 @@ import Testing
         #expect(resumed.selectedTodo == nil)
     }
 
-    @Test func theWayBackKeepsViaLauncher() throws {
-        let flow = make()
-        flow.handle(.digit(1))
-        let back = flow.returnPoint(viaLauncher: true)
-        #expect(back.afterCreate(UUID(), savedInto: .notUrgentImportant).viaLauncher)
-        #expect(back.afterCreate(nil, savedInto: nil).viaLauncher)
-    }
-
     @Test func openingATodoReturnsToItAtTheSelectedRow() throws {
         let flow = make()
         flow.handle(.digit(1))
         flow.handle(.down)
         let a = try id(flow, "a")
-        let back = flow.returnPoint(opening: a, viaLauncher: false)
-        #expect(back == BrowseReturn(quadrant: .urgentImportant, todoID: a, index: 1, viaLauncher: false))
+        let back = flow.returnPoint(opening: a)
+        #expect(back == BrowseReturn(quadrant: .urgentImportant, todoID: a, index: 1))
     }
 
     // MARK: Overview
@@ -393,30 +419,28 @@ import Testing
     }
 }
 
-/// The create flow Browse opens: the browsed quadrant wins over the "New todo starts in" setting
-/// and over a stashed draft's quadrant; the draft's text is still restored.
+/// The create flow Browse (N on the grid or the list), "Add to Quadrant" and a widget's quadrant
+/// label open: it starts in the title on that quadrant, which wins over a stashed draft's
+/// quadrant; the draft's text is still restored.
 @MainActor
 @Suite struct BrowseCreateQuadrantTests {
     let drafts = MemoryDraftStore()
     let lastUsed = MemoryLastQuadrantStore(.urgentImportant)
 
-    func makeCreate(in quadrant: Quadrant, startQuadrant: NewTodoQuadrant) -> QuickEntryFlow {
-        QuickEntryFlow(
-            mode: .create(preselected: quadrant, startingInTitle: true),
-            lastUsed: lastUsed, drafts: drafts, startQuadrant: startQuadrant
-        )
+    func makeCreate(in quadrant: Quadrant) -> QuickEntryFlow {
+        QuickEntryFlow(mode: .create(quadrant), lastUsed: lastUsed, drafts: drafts)
     }
 
-    @Test func browsedQuadrantBeatsAFixedStartQuadrantAndStartsInTheTitle() {
-        let flow = makeCreate(in: .urgentUnimportant, startQuadrant: .fixed(.notUrgentImportant))
+    @Test func startsInTheTitleOnTheGivenQuadrant() {
+        let flow = makeCreate(in: .urgentUnimportant)
         #expect(flow.quadrant == .urgentUnimportant)
         #expect(flow.phase == .editingTitle)
         #expect(flow.title.isEmpty)
     }
 
-    @Test func browsedQuadrantBeatsTheDraftsQuadrantButKeepsItsText() {
+    @Test func theGivenQuadrantBeatsTheDraftsQuadrantButKeepsItsText() {
         drafts.setCreateDraft(StashedDraft(quadrant: .notUrgentImportant, title: "Call Bob", note: "re: invoice", field: .title))
-        let flow = makeCreate(in: .notUrgentUnimportant, startQuadrant: .fixed(.urgentImportant))
+        let flow = makeCreate(in: .notUrgentUnimportant)
         #expect(flow.quadrant == .notUrgentUnimportant)
         #expect(flow.title == "Call Bob")
         #expect(flow.note == "re: invoice")
@@ -426,13 +450,13 @@ import Testing
 
     @Test func aDraftStashedAtThePickerStillStartsInTheTitle() {
         drafts.setCreateDraft(StashedDraft(quadrant: .notUrgentImportant, title: "Half", note: "", field: .quadrant))
-        let flow = makeCreate(in: .urgentUnimportant, startQuadrant: .lastUsed)
+        let flow = makeCreate(in: .urgentUnimportant)
         #expect(flow.phase == .editingTitle)
         #expect(flow.quadrant == .urgentUnimportant)
     }
 
     @Test func shiftTabStillReachesThePickerAndSavingThereUpdatesLastUsed() {
-        let flow = makeCreate(in: .urgentUnimportant, startQuadrant: .lastUsed)
+        let flow = makeCreate(in: .urgentUnimportant)
         flow.title = "Walk"
         flow.handle(.shiftTab)
         #expect(flow.phase == .pickingQuadrant)
@@ -444,13 +468,13 @@ import Testing
     }
 
     @Test func escStashesTheDraftInTheSharedCreateSlot() {
-        let flow = makeCreate(in: .urgentUnimportant, startQuadrant: .lastUsed)
+        let flow = makeCreate(in: .urgentUnimportant)
         flow.title = "Later"
         flow.handle(.escape)
         #expect(drafts.createDraft()?.title == "Later")
-        // Quick Add picks it up next.
-        let quickAdd = QuickEntryFlow(mode: .create(), lastUsed: lastUsed, drafts: drafts)
-        #expect(quickAdd.title == "Later")
-        #expect(quickAdd.quadrant == .urgentUnimportant)
+        // The next new todo, wherever it starts, picks it up.
+        let next = makeCreate(in: .notUrgentImportant)
+        #expect(next.title == "Later")
+        #expect(next.quadrant == .notUrgentImportant)
     }
 }

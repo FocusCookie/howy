@@ -7,8 +7,8 @@ import Testing
     let drafts = MemoryDraftStore()
     let lastUsed = MemoryLastQuadrantStore()
 
-    func makeCreate(preselected: Quadrant? = nil) -> QuickEntryFlow {
-        QuickEntryFlow(mode: .create(preselected: preselected), lastUsed: lastUsed, drafts: drafts)
+    func makeCreate(in quadrant: Quadrant = .urgentImportant) -> QuickEntryFlow {
+        QuickEntryFlow(mode: .create(quadrant), lastUsed: lastUsed, drafts: drafts)
     }
 
     func makeEdit(_ source: QuickEntryDraft) -> QuickEntryFlow {
@@ -17,16 +17,15 @@ import Testing
 
     // MARK: create mode
 
-    @Test func escapeInCreateModeStashesAndNextQuickAddRestores() {
-        let flow = makeCreate()
-        flow.handle(.digit(2))
+    @Test func escapeInCreateModeStashesAndTheNextNewTodoRestores() {
+        let flow = makeCreate(in: .notUrgentImportant)
         flow.title = "Call landlord"
         flow.handle(.enter)
         flow.note = "about the heating"
         flow.handle(.escape)
         #expect(flow.phase == .cancelled)
 
-        let next = makeCreate()
+        let next = makeCreate(in: .notUrgentImportant)
         #expect(next.isRestoredDraft)
         #expect(next.quadrant == .notUrgentImportant)
         #expect(next.title == "Call landlord")
@@ -34,13 +33,13 @@ import Testing
         #expect(next.phase == .editingNote, "back in the field it was in")
     }
 
-    @Test func startingInTitleKeepsTheDraftButSkipsTheStashedPicker() {
+    @Test func createKeepsTheDraftButStartsInTheTitle() {
         let flow = makeCreate()
         flow.title = "Call landlord"
         flow.abandon()
 
         let next = QuickEntryFlow(
-            mode: .create(preselected: .urgentUnimportant, startingInTitle: true),
+            mode: .create(.urgentUnimportant),
             lastUsed: lastUsed, drafts: drafts
         )
         #expect(next.title == "Call landlord")
@@ -48,7 +47,7 @@ import Testing
         #expect(next.phase == .editingTitle)
     }
 
-    @Test(arguments: [QuickEntryFlow.Phase.pickingQuadrant, .editingTitle, .editingNote])
+    @Test(arguments: [QuickEntryFlow.Phase.editingTitle, .editingNote])
     func abandonStashesThePhase(phase: QuickEntryFlow.Phase) {
         let flow = makeCreate()
         flow.title = "x"
@@ -57,9 +56,17 @@ import Testing
         #expect(makeCreate().phase == phase)
     }
 
+    @Test func aDraftLeftInThePickerComesBackInTheTitle() {
+        let flow = makeCreate()
+        flow.title = "x"
+        flow.focus(.pickingQuadrant)
+        flow.abandon()
+        #expect(drafts.createDraft()?.field == .quadrant)
+        #expect(makeCreate().phase == .editingTitle)
+    }
+
     @Test func abandonedFlowKeepsItsPhaseButIgnoresKeys() {
         let flow = makeCreate()
-        flow.handle(.enter)
         flow.title = "x"
         flow.abandon()
         #expect(flow.phase == .editingTitle, "no picker/fields flip while the panel fades out")
@@ -89,7 +96,7 @@ import Testing
         #expect(drafts.createDraft() == nil)
         let next = makeCreate()
         #expect(!next.isRestoredDraft)
-        #expect(next.phase == .pickingQuadrant)
+        #expect(next.phase == .editingTitle)
     }
 
     @Test func noteOnlyDraftIsStashed() {
@@ -112,12 +119,12 @@ import Testing
         #expect(!makeCreate().isRestoredDraft)
     }
 
-    @Test func preselectedQuadrantOverridesOnlyTheStashedQuadrant() {
+    @Test func theGivenQuadrantOverridesOnlyTheStashedQuadrant() {
         let flow = makeCreate()
         flow.handle(.digit(1))
         flow.title = "Keep me"
         flow.abandon()
-        let next = makeCreate(preselected: .notUrgentUnimportant)
+        let next = makeCreate(in: .notUrgentUnimportant)
         #expect(next.quadrant == .notUrgentUnimportant)
         #expect(next.title == "Keep me")
         #expect(next.phase == .editingTitle)
@@ -163,7 +170,7 @@ import Testing
         let other = makeEdit(source())
         #expect(!other.isRestoredDraft)
         #expect(other.title == "Original")
-        #expect(drafts.createDraft() == nil, "edit stashes never leak into Quick Add")
+        #expect(drafts.createDraft() == nil, "edit stashes never leak into a new todo")
     }
 
     @Test func unchangedEditIsNotStashed() {

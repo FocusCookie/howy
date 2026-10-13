@@ -26,15 +26,12 @@ final class AppController {
     static let shared = AppController()
 
     private(set) var launchesAtLogin = false
-    /// One launcher shortcut, or separate Quick Add and Browse shortcuts (Settings).
-    private(set) var shortcutMode = ShortcutMode.load()
     /// How big the panels are drawn (⌘+ / ⌘- / ⌘0 in a panel, the Settings slider). One value for
     /// all panels, saved on every change and applied to an open panel right away.
     private(set) var panelZoom = PanelZoom.load()
 
-    /// `browseCreate`: the create screen `n` opens from Browse's list. Like `edit`, the Quick Add
-    /// hotkey replaces it (its draft stashed first) instead of toggling it closed.
-    private enum PanelKind { case launcher, quickEntry, browseCreate, edit, archive, browse, error }
+    /// `create`: the editor for a new todo (N in Browse, "Add to Quadrant", a widget's quadrant label).
+    private enum PanelKind { case create, edit, archive, browse, error }
 
     @ObservationIgnored private var panel: FloatingPanel?
     @ObservationIgnored private var panelKind: PanelKind?
@@ -70,6 +67,7 @@ final class AppController {
     /// The open Browse or Archive panel's model, refreshed when the store changes elsewhere.
     @ObservationIgnored private weak var browseModel: BrowseModel?
     @ObservationIgnored private weak var archiveModel: ArchiveModel?
+    /// The quadrant last opened in Browse or saved into, where a fresh Browse grid starts.
     @ObservationIgnored private let lastUsed = UserDefaultsLastQuadrantStore()
     @ObservationIgnored private let drafts = UserDefaultsDraftStore()
     /// Fetches a pasted link's page title for the link dialog.
@@ -78,7 +76,6 @@ final class AppController {
     @ObservationIgnored private let transferWindow = TransferWindowController()
 
     private static let didRegisterLoginItemKey = "didRegisterLoginItem"
-    private static let didMigrateBrowseShortcutKey = "didMigrateBrowseShortcutToM"
     private static let panelWidth: CGFloat = 560
 
     /// The shared store's CloudKit mirroring and the iCloud account as the app sees them (the
@@ -131,26 +128,8 @@ final class AppController {
 
     func start() {
         ShortcutRecorderModel.removeFunctionModifier()
-        migrateBrowseShortcut()
-        // All three stay registered (the launcher shares Quick Add's default keys, and disabling one
-        // would unregister the shared hotkey); a press only acts in the mode its shortcut belongs to.
-        KeyboardShortcuts.onKeyUp(for: .quickAdd) { [weak self] in
-            MainActor.assumeIsolated {
-                guard self?.shortcutMode == .separate else { return }
-                self?.toggleQuickEntry()
-            }
-        }
-        KeyboardShortcuts.onKeyUp(for: .browse) { [weak self] in
-            MainActor.assumeIsolated {
-                guard self?.shortcutMode == .separate else { return }
-                self?.toggleBrowse()
-            }
-        }
-        KeyboardShortcuts.onKeyUp(for: .launcher) { [weak self] in
-            MainActor.assumeIsolated {
-                guard self?.shortcutMode == .single else { return }
-                self?.toggleLauncher()
-            }
+        KeyboardShortcuts.onKeyUp(for: .openHowy) { [weak self] in
+            MainActor.assumeIsolated { self?.toggleOpenHowy() }
         }
         launchesAtLogin = SMAppService.mainApp.status == .enabled
         // The notification delegate must be in place before launching finishes.
@@ -359,7 +338,8 @@ final class AppController {
         log.notice("Deep link \(url.absoluteString, privacy: .public)")
         switch link {
         case .edit(let id): showEdit(id: id, activate: true)
-        case .quickAdd(let quadrant): showQuickEntry(preselected: quadrant, activate: true)
+        case .quickAdd(let quadrant?): showCreate(in: quadrant, activate: true)
+        case .quickAdd(nil): showBrowse(activate: true)
         case .archive: showArchive(activate: true)
         }
     }
@@ -389,76 +369,23 @@ final class AppController {
 
     // MARK: Panels
 
-    func setShortcutMode(_ mode: ShortcutMode) {
-        mode.save()
-        shortcutMode = mode
-    }
-
-    /// The launcher shortcut closes whatever is open (launcher, or a screen opened from it).
-    func toggleLauncher() {
-        if panel != nil { closePanel() } else { showLauncher() }
-    }
-
-    /// Without a choice (a fresh open), the highlight starts on the Settings default; coming back
-    /// from a screen highlights that screen's choice.
-    func showLauncher(highlighting choice: LauncherChoice? = nil) {
-        let flow = LauncherFlow(highlighted: choice ?? LauncherChoice.loadDefault())
-        let open: (LauncherChoice) -> Void = { [weak self] choice in
-            switch choice {
-            case .create: self?.showQuickEntry(viaLauncher: true)
-            case .browse: self?.showBrowse(resuming: nil, viaLauncher: true)
-            }
-        }
-        let panel = present(.launcher, activate: false) {
-            LauncherView(flow: flow) { choice in
-                if case .open = flow.open(choice) { open(choice) }
-            }
-        }
-        panel.keyHandler = { [weak panel] event in
-            guard let key = QuickEntryKey(event: event) else { return false }
-            switch flow.handle(key) {
-            case .ignored: return false
-            case .handled: break
-            case .open(let choice): open(choice)
-            case .close: panel?.dismiss()
-            }
-            return true
-        }
-    }
-
-    func toggleQuickEntry() {
-        // Only a quick-entry panel toggles closed; an edit, Browse create or archive panel is
-        // replaced by Quick Add.
-        if panel != nil, panelKind == .quickEntry {
-            panel?.dismiss()
-        } else {
-            showQuickEntry()
-        }
-    }
-
     /// Closes whatever panel is open (its draft is stashed like on any close without saving).
     func closePanel() {
         panel?.dismiss()
     }
 
-    func toggleBrowse() {
-        if panel != nil, panelKind == .browse {
-            panel?.dismiss()
-        } else {
-            showBrowse()
-        }
+    /// The Open Howy shortcut: opens Browse's quadrant grid, or, with any panel open, closes Howy
+    /// from whatever screen it shows, like ⌘W (an unsaved todo is kept as a draft).
+    func toggleOpenHowy() {
+        if panel != nil { closePanel() } else { showBrowse() }
     }
 
     func showBrowse(activate: Bool = false) {
         showBrowse(resuming: nil, activate: activate)
     }
 
-    /// With `viaLauncher`, Esc on the quadrants returns to the launcher instead of closing.
     /// `fromArchive` reopens the picker with the Archive button highlighted (Esc in the archive).
-    private func showBrowse(
-        resuming back: BrowseReturn?, viaLauncher: Bool = false, fromArchive: Bool = false, activate: Bool = false
-    ) {
-        let viaLauncher = back?.viaLauncher ?? viaLauncher
+    private func showBrowse(resuming back: BrowseReturn?, fromArchive: Bool = false, activate: Bool = false) {
         guard let store = freshStore(activate: activate) else { return }
         let todos: [Quadrant: [TodoSnapshot]]
         do {
@@ -468,7 +395,7 @@ final class AppController {
             showError(title: "Can't read Howy's data", message: error.localizedDescription, activate: activate)
             return
         }
-        let flow = BrowseFlow(todos: todos, dueDates: .live())
+        let flow = BrowseFlow(todos: todos, lastOpened: lastUsed, dueDates: .live())
         if let back { flow.resume(at: back) }
         if fromArchive { flow.highlightArchive() }
         let model = BrowseModel(flow: flow, store: store)
@@ -478,21 +405,20 @@ final class AppController {
             guard let key = QuickEntryKey(event: event) else { return false }
             return model.handle(key)
         }
-        model.close = { [weak self, weak panel] in
-            if viaLauncher { self?.showLauncher(highlighting: .browse) } else { panel?.dismiss() }
-        }
+        model.close = { [weak panel] in panel?.dismiss() }
         model.openTodo = { [weak self, weak flow] id in
-            self?.showEdit(id: id, returningTo: flow?.returnPoint(opening: id, viaLauncher: viaLauncher))
+            self?.showEdit(id: id, returningTo: flow?.returnPoint(opening: id))
         }
         model.createTodo = { [weak self, weak flow] quadrant in
             guard let flow else { return }
-            self?.showCreate(in: quadrant, returningTo: flow.returnPoint(viaLauncher: viaLauncher))
+            self?.showCreate(in: quadrant, returningTo: flow.returnPoint())
         }
         model.openArchive = { [weak self] in
             self?.showArchive(returning: { [weak self] in
-                self?.showBrowse(resuming: nil, viaLauncher: viaLauncher, fromArchive: true)
+                self?.showBrowse(resuming: nil, fromArchive: true)
             })
         }
+        model.showKeys = { [weak self] in self?.showKeysReference() }
         model.resizeForOverview = { [weak panel] expanded, animated, changes, completion in
             guard let panel else { changes(); completion(); return }
             panel.setOverview(expanded ? OverviewSize.load() : nil, animated: animated, changes: changes, completion: completion)
@@ -530,56 +456,33 @@ final class AppController {
         return model
     }
 
-    /// With `viaLauncher`, Esc returns to the launcher (keeping the draft) instead of closing.
-    /// With `startingInTitle`, the modal opens on the title field instead of the picker — for the
-    /// menu bar's "Add to Quadrant", where the quadrant was already chosen.
-    func showQuickEntry(
-        preselected: Quadrant? = nil, startingInTitle: Bool = false,
-        viaLauncher: Bool = false, activate: Bool = false
-    ) {
+    /// A create flow for a new todo in a chosen quadrant, starting in the title. The quadrant wins
+    /// over the stashed draft's quadrant; the draft's text is restored.
+    private func createFlow(in quadrant: Quadrant) -> QuickEntryFlow {
+        QuickEntryFlow(
+            mode: .create(quadrant), lastUsed: lastUsed, drafts: drafts, linkTitles: linkTitles, dueDates: .live()
+        )
+    }
+
+    /// The editor for a new todo in `quadrant`, straight away ("Add to Quadrant", a widget's
+    /// quadrant label): save and Esc close the panel (Esc keeps the draft).
+    func showCreate(in quadrant: Quadrant, activate: Bool = false) {
+        showCreate(in: quadrant, returningTo: nil, activate: activate)
+    }
+
+    /// With `back` (N in Browse): save and Esc go back through `back.afterCreate` — to the grid
+    /// with the same quadrant highlighted (N on the grid), or to the list of the quadrant it was
+    /// saved into with the new todo selected (N in a list). Esc keeps the draft; losing focus
+    /// still closes.
+    private func showCreate(in quadrant: Quadrant, returningTo back: BrowseReturn?, activate: Bool = false) {
         guard let store = freshStore(activate: activate) else { return }
         // A create screen or tile editor being replaced stashes its text now, so this flow
         // restores it (the shared create draft) instead of the one stashed before.
         stashOpenDraft()
-        let flow = QuickEntryFlow(
-            mode: .create(preselected: preselected, startingInTitle: startingInTitle),
-            lastUsed: lastUsed, drafts: drafts,
-            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles, dueDates: .live()
-        )
-        let model = QuickEntryModel(flow: flow, store: store)
-        model.escapeReturns = viaLauncher
-        presentQuickEntry(model, kind: .quickEntry, activate: activate)
-        if viaLauncher {
-            model.close = { [weak self, weak model] in
-                if model?.flow.phase == .cancelled {
-                    self?.showLauncher(highlighting: .create)
-                } else {
-                    self?.closePanel()
-                }
-            }
-        }
-    }
-
-    /// A create flow for a new todo in a quadrant chosen in Browse, starting in the title. The
-    /// quadrant wins over the "New todo starts in" setting and over the stashed draft's quadrant;
-    /// the draft's text is restored.
-    private func createFlow(in quadrant: Quadrant) -> QuickEntryFlow {
-        QuickEntryFlow(
-            mode: .create(preselected: quadrant, startingInTitle: true),
-            lastUsed: lastUsed, drafts: drafts,
-            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles, dueDates: .live()
-        )
-    }
-
-    /// `n` in Browse's list: the create screen for a new todo in that quadrant. Save returns to
-    /// Browse listing the quadrant it was saved into, with the new todo selected; Esc returns to
-    /// `back` (the draft is stashed); losing focus still closes.
-    private func showCreate(in quadrant: Quadrant, returningTo back: BrowseReturn) {
-        guard let store = freshStore() else { return }
-        stashOpenDraft()
         let model = QuickEntryModel(flow: createFlow(in: quadrant), store: store)
-        model.escapeReturns = true
-        presentQuickEntry(model, kind: .browseCreate, activate: false)
+        model.escapeReturns = back != nil
+        presentQuickEntry(model, kind: .create, activate: activate)
+        guard let back else { return }
         model.close = { [weak self, weak model] in
             guard let self, let model else { return }
             self.showBrowse(resuming: back.afterCreate(model.createdTodoID, savedInto: model.flow.savedDraft?.quadrant))
@@ -633,6 +536,7 @@ final class AppController {
         model.close = { [weak panel] in
             if let back { back() } else { panel?.dismiss() }
         }
+        model.showKeys = { [weak self] in self?.showKeysReference() }
     }
 
     private func presentQuickEntry(_ model: QuickEntryModel, kind: PanelKind, activate: Bool) {
@@ -684,7 +588,7 @@ final class AppController {
     }
 
     /// Shows a screen: inside the open panel when there is one (the card resizes and the contents
-    /// cross-fade, e.g. Browse ↔ edit, launcher → Quick Add), otherwise in a new panel. The caller
+    /// cross-fade, e.g. Browse ↔ edit, Browse → archive), otherwise in a new panel. The caller
     /// sets the returned panel's `keyHandler` / `willClose` right away.
     private func present<Content: View>(
         _ kind: PanelKind, activate: Bool, @ViewBuilder content: () -> Content
@@ -983,28 +887,38 @@ final class AppController {
         purgeArchive()
     }
 
-    func showSettings() {
+    /// Settings' tabs, in toolbar order. The raw value is saved for the last-used tab.
+    enum SettingsTab: String, CaseIterable, Hashable {
+        case general, keys, appearance, iCloud, data
+    }
+
+    /// A caller's ask for a Settings tab (`showSettings(tab:)`); `date` makes two asks for the
+    /// same tab in a row observable.
+    struct SettingsTabRequest: Equatable {
+        let tab: SettingsTab
+        let date: Date
+    }
+
+    /// The tab a caller last asked Settings to show; `nil` for no request. `SettingsWindowController`
+    /// selects it once per request (otherwise Settings opens on the tab used last).
+    private(set) var settingsTabRequest: SettingsTabRequest?
+
+    /// Opens Settings, on `tab` when one is given (closing any open panel first).
+    func showSettings(tab: SettingsTab? = nil) {
         closePanel()
+        if let tab { settingsTabRequest = SettingsTabRequest(tab: tab, date: .now) }
         settingsWindow.show(controller: self)
     }
 
     /// Settings with the sync line highlighted for a moment (a click on a sync notice).
     func showSyncSettings() {
         syncLineHighlightRequest = .now
-        showSettings()
+        showSettings(tab: .iCloud)
     }
 
-    /// KeyboardShortcuts stores a name's default on first launch, so early installs kept the old
-    /// ⌃⌥⇧⌘H browse default after it moved to M. Reset that once; a shortcut the user recorded
-    /// later is left alone.
-    private func migrateBrowseShortcut() {
-        let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: Self.didMigrateBrowseShortcutKey) else { return }
-        defaults.set(true, forKey: Self.didMigrateBrowseShortcutKey)
-        let oldDefault = KeyboardShortcuts.Shortcut(.h, modifiers: [.control, .option, .shift, .command])
-        if KeyboardShortcuts.getShortcut(for: .browse) == oldDefault {
-            KeyboardShortcuts.reset(.browse)
-        }
+    /// "?" on Browse's grid, list or Overview, or in the archive: the keys reference.
+    func showKeysReference() {
+        showSettings(tab: .keys)
     }
 
     // MARK: Launch at login

@@ -43,7 +43,7 @@ public struct StashedDraft: Codable, Hashable, Sendable {
     }
 }
 
-/// Keeps unsaved drafts: one for Quick Add, and one per edited todo.
+/// Keeps unsaved drafts: one for a new todo, and one per edited todo.
 /// Setting `nil` clears the slot.
 @MainActor
 public protocol DraftStore: AnyObject {

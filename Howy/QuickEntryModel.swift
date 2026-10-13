@@ -19,8 +19,8 @@ final class QuickEntryModel {
     let flow: QuickEntryFlow
     @ObservationIgnored private let store: TodoStore
     @ObservationIgnored var close: () -> Void = {}
-    /// Esc goes back to the screen this was opened from (Browse, an Overview tile's list, the
-    /// launcher) instead of closing the panel; the key hints say "back" then (set by the opener).
+    /// Esc goes back to the screen this was opened from (Browse, an Overview tile's list)
+    /// instead of closing the panel; the key hints say "back" then (set by the opener).
     @ObservationIgnored var escapeReturns = false
     /// Runs once the flow has finished (saved, cancelled, deleted), e.g. to clear unused staged files.
     @ObservationIgnored var didFinish: () -> Void = {}
@@ -229,6 +229,8 @@ final class ArchiveModel {
     let flow: ArchiveFlow
     @ObservationIgnored private var store: TodoStore
     @ObservationIgnored var close: () -> Void = {}
+    /// "?": shows the keys reference (set by the app controller).
+    @ObservationIgnored var showKeys: () -> Void = {}
 
     init(store: TodoStore) {
         self.store = store
@@ -247,6 +249,7 @@ final class ArchiveModel {
         case .restore(let id): write { try store.restore(id: id) }
         case .delete(let id): write { try store.delete(id: id) }
         case .close: close()
+        case .showKeys: showKeys()
         }
         return true
     }
@@ -310,6 +313,8 @@ final class BrowseModel {
     @ObservationIgnored var createTodo: (Quadrant) -> Void = { _ in }
     /// Shows the archive (replaces this panel).
     @ObservationIgnored var openArchive: () -> Void = {}
+    /// "?": shows the keys reference (set by the app controller).
+    @ObservationIgnored var showKeys: () -> Void = {}
     /// Grows the panel to the Overview (`true`) or shrinks it back, running `changes` inside the
     /// resize animation (or in one step, `animated: false`) and `completion` once the card has its
     /// new size (set by the app controller to `FloatingPanel.setOverview`).
@@ -620,6 +625,7 @@ final class BrowseModel {
         case .dismissEditor(_, let stash): dismissTileEditor(stash: stash)
         case .setDue(let id, let due): persistDue(id, due)
         case .openArchive: openArchive()
+        case .showKeys: showKeys()
         case .close: close()
         }
         return true

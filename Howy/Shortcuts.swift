@@ -3,13 +3,12 @@ import HowyCore
 import KeyboardShortcuts
 
 extension KeyboardShortcuts.Name {
-    /// Global quick-entry shortcut, default ⌃⌥⇧⌘Space.
-    static let quickAdd = Self("quickAdd", default: .init(.space, modifiers: [.control, .option, .shift, .command]))
-    /// Global browse shortcut (open todos per quadrant), default ⌃⌥⇧⌘M.
-    static let browse = Self("browse", default: .init(.m, modifiers: [.control, .option, .shift, .command]))
-    /// The one shortcut in single-shortcut mode: opens the launcher (New Todo / Browse).
-    /// Default ⌃⌥⇧⌘Space, like Quick Add; only the current mode's shortcuts act on a press.
-    static let launcher = Self("launcher", default: .init(.space, modifiers: [.control, .option, .shift, .command]))
+    /// The one global shortcut, default ⌃⌥⇧⌘Space: opens Browse's quadrant grid, or closes Howy
+    /// when a panel is open. It replaced Quick Add, Browse and the launcher of one-shortcut mode
+    /// (`OpenHowyShortcutMigration`, which `HowyApp.init()` runs before this is first read).
+    static let openHowy = Self(
+        OpenHowyShortcutMigration.targetName, default: .init(.space, modifiers: [.control, .option, .shift, .command])
+    )
 }
 
 extension QuickEntryKey {

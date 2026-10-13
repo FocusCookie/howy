@@ -70,6 +70,8 @@ extension QuickEntryKey {
                 self = .digit(digit)
             } else if plain, let characters, characters.count == 1, let letter = characters.first, letter.isLetter {
                 self = .letter(Character(letter.lowercased()))
+            } else if modifiers.isSubset(of: .shift), characters == "?" {
+                self = .questionMark // ⇧/ on US, ⇧ß on German: by character, for every layout
             } else if modifiers.isDisjoint(with: [.command, .option, .control]) {
                 self = .other // typing, possibly shifted
             } else {
@@ -98,6 +100,21 @@ extension QuickEntryKey {
         case 27 where !shifted, 78 where !shifted: return .zoomOut
         case 29 where !shifted, 82 where !shifted: return .zoomReset
         default: return nil
+        }
+    }
+}
+
+extension QuickEntryKey {
+    /// The vim keys next to the arrows, for the screens with nothing to type into: h ←, j ↓, k ↑,
+    /// l →. `horizontal: false` leaves h and l as they are (Browse's list, the archive). Text
+    /// fields, editors and dialogs never ask, so the letters stay typing there.
+    func vimArrow(horizontal: Bool = true) -> QuickEntryKey {
+        switch self {
+        case .letter("j"): .down
+        case .letter("k"): .up
+        case .letter("h") where horizontal: .left
+        case .letter("l") where horizontal: .right
+        default: self
         }
     }
 }

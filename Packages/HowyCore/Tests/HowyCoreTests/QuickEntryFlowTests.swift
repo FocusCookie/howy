@@ -11,14 +11,17 @@ final class MemoryLastQuadrantStore: LastQuadrantStore {
 
 @MainActor
 @Suite struct QuickEntryFlowTests {
+    /// A create flow in the picker (⇧⇥ from the title, where it starts) on `quadrant`.
     func makeCreate(last: Quadrant? = nil, preselected: Quadrant? = nil) -> (QuickEntryFlow, MemoryLastQuadrantStore) {
         let memory = MemoryLastQuadrantStore(last)
-        return (QuickEntryFlow(mode: .create(preselected: preselected), lastUsed: memory), memory)
+        let flow = QuickEntryFlow(mode: .create(preselected ?? last ?? .urgentImportant), lastUsed: memory)
+        flow.handle(.shiftTab)
+        return (flow, memory)
     }
 
     // MARK: picker
 
-    @Test func createStartsInPickerWithDefaultQuadrant() {
+    @Test func shiftTabFromAFreshTitleReachesThePicker() {
         let (flow, _) = makeCreate()
         #expect(flow.phase == .pickingQuadrant)
         #expect(flow.quadrant == .urgentImportant)
@@ -27,18 +30,18 @@ final class MemoryLastQuadrantStore: LastQuadrantStore {
         #expect(flow.savedDraft == nil)
     }
 
-    @Test func startingInTitleSkipsThePickerOnTheChosenQuadrant() {
+    @Test func createStartsInTheTitleOnTheChosenQuadrant() {
         let flow = QuickEntryFlow(
-            mode: .create(preselected: .urgentUnimportant, startingInTitle: true),
+            mode: .create(.urgentUnimportant),
             lastUsed: MemoryLastQuadrantStore()
         )
         #expect(flow.phase == .editingTitle)
         #expect(flow.quadrant == .urgentUnimportant)
     }
 
-    @Test func startingInTitleStillAllowsChangingTheQuadrant() {
+    @Test func shiftTabStillAllowsChangingTheQuadrant() {
         let flow = QuickEntryFlow(
-            mode: .create(preselected: .urgentUnimportant, startingInTitle: true),
+            mode: .create(.urgentUnimportant),
             lastUsed: MemoryLastQuadrantStore()
         )
         flow.handle(.shiftTab)
@@ -59,15 +62,10 @@ final class MemoryLastQuadrantStore: LastQuadrantStore {
         #expect(flow.phase == .editingNote)
     }
 
-    @Test func createPreselectsLastUsedQuadrant() {
-        let (flow, _) = makeCreate(last: .urgentUnimportant)
-        #expect(flow.quadrant == .urgentUnimportant)
-    }
-
-    @Test func explicitPreselectionWinsOverLastUsed() {
-        let (flow, _) = makeCreate(last: .urgentUnimportant, preselected: .notUrgentImportant)
+    @Test func theChosenQuadrantWinsOverLastUsed() {
+        let flow = QuickEntryFlow(mode: .create(.notUrgentImportant), lastUsed: MemoryLastQuadrantStore(.urgentUnimportant))
         #expect(flow.quadrant == .notUrgentImportant)
-        #expect(flow.phase == .pickingQuadrant)
+        #expect(flow.phase == .editingTitle)
     }
 
     @Test func arrowsMoveAroundTheGrid() {
@@ -238,13 +236,13 @@ final class MemoryLastQuadrantStore: LastQuadrantStore {
         let persisted = UserDefaultsLastQuadrantStore(defaults: defaults)
         #expect(persisted.load() == nil)
 
-        let flow = QuickEntryFlow(mode: .create(), lastUsed: persisted)
+        let flow = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: persisted)
+        flow.handle(.shiftTab)
         flow.handle(.digit(2))
         flow.title = "T"
         flow.handle(.commandEnter)
 
-        let next = QuickEntryFlow(mode: .create(), lastUsed: UserDefaultsLastQuadrantStore(defaults: defaults))
-        #expect(next.quadrant == .notUrgentImportant)
+        #expect(UserDefaultsLastQuadrantStore(defaults: defaults).load() == .notUrgentImportant)
     }
 
     // MARK: edit mode
@@ -424,7 +422,8 @@ final class MemoryLastQuadrantStore: LastQuadrantStore {
 @MainActor
 @Suite struct QuickEntrySpaceKeyTests {
     @Test func spaceIsTextInFieldsAndSwallowedInPicker() {
-        let flow = QuickEntryFlow(mode: .create(), lastUsed: MemoryLastQuadrantStore())
+        let flow = QuickEntryFlow(mode: .create(.urgentImportant), lastUsed: MemoryLastQuadrantStore())
+        flow.handle(.shiftTab)
         #expect(flow.handle(.space))
         #expect(flow.phase == .pickingQuadrant)
         flow.handle(.enter)

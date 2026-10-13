@@ -135,7 +135,7 @@ public enum SyncAlert: Hashable, Sendable {
         }
     }
 
-    private static let backupHint = "Howy's daily backups are in Settings → Import & Export."
+    private static let backupHint = "Howy's daily backups are in Settings → Data."
 
     public var body: String {
         switch self {
