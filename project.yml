@@ -20,8 +20,8 @@ settings:
     CURRENT_PROJECT_VERSION: "1"
   configs:
     # The store file in the App Group, read by HowyCore (`HowyStoreFileName` in both targets'
-    # Info.plist). Debug syncs to CloudKit's Development environment and Release to Production,
-    # so they must never share a file. Release keeps the user's real `Howy.store`.
+    # Info.plist). Both mirror to CloudKit's Development environment, but each is wiped on its
+    # own, so they must never share a file. Release keeps the user's real `Howy.store`.
     Debug:
       HOWY_STORE_FILE_NAME: Howy-Debug.store
     Release:

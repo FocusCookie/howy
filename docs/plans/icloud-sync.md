@@ -644,6 +644,11 @@ the other (the attachment folder moving to `.trash` wasn't checked). Test 8,
 widget: a todo ticked in the widget shows as done on the other Mac (Howy running
 or not wasn't recorded). Both passed.
 
+**Result (2026-10-13):** test 9, concurrent title edit on both Macs: passed (no
+duplicate, the Macs agree). Test 10, Debug build: runs and sees the real data.
+Attachments don't sync, as expected until PR 3. Tests 2–5 (older store, retention,
+offline launch, sleep) haven't been run by hand; their rules are unit-tested.
+
 **Phase 3c** is done (see above). The CloudKit Console steps and the
 Production schema deploy were dropped (no Production). **Left:** the two-Mac
 hand tests (the joining list above and the 3c list), the 2.0.0 release (version
