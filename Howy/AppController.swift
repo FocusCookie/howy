@@ -421,6 +421,7 @@ final class AppController {
                 self?.showBrowse(resuming: nil, fromArchive: true)
             })
         }
+        model.showKeys = { [weak self] in self?.showKeysReference() }
         model.resizeForOverview = { [weak panel] expanded, animated, changes, completion in
             guard let panel else { changes(); completion(); return }
             panel.setOverview(expanded ? OverviewSize.load() : nil, animated: animated, changes: changes, completion: completion)
@@ -537,6 +538,7 @@ final class AppController {
         model.close = { [weak panel] in
             if let back { back() } else { panel?.dismiss() }
         }
+        model.showKeys = { [weak self] in self?.showKeysReference() }
     }
 
     private func presentQuickEntry(_ model: QuickEntryModel, kind: PanelKind, activate: Bool) {
@@ -887,15 +889,38 @@ final class AppController {
         purgeArchive()
     }
 
-    func showSettings() {
+    /// The parts of Settings a caller can ask for.
+    enum SettingsTab: Hashable {
+        case general, keys, appearance, iCloud, data
+    }
+
+    /// A caller's ask for a Settings tab (`showSettings(tab:)`); `date` makes two asks for the
+    /// same tab in a row observable.
+    struct SettingsTabRequest: Equatable {
+        let tab: SettingsTab
+        let date: Date
+    }
+
+    /// The tab a caller last asked Settings to show; `nil` for no request. Settings doesn't have
+    /// tabs yet, so nothing reads it so far.
+    private(set) var settingsTabRequest: SettingsTabRequest?
+
+    /// Opens Settings, on `tab` when one is given (closing any open panel first).
+    func showSettings(tab: SettingsTab? = nil) {
         closePanel()
+        if let tab { settingsTabRequest = SettingsTabRequest(tab: tab, date: .now) }
         settingsWindow.show(controller: self)
     }
 
     /// Settings with the sync line highlighted for a moment (a click on a sync notice).
     func showSyncSettings() {
         syncLineHighlightRequest = .now
-        showSettings()
+        showSettings(tab: .iCloud)
+    }
+
+    /// "?" on Browse's grid, list or Overview, or in the archive: the keys reference.
+    func showKeysReference() {
+        showSettings(tab: .keys)
     }
 
     // MARK: Launch at login

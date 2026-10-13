@@ -6,6 +6,19 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **N on the quadrant grid** opens the editor for a new todo in the highlighted
+  quadrant. Saving or Esc brings you back to the grid with that quadrant still
+  highlighted. The grid's key hints show it.
+- **Vim keys** next to the arrows: h j k l on the quadrant grid and in the
+  move picker, j k in a quadrant's list and in the archive. In the Overview,
+  j k move inside a tile, and h l (and now ← →) move to the tile beside it;
+  ↑ ↓ never leave a tile. Text fields and dialogs keep the letters as typing.
+- **?** on the quadrant grid, a list, the Overview or in the archive opens
+  Settings (the keys reference will live there). In text fields and dialogs
+  "?" is still just typed. The grid's key hints show it.
+
 ### Changed
 
 - **One global shortcut: Open Howy** (default ⌃⌥⇧⌘Space). It opens the quadrant
@@ -22,17 +35,6 @@ All notable changes to Howy are documented here. The format follows
   editor for a new todo in that quadrant straight away; Esc closes it and keeps
   the draft. ⇧⇥ from the title still reaches the quadrant picker. Old
   `howy://quick-add` links without a quadrant open the quadrant grid.
-
-### Added
-
-- **N on the quadrant grid** opens the editor for a new todo in the highlighted
-  quadrant. Saving or Esc brings you back to the grid with that quadrant still
-  highlighted. The grid's key hints show it.
-
-- **Vim keys** next to the arrows: h j k l on the quadrant grid and in the
-  move picker, j k in a quadrant's list and in the archive. In the Overview,
-  j k move inside a tile, and h l (and now ← →) move to the tile beside it;
-  ↑ ↓ never leave a tile. Text fields and dialogs keep the letters as typing.
 
 ### Removed
 

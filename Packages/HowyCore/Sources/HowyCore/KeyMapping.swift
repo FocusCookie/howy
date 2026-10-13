@@ -70,6 +70,8 @@ extension QuickEntryKey {
                 self = .digit(digit)
             } else if plain, let characters, characters.count == 1, let letter = characters.first, letter.isLetter {
                 self = .letter(Character(letter.lowercased()))
+            } else if modifiers.isSubset(of: .shift), characters == "?" {
+                self = .questionMark // ⇧/ on US, ⇧ß on German: by character, for every layout
             } else if modifiers.isDisjoint(with: [.command, .option, .control]) {
                 self = .other // typing, possibly shifted
             } else {

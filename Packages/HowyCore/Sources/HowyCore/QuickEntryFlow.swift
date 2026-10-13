@@ -45,6 +45,10 @@ public enum QuickEntryKey: Hashable, Sendable {
     /// A plain letter key, lower-cased. Typing in the fields; a shortcut where there is nothing
     /// to type into (Browse: `a` opens the archive, `d` marks the selected todo done).
     case letter(Character)
+    /// "?" (⇧/ on a US keyboard, mapped by its character so every layout works): the keys
+    /// reference on Browse's grid, list and Overview and in the archive (`.showKeys`). Typing in
+    /// the text fields, tile editors and dialogs, like `other`.
+    case questionMark
     /// Any other key that is plain typing (letters, shifted keys, backspace...). The text field
     /// handles it, except where the flow has nothing to type into (picker, delete prompt).
     case other
@@ -328,7 +332,7 @@ public final class QuickEntryFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .enter, .tab: phase = .editingTitle
             case .shiftTab, .moveUp, .moveDown, .commandDigit: return false
-            case .other, .letter, .space, .optionEnter, .optionDigit, .backspace, .commandDelete, .undo:
+            case .other, .questionMark, .letter, .space, .optionEnter, .optionDigit, .backspace, .commandDelete, .undo:
                 break // nothing to type into
             case .escape, .closePanel, .commandEnter, .commandDone, .dueDate: break
             case .zoomIn, .zoomOut, .zoomReset: return false // the panel's, not the flow's

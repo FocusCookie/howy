@@ -56,6 +56,9 @@ import Observation
 ///   one it is the field's), ⇥ / ⇧⇥ open or close the examples (↑↓ and ↩ pick one there; see
 ///   `DueDateDialog`). Other keys are swallowed. The caller writes `.setDue` to the store.
 ///   Due dates never change the order or the quadrant.
+/// - Grid, list and Overview (no tile editor, move picker or due-date dialog open): "?" →
+///   `.showKeys`, the keys reference. In a tile editor and the due-date dialog it is typing
+///   (`.ignored`); the move picker swallows it.
 /// - Closed: every key is `.ignored`.
 ///
 /// An opened todo's edit modal comes back here (`resume(at:)`, with the `BrowseReturn` taken by
@@ -119,6 +122,9 @@ public final class BrowseFlow {
         case setDue(UUID, Date?)
         /// Show the archive.
         case openArchive
+        /// "?" on the grid, the list or the Overview: show the keys reference (Settings → Keys).
+        /// Nothing changes here; the panel may close for it.
+        case showKeys
         /// Close the panel.
         case close
     }
@@ -262,6 +268,7 @@ public final class BrowseFlow {
             case .enter, .tab:
                 if isArchiveHighlighted { return .openArchive }
                 choose(quadrant)
+            case .questionMark: return .showKeys
             case .undo:
                 if let outcome = undo() { return outcome }
             case .escape: return close()
@@ -292,6 +299,7 @@ public final class BrowseFlow {
                 if let todo = selectedTodo { beginDueDate(id: todo.id) }
             case .letter(Self.archiveKey): return .openArchive
             case .letter(Self.overviewKey): return showOverview()
+            case .questionMark: return .showKeys
             case .undo:
                 if let outcome = undo() { return outcome }
             case .escape, .shiftTab: backToPicker()
@@ -356,6 +364,7 @@ public final class BrowseFlow {
         case .letter(Self.dueKey):
             if let todo = selectedTodo { beginDueDate(id: todo.id) }
         case .letter(Self.archiveKey): return .openArchive
+        case .questionMark: return .showKeys
         case .undo:
             if let outcome = undo() { return outcome }
         case .escape: return hideOverview()
@@ -459,7 +468,7 @@ public final class BrowseFlow {
             return .handled
         case .notOurs, nil:
             switch key {
-            case .letter, .digit, .space, .backspace, .left, .right, .up, .down, .other, .undo, .commandDelete:
+            case .letter, .digit, .space, .backspace, .left, .right, .up, .down, .other, .questionMark, .undo, .commandDelete:
                 return .ignored // typing (and caret moves) in the field
             default:
                 return .handled

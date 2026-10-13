@@ -320,8 +320,8 @@ struct BrowseView: View {
                 )
             } else {
                 KeyHints(
-                    "←↑↓→ or 1–4 · ↩ open · N new · O overview\(undo) · esc close",
-                    short: "←↑↓→ or 1–4 · ↩ open · N new\(undo) · esc close"
+                    "←↑↓→ or 1–4 · ↩ open · N new · O overview\(undo) · ? keys · esc close",
+                    short: "←↑↓→ or 1–4 · ↩ open · N new\(undo) · ? keys · esc close"
                 )
             }
         }
