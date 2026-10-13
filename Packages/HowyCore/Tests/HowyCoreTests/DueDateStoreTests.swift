@@ -3,7 +3,7 @@ import SwiftData
 import Testing
 @testable import HowyCore
 
-/// Due dates in `TodoStore`: writes, lifecycle and the schema v1 → v2 migration.
+/// Due dates in `TodoStore`: writes, lifecycle, and a migrated v1 store taking due dates.
 @MainActor
 @Suite struct DueDateStoreTests {
     let clock = FakeClock()
@@ -117,7 +117,7 @@ import Testing
 
     // MARK: Migration
 
-    @Test func aVersionOneStoreOpensUnderVersionTwoWithItsDataIntact() throws {
+    @Test func aVersionOneStoreTakesDueDatesAfterMigrating() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "howy-v1-\(UUID().uuidString)", directoryHint: .isDirectory)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -126,7 +126,7 @@ import Testing
         let created = Date(timeIntervalSinceReferenceDate: 790_000_000)
         do {
             let schema = Schema(versionedSchema: HowySchemaV1.self)
-            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url))
+            let container = try ModelContainer(for: schema, configurations: ModelConfiguration(schema: schema, url: url, cloudKitDatabase: .none))
             container.mainContext.insert(HowySchemaV1.Todo(
                 id: id, title: "Old todo", note: "kept", quadrantRaw: Quadrant.urgentUnimportant.rawValue,
                 createdAt: created, sortDate: created, completedAt: nil

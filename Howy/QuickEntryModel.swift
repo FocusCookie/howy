@@ -227,7 +227,7 @@ final class ArchiveModel {
 
     private(set) var items: [Item] = []
     let flow: ArchiveFlow
-    @ObservationIgnored private let store: TodoStore
+    @ObservationIgnored private var store: TodoStore
     @ObservationIgnored var close: () -> Void = {}
 
     init(store: TodoStore) {
@@ -265,6 +265,13 @@ final class ArchiveModel {
         write { try store.delete(id: item.id) }
     }
 
+    /// Shows what is on disk now (a sync import or the widget changed the store): reads through
+    /// `store`, a store with a fresh context, from here on.
+    func refresh(using store: TodoStore) {
+        self.store = store
+        withAnimation(.snappy(duration: 0.25)) { reload() }
+    }
+
     /// Runs a store write and reloads the list (which also brings a row back after a failure).
     private func write(_ action: () throws -> Void) {
         do { try action() } catch { log.error("Archive write failed: \(error, privacy: .public)") }
@@ -294,7 +301,8 @@ final class ArchiveModel {
 @Observable
 final class BrowseModel {
     let flow: BrowseFlow
-    @ObservationIgnored private let store: TodoStore
+    /// Replaced by `refresh(using:)`; tile editors open on the current one.
+    @ObservationIgnored private(set) var store: TodoStore
     @ObservationIgnored var close: () -> Void = {}
     /// Opens a todo in the edit modal (replaces this panel).
     @ObservationIgnored var openTodo: (UUID) -> Void = { _ in }
@@ -351,6 +359,25 @@ final class BrowseModel {
     init(flow: BrowseFlow, store: TodoStore) {
         self.flow = flow
         self.store = store
+    }
+
+    /// Shows what is on disk now (a sync import or the widget changed the store), reading and
+    /// writing through `store`, a store with a fresh context, from here on. Skipped while a tile
+    /// editor is open or a row is dragged, so nothing the user is doing is pulled away; the next
+    /// refresh or the next open catches up. Returns whether it refreshed.
+    @discardableResult
+    func refresh(using store: TodoStore) -> Bool {
+        guard tileEditor == nil, flow.tileEditor == nil, !flow.isReorderDragging else { return false }
+        let todos: [Quadrant: [TodoSnapshot]]
+        do {
+            todos = try store.openSnapshots()
+        } catch {
+            log.error("Browse refresh failed: \(error, privacy: .public)")
+            return false
+        }
+        self.store = store
+        withAnimation(.snappy(duration: 0.25)) { flow.reload(todos) }
+        return true
     }
 
     /// Returns `true` when the key was consumed.

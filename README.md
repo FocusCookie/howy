@@ -9,7 +9,7 @@ floating panels that appear above everything, like Spotlight or Raycast. Desktop
 widgets show your matrix at a glance. Howy has no Dock icon and no main window.
 Everything happens from a shortcut.
 
-## What it can do (v1.0.0)
+## What it can do (v2.0.0)
 
 ### Floating panels, driven by the keyboard
 
@@ -113,22 +113,91 @@ Everything happens from a shortcut.
 - The archive empties itself after a period you choose (1–90 days, 7 by
   default).
 
+### Import, export and backups
+
+- **Export…** writes a folder with `howy.json` (every todo, open and done, plus
+  its history) and `attachments/<todo id>/<file name>`. **Import…** reads such a
+  folder back after a preview. It merges by id: todos that already exist are
+  skipped and never changed, but their history events that Howy doesn't have
+  yet are added, and events that are already there are skipped, so importing
+  the same folder twice changes nothing. The preview and the summary count the
+  events (added, skipped, invalid). A history event with a damaged optional
+  field is still imported without that field; one with a damaged id, todo id,
+  kind or date is skipped. Exports from older Howy versions (format version 1)
+  still import.
+- **Copy for AI** (Settings → Import & Export) copies a description of the
+  format. Paste it into an AI chat with data from another app, and it answers
+  with a `howy.json` you can import.
+- **Daily backups:** once a day (at launch, and when the day changes while
+  Howy runs) Howy writes the same kind of export to
+  `~/Library/Group Containers/group.howy/Library/Application Support/Backups/Howy Backup yyyy-MM-dd`
+  and keeps the newest 7. A backup is built in a `.partial` folder and renamed
+  once it's complete, so a failed run never costs you an existing backup. Only
+  complete backups dated today or earlier count and get pruned, and nothing is
+  pruned after a backup that couldn't copy an attachment. An empty store isn't
+  backed up, so a loss of data never pushes the good backups out. Settings →
+  Import & Export → **Show in Finder** opens the folder; import a backup to
+  restore it.
+
 ### Menu bar and Settings
 
-- The menu has Quick Add, Browse, Archive, _Add to Quadrant_, Settings… and
-  Quit.
-- In Settings you can set the panel size, record your own shortcuts, choose which quadrant new todos
+- The menu has Quick Add, Browse, Archive, _Add to Quadrant_, Import…,
+  Export…, Settings… and Quit.
+- Settings shows the iCloud sync status at the top. There you can also set the panel size, record your own shortcuts, choose which quadrant new todos
   start on, choose how attachments open, set the done animation, size the
   Overview, set how long
   the archive keeps todos, set the time used for due dates typed without one,
-  and turn on start at login.
+  open the backups folder, and turn on start at login.
 
-All data stays on your Mac (SwiftData in a sandboxed App Group container). Howy
-has no sync and no account.
+### iCloud sync
+
+- Todos, their history and the archive period sync between your Macs through
+  iCloud (your private iCloud database, no sharing). It's always on while you're
+  signed in to iCloud; without an account Howy works locally.
+- Changes from another Mac arrive by push, and Howy also checks for them when a
+  panel opens, after the Mac wakes and every 5 minutes while it runs. So a
+  change can take a few minutes to show up.
+- Attachments don't sync yet: a todo synced to another Mac shows without them.
+- Drafts, the last quadrant, panel size and the other display settings stay
+  per Mac.
+- The widget shows what the app last received; it updates while Howy runs.
+- **Signing out of iCloud, switching accounts or turning off iCloud for Howy
+  removes the todos from this Mac** (Apple's behaviour). Signing back in
+  downloads them again, but changes that hadn't uploaded yet are lost. Howy
+  tells you with a notification when it sees this happen (also at the next
+  launch if it happened while Howy wasn't running), and the daily backup is the
+  safety net (Settings → Import & Export).
+- **Settings → iCloud** shows one status line: checking, syncing, up to date
+  (with when it last synced), offline, waiting for iCloud, not signed in or
+  iCloud off for Howy (Howy then works on this Mac only), or a sync error with
+  a short reason.
+- **Notifications** come once per problem, and clicking one opens Settings at
+  the status line: the todos were removed from this Mac (signed out, iCloud off
+  for Howy, another account, or Howy's data deleted from iCloud), iCloud
+  storage is full, or sync has failed for over an hour. Being offline or a
+  short hiccup at iCloud never notifies. Storage-full and failing notices don't
+  repeat within a day. If notifications were never allowed, the first notice
+  asks for permission.
+- Editing the same todo on two Macs at the same moment can lose one of the
+  two edits.
+- Howy waits until it has received the changes from iCloud before it runs its
+  cleanups or empties the archive, so a Mac that joins with an empty or older
+  store never deletes anything first.
+
+Howy keeps its data in SwiftData in a sandboxed App Group container, and syncs
+it only to your own iCloud account. It keeps a history of what happens to each todo
+(added, done, moved, due date changes, deleted; ids and times only, no titles)
+for statistics in a later version. A todo that exists twice shows once. Howy
+removes the copies that differ from the most recently changed one (exact copies
+stay; they are harmless), removes todos that were deleted on another Mac, and
+moves attachment folders whose todo is gone into
+`Attachments/.trash` (emptied after 14 days). It never does that for an empty
+store, or when more than half of the attachment folders look orphaned.
 
 ## Requirements
 
 - macOS 27 or later
+- An iCloud account for sync (optional)
 - Xcode 27 and [XcodeGen](https://github.com/yonaskolb/XcodeGen) to build it
 
 ## Building

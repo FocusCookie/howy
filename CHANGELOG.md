@@ -6,8 +6,77 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-12
+
+### Added
+
+- **iCloud sync between your Macs.** Todos, their history and the archive
+  period sync through your private iCloud database. It's always on while you're
+  signed in to iCloud; without an account Howy works locally as before. Changes
+  arrive by push, and Howy also checks for them when a panel opens, after wake
+  and every 5 minutes, so a change can take a few minutes to show up on the
+  other Mac. Attachments don't sync yet.
+- **iCloud status in Settings.** A new iCloud section shows one line: syncing,
+  up to date (and when it last synced), offline, not signed in or iCloud off
+  for Howy (local only, not an error), or a sync error with a short reason.
+- **Sync notifications**, once per problem; clicking one opens Settings at the
+  iCloud line. Howy tells you when the todos were removed from this Mac
+  (signed out, iCloud turned off for Howy, another iCloud account, or Howy's
+  data deleted from iCloud) and points to the daily backups, when iCloud
+  storage is full, and when sync has failed for over an hour. Being offline or
+  a brief network problem never notifies.
+
 ### Changed
 
+- **Your todos now belong to your iCloud account.** Signing out of iCloud,
+  switching accounts or turning off iCloud for Howy removes the todos from this
+  Mac (Apple's behaviour); signing back in downloads them again, but changes
+  that hadn't uploaded yet are lost. Howy notifies you when this happens, and
+  the daily backup is the safety net.
+- A Mac that joins with an empty or older store doesn't clean up or empty the
+  archive until it has received the changes from iCloud. Todos deleted on another Mac are removed here too, unless they were
+  edited after the delete.
+- Debug builds use their own store, backups and attachments folders
+  (`Howy-Debug.store`, `Backups-Howy-Debug/`, `Attachments-Howy-Debug/`).
+
+## [1.8.0] - 2026-10-11
+
+### Added
+
+- **Daily backups.** Once a day Howy exports everything (todos, attachments
+  and history) to
+  `~/Library/Group Containers/group.howy/Library/Application Support/Backups/`,
+  one folder per day named `Howy Backup yyyy-MM-dd`. It keeps the newest 7 and
+  deletes older ones (only complete backups dated today or earlier count). A
+  backup is written to a `.partial` folder and renamed when complete, so a
+  failed run keeps your existing backups. The backup runs at launch and when the day changes while
+  Howy is running. An empty store isn't backed up, so the older backups survive
+  if the data is ever lost. **Settings → Import & Export → Show in Finder**
+  opens the folder; to restore, choose a backup in **Import…**.
+- **History.** Howy now records what happens to each todo: added, done,
+  restored, moved, due date set, changed, snoozed or removed, deleted. It
+  stores only ids, quadrants and times, never titles or notes, and nothing uses
+  it yet; it's the basis for statistics later. Existing todos get their history
+  from their created and done dates when Howy first starts.
+
+### Changed
+
+- **Exports include the history.** Export writes format version 2, which adds
+  an `events` list to `howy.json`. Importing adds history events Howy doesn't
+  have yet, also for todos that already exist, and skips the rest, so importing
+  the same export twice changes nothing. The import preview and summary count
+  the events. A damaged optional field of an event is dropped with a note; the
+  event is skipped only when its id, todo id, kind or date is damaged. A
+  version 2 file without `events` gets a note. Older exports (version 1) still
+  import as before.
+- **Tidying at launch.** Howy removes duplicate copies of a todo (keeping the
+  most recently changed one) and moves attachment folders whose todo no longer
+  exists to `Attachments/.trash`, which it empties after 14 days. It does
+  nothing for an empty store, or when more than half of the folders look
+  orphaned. The daily backup runs before this cleanup.
+- The check for a missing history runs once per Mac, not on every start, so
+  todos that arrive before their history don't get made-up events.
+- Settings' **Import Format** section is now **Import & Export**.
 - **New bundle ID and App Group.** The app is now `lueddemann.howy` (widget
   `lueddemann.howy.widgets`) and stores its data in the `group.howy` App Group.
 

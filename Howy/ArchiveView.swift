@@ -12,7 +12,7 @@ struct ArchiveView: View {
     @State private var pointer = PointerTracker()
     @Environment(\.panelScale) private var scale
     @Environment(\.panelHeightLimit) private var heightLimit
-    private let retention = ArchiveRetention.load()
+    private let retention = AppController.shared.retention.retention
 
     private var flow: ArchiveFlow { model.flow }
 

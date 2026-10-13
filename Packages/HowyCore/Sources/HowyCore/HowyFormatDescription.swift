@@ -31,7 +31,7 @@ extension HowyFormat {
     }
     """
 
-    /// Text for "Copy for AI" (Settings → Import Format): a prompt that has an LLM convert any
+    /// Text for "Copy for AI" (Settings → Import & Export): a prompt that has an LLM convert any
     /// list of tasks into Howy's import format.
     public static let llmDescription = """
     Convert the following data into this Howy import format. Output only howy.json.

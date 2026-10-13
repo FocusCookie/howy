@@ -11,6 +11,11 @@ import UserNotifications
 /// `StoreChangeSignal`, from the app and from the widget's checkbox alike) and on the daily timer.
 /// Permission is asked for the first time a due date is set (`dueDateWasSet`), never at launch;
 /// without it nothing is scheduled and everything else keeps working.
+///
+/// It also posts the sync notifications (`post(_:)` with a `SyncAlert` from `SyncMonitor`):
+/// delivered right away, one per kind (a newer one replaces the older), and a click opens
+/// Settings at the sync line. A sync notice asks for permission itself if nobody has yet: it may
+/// say the todos were removed from this Mac, which shouldn't be lost for want of a due date.
 @MainActor
 @Observable
 final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate {
@@ -22,6 +27,8 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
     @ObservationIgnored private let center = UNUserNotificationCenter.current()
     /// Opens a todo in the editor (a click on the notification itself).
     @ObservationIgnored private var openTodo: (UUID) -> Void = { _ in }
+    /// Opens Settings at the sync line (a click on a sync notification).
+    @ObservationIgnored private var openSyncSettings: () -> Void = {}
     @ObservationIgnored private var pendingSync: Task<Void, Never>?
     @ObservationIgnored private var isSyncing = false
     @ObservationIgnored private var needsAnotherSync = false
@@ -36,8 +43,9 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
 
     /// Becomes the center's delegate (must happen before launching finishes), registers the
     /// actions, listens for store changes and runs the first sync.
-    func start(openTodo: @escaping (UUID) -> Void) {
+    func start(openTodo: @escaping (UUID) -> Void, openSyncSettings: @escaping () -> Void) {
         self.openTodo = openTodo
+        self.openSyncSettings = openSyncSettings
         center.delegate = self
         registerCategory()
         CFNotificationCenterAddObserver(
@@ -92,6 +100,37 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         let id = Bundle.main.bundleIdentifier ?? "lueddemann.howy"
         if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension?id=\(id)") {
             NSWorkspace.shared.open(url)
+        }
+    }
+
+    // MARK: Sync notices
+
+    /// Posts a sync notice now (asking for permission first if it was never asked).
+    func post(_ alert: SyncAlert) {
+        log.notice("Sync notice: \(alert.title, privacy: .public)")
+        Task {
+            let settings = await center.notificationSettings()
+            if settings.authorizationStatus == .notDetermined {
+                do {
+                    _ = try await center.requestAuthorization(options: [.alert, .sound])
+                } catch {
+                    log.error("Notification permission request failed: \(error, privacy: .public)")
+                }
+            }
+            await refreshAuthorization()
+            guard authorization == .authorized || authorization == .provisional else {
+                log.notice("Sync notice not shown: notifications are off")
+                return
+            }
+            let content = UNMutableNotificationContent()
+            content.title = alert.title
+            content.body = alert.body
+            content.sound = .default
+            do {
+                try await center.add(UNNotificationRequest(identifier: alert.identifier, content: content, trigger: nil))
+            } catch {
+                log.error("Posting a sync notice failed: \(error, privacy: .public)")
+            }
         }
     }
 
@@ -220,8 +259,16 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
         // Plain values out of the (non-Sendable) response before hopping to the main actor.
         let action = response.actionIdentifier
         let identifier = response.notification.request.identifier
+        if identifier.hasPrefix(SyncAlert.identifierPrefix) {
+            await showSyncSettings()
+            return
+        }
         guard let id = NotificationPlan.todoID(fromIdentifier: identifier) else { return }
         await handle(action: action, todoID: id)
+    }
+
+    private func showSyncSettings() {
+        openSyncSettings()
     }
 
     private func handle(action: String, todoID id: UUID) {

@@ -15,11 +15,25 @@ public struct ImportReport: Hashable, Sendable {
     public var missingAttachmentCount = 0
     /// Imported done todos already older than the archive retention; the next purge removes them.
     public var expiredCount = 0
+    /// History events that will be imported (preview) or were imported (summary): those whose
+    /// id isn't in Howy yet, whether their todo is new or already exists.
+    public var importedEventCount = 0
+    /// History events skipped because their id already exists, in Howy or earlier in the file.
+    public var skippedEventCount = 0
+    /// History events skipped because `id`, `todoID`, `kind` or `date` is missing or wrong.
+    /// (A wrong optional field only drops that field and adds a problem line.)
+    public var invalidEventCount = 0
     /// One line per problem, naming the todo, e.g. `Entry #12: missing title`.
     public var problems: [String] = []
 
     /// Every todo entry in the file.
     public var totalCount: Int { importCount + duplicateCount + invalidCount }
+
+    /// Every history event in the file.
+    public var totalEventCount: Int { importedEventCount + skippedEventCount + invalidEventCount }
+
+    /// Whether the import adds anything: a todo or a history event.
+    public var hasChanges: Bool { importCount > 0 || importedEventCount > 0 }
 }
 
 /// The result of `HowyImporter.analyze`: what an import of `folder` would do. Nothing has been
@@ -29,10 +43,21 @@ public struct ImportPlan: Sendable {
     public let report: ImportReport
     /// The todos to import, with the attachments whose files were found.
     let todos: [HowyExport.Todo]
+    /// The file's valid events (format v2); `TodoStore.insert` picks the ones to import.
+    let events: [TodoEventRecord]
 }
 
 /// Imports an export folder (`howy.json` + `attachments/`), merging by id: todos whose id
-/// already exists are skipped with their attachments, and existing data never changes.
+/// already exists are skipped with their attachments, and existing todos never change.
+///
+/// History (format v2 `events`) comes in as written, for new and for already existing todos
+/// alike; events whose id exists are skipped, so importing a file twice adds nothing. A todo
+/// the file has no event for (any version 1 file) gets `created`/`completed` events made up
+/// from its timestamps. An event with a wrong optional field keeps its id, kind and date and
+/// drops the field (a problem line says so); an event with a wrong `id`, `todoID`, `kind` or
+/// `date` is skipped. Events are counted separately (`importedEventCount`,
+/// `skippedEventCount`, `invalidEventCount`), never in the todo numbers. A file of format
+/// version 2 or later without `events` gets a problem line.
 @MainActor
 public struct HowyImporter {
     public let store: TodoStore
@@ -46,9 +71,10 @@ public struct HowyImporter {
 
     // MARK: Analyze
 
-    /// Reads and checks the folder and works out what an import would do. Writes nothing.
+    /// Reads and checks the folder and works out what an import would do. Writes nothing. The
+    /// per-attachment file checks run off the main actor.
     /// Throws `HowyImportError` when the whole import is refused.
-    public func analyze(folder: URL) throws -> ImportPlan {
+    public func analyze(folder: URL) async throws -> ImportPlan {
         let scoped = folder.startAccessingSecurityScopedResource()
         defer { if scoped { folder.stopAccessingSecurityScopedResource() } }
 
@@ -88,45 +114,67 @@ public struct HowyImporter {
                 continue
             }
             var accepted = todo
-            accepted.attachments = checkedAttachments(of: todo, in: folder, report: &report)
+            if !todo.attachments.isEmpty {
+                let checked = await Self.checkAttachments(of: todo, in: folder)
+                accepted.attachments = checked.accepted
+                report.missingAttachmentCount += checked.problems.count
+                report.problems += checked.problems
+            }
             report.importCount += 1
             report.attachmentCount += accepted.attachments.count
             if isExpired(accepted.record) { report.expiredCount += 1 }
             todos.append(accepted)
         }
-        return ImportPlan(folder: folder, report: report, todos: todos)
+        var events: [TodoEventRecord] = []
+        var knownEvents = try store.allEventIDs()
+        if parsed.events == nil, parsed.formatVersion >= 2 {
+            report.problems.append("History: no history in this file")
+        }
+        for (index, entry) in (parsed.events ?? []).enumerated() {
+            switch entry {
+            case .success(let event):
+                report.problems += event.warnings.map { "History entry #\(index + 1): \($0)" }
+                events.append(event.record)
+                if knownEvents.insert(event.record.id).inserted {
+                    report.importedEventCount += 1
+                } else {
+                    report.skippedEventCount += 1
+                }
+            case .failure(let problem):
+                report.invalidEventCount += 1
+                report.problems.append("History entry #\(index + 1): \(problem.message)")
+            }
+        }
+        return ImportPlan(folder: folder, report: report, todos: todos, events: events)
     }
 
-    /// The todo's attachments that can be imported; the others are counted and reported.
-    private func checkedAttachments(of todo: HowyExport.Todo, in folder: URL, report: inout ImportReport) -> [TodoAttachment] {
+    /// The attachments of `todo` that can be imported, and a line for each that can't.
+    @concurrent
+    nonisolated private static func checkAttachments(
+        of todo: HowyExport.Todo, in folder: URL
+    ) async -> (accepted: [TodoAttachment], problems: [String]) {
         var names = Set<String>()
         var ids = Set<UUID>()
         var accepted: [TodoAttachment] = []
+        var problems: [String] = []
         for attachment in todo.attachments {
             let label = "\"\(todo.title)\": attachment"
-            let problem: String?
             if !HowyFormat.isSafeAttachmentName(attachment.name) {
-                problem = "\(label) name \"\(attachment.name)\" is not allowed"
+                problems.append("\(label) name \"\(attachment.name)\" is not allowed")
             } else if !names.insert(attachment.name.lowercased()).inserted {
-                problem = "\(label) \"\(attachment.name)\" is listed twice"
+                problems.append("\(label) \"\(attachment.name)\" is listed twice")
             } else if !ids.insert(attachment.id).inserted {
-                problem = "\(label) \"\(attachment.name)\" has the id of another attachment"
-            } else if !Self.isFile(HowyFormat.attachmentURL(in: folder, todoID: todo.id, name: attachment.name)) {
-                problem = "\(label) \"\(attachment.name)\" not found in folder"
-            } else {
-                problem = nil
-            }
-            if let problem {
-                report.missingAttachmentCount += 1
-                report.problems.append(problem)
+                problems.append("\(label) \"\(attachment.name)\" has the id of another attachment")
+            } else if !isFile(HowyFormat.attachmentURL(in: folder, todoID: todo.id, name: attachment.name)) {
+                problems.append("\(label) \"\(attachment.name)\" not found in folder")
             } else {
                 accepted.append(attachment)
             }
         }
-        return accepted
+        return (accepted, problems)
     }
 
-    private static func isFile(_ url: URL) -> Bool {
+    nonisolated private static func isFile(_ url: URL) -> Bool {
         var isDirectory: ObjCBool = false
         return FileManager.default.fileExists(atPath: url.path(percentEncoded: false), isDirectory: &isDirectory) && !isDirectory.boolValue
     }
@@ -146,6 +194,7 @@ public struct HowyImporter {
         report.importCount = 0
         report.attachmentCount = 0
         report.expiredCount = 0
+        report.importedEventCount = 0
 
         let existing = try store.allIDs()
         let fresh = plan.todos.filter { !existing.contains($0.id) }
@@ -188,7 +237,10 @@ public struct HowyImporter {
             if isExpired(todo.record) { report.expiredCount += 1 }
         }
         do {
-            report.importCount = try store.insert(records).count
+            let result = try store.insertReporting(records, events: plan.events)
+            report.importCount = result.todoIDs.count
+            report.importedEventCount = result.eventCount
+            report.skippedEventCount = plan.events.count - result.eventCount
         } catch {
             withFiles.forEach { store.attachments?.removeAll(for: $0) }
             throw error

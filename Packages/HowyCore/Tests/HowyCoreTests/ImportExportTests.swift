@@ -129,7 +129,7 @@ import Testing
         let receipt = HowyFormat.attachmentURL(in: exportFolder, todoID: todo.id, name: "receipt.png")
         #expect(try contents(receipt) == "PNG")
         let json = try #require(try contents(exportFolder.appending(path: HowyFormat.fileName)))
-        #expect(json.contains(#""formatVersion" : 1"#))
+        #expect(json.contains(#""formatVersion" : 2"#))
         #expect(json.contains(#""appVersion" : "1.4.0""#))
         #expect(json.contains(#""quadrant" : "urgent-important""#))
         #expect(json.contains(#""completedAt" : null"#))
@@ -177,12 +177,12 @@ import Testing
 
         let (target, writes) = try makeStore("target")
         let importer = HowyImporter(store: target, retention: ArchiveRetention(days: 90))
-        let plan = try importer.analyze(folder: exportFolder)
-        #expect(plan.report == ImportReport(importCount: 3, attachmentCount: 2))
+        let plan = try await importer.analyze(folder: exportFolder)
+        #expect(plan.report == ImportReport(importCount: 3, attachmentCount: 2, importedEventCount: try source.allEvents().count))
         #expect(writes.count == 0)
 
         let summary = try await importer.apply(plan)
-        #expect(summary == ImportReport(importCount: 3, attachmentCount: 2))
+        #expect(summary == ImportReport(importCount: 3, attachmentCount: 2, importedEventCount: try source.allEvents().count))
         #expect(writes.count == 1)
 
         #expect(try target.allTodos().map(\.record) == source.allTodos().map(\.record))
@@ -204,13 +204,14 @@ import Testing
         _ = try await HowyExporter(store: try filledStore()).export(to: exportFolder)
         let (target, writes) = try makeStore("target")
         let importer = HowyImporter(store: target)
-        _ = try await importer.apply(try importer.analyze(folder: exportFolder))
+        _ = try await importer.apply(try await importer.analyze(folder: exportFolder))
         let before = try target.allTodos().map(\.record)
+        let eventCount = try target.allEvents().count
 
-        let plan = try importer.analyze(folder: exportFolder)
-        #expect(plan.report == ImportReport(duplicateCount: 3))
+        let plan = try await importer.analyze(folder: exportFolder)
+        #expect(plan.report == ImportReport(duplicateCount: 3, skippedEventCount: eventCount))
         let summary = try await importer.apply(plan)
-        #expect(summary == ImportReport(duplicateCount: 3))
+        #expect(summary == ImportReport(duplicateCount: 3, skippedEventCount: eventCount))
         #expect(writes.count == 1) // the second import wrote nothing
         #expect(try target.allTodos().map(\.record) == before)
     }
@@ -222,7 +223,7 @@ import Testing
                                                           extra: #", "attachments": [{ "id": "\#(UUID())", "name": "a.txt" }]"#)),
                                       files: ["\(mine.id)/a.txt": "A"])
         let importer = HowyImporter(store: store)
-        let summary = try await importer.apply(try importer.analyze(folder: folder))
+        let summary = try await importer.apply(try await importer.analyze(folder: folder))
         #expect(summary == ImportReport(duplicateCount: 1))
         let after = try #require(try store.todo(id: mine.id))
         #expect(after.title == "Mine")
@@ -248,7 +249,7 @@ import Testing
         ]
         let folder = try importFolder(json: json(todos.joined(separator: ",")))
         let importer = HowyImporter(store: store)
-        let plan = try importer.analyze(folder: folder)
+        let plan = try await importer.analyze(folder: folder)
         #expect(plan.report.problems == [
             "Entry #2: missing title",
             #"Entry #3: unknown quadrant "urgent""#,
@@ -275,7 +276,7 @@ import Testing
         let id = UUID()
         let folder = try importFolder(json: json(todoJSON(id: id, title: "Bare", extra: #", "unknownKey": [1, 2]"#)))
         let importer = HowyImporter(store: store)
-        _ = try await importer.apply(try importer.analyze(folder: folder))
+        _ = try await importer.apply(try await importer.analyze(folder: folder))
         let todo = try #require(try store.todo(id: id))
         #expect(todo.note == "")
         #expect(todo.sortDate == todo.createdAt)
@@ -289,14 +290,14 @@ import Testing
         let id = UUID()
         let folder = try importFolder(json: json(todoJSON(id: id, extra: #", "due": "2026-10-15T07:00:00Z""#)))
         let importer = HowyImporter(store: store)
-        _ = try await importer.apply(try importer.analyze(folder: folder))
+        _ = try await importer.apply(try await importer.analyze(folder: folder))
         #expect(try store.todo(id: id)?.due == HowyFormat.date(from: "2026-10-15T07:00:00Z"))
     }
 
-    @Test func anInvalidDueDateSkipsTheEntry() throws {
+    @Test func anInvalidDueDateSkipsTheEntry() async throws {
         let (store, _) = try makeStore("target")
         let folder = try importFolder(json: json(todoJSON(extra: #", "due": "soon""#)))
-        let plan = try HowyImporter(store: store).analyze(folder: folder)
+        let plan = try await HowyImporter(store: store).analyze(folder: folder)
         #expect(plan.report.importCount == 0)
     }
 
@@ -310,7 +311,7 @@ import Testing
         let folder = try importFolder(json: json(todoJSON(id: id, title: "Buy milk", extra: attachments)),
                                       files: ["\(id)/here.txt": "H", "\(id)/ignored.txt": "not listed"])
         let importer = HowyImporter(store: store)
-        let plan = try importer.analyze(folder: folder)
+        let plan = try await importer.analyze(folder: folder)
         #expect(plan.report.problems == [#""Buy milk": attachment "receipt.png" not found in folder"#])
         #expect(plan.report.missingAttachmentCount == 1)
         #expect(plan.report.attachmentCount == 1)
@@ -330,7 +331,7 @@ import Testing
         let folder = try importFolder(json: json(todoJSON(id: id, title: "Sneaky", extra: #", "attachments": [\#(list)]"#)),
                                       files: ["evil.txt": "x", "\(id)/sub/evil.txt": "x"])
         let importer = HowyImporter(store: store)
-        let plan = try importer.analyze(folder: folder)
+        let plan = try await importer.analyze(folder: folder)
         #expect(plan.report.problems == [
             #""Sneaky": attachment name "../../evil.txt" is not allowed"#,
             #""Sneaky": attachment name "sub/evil.txt" is not allowed"#,
@@ -345,13 +346,13 @@ import Testing
         #expect(!FileManager.default.fileExists(atPath: root.deletingLastPathComponent().appending(path: "evil.txt").path(percentEncoded: false)))
     }
 
-    @Test func attachmentsListedTwiceAreReported() throws {
+    @Test func attachmentsListedTwiceAreReported() async throws {
         let (store, _) = try makeStore("target")
         let id = UUID()
         let list = #"{ "id": "\#(UUID())", "name": "a.txt" }, { "id": "\#(UUID())", "name": "A.txt" }"#
         let folder = try importFolder(json: json(todoJSON(id: id, title: "Twice", extra: #", "attachments": [\#(list)]"#)),
                                       files: ["\(id)/a.txt": "A"])
-        let plan = try HowyImporter(store: store).analyze(folder: folder)
+        let plan = try await HowyImporter(store: store).analyze(folder: folder)
         #expect(plan.report.problems == [#""Twice": attachment "A.txt" is listed twice"#])
         #expect(plan.report.attachmentCount == 1)
     }
@@ -362,23 +363,24 @@ import Testing
         ("not json at all", HowyImportError.unreadable("it isn't valid JSON")),
         (#"{ "todos": [] }"#, .missingFormatVersion),
         (#"{ "formatVersion": null, "todos": [] }"#, .missingFormatVersion),
-        (#"{ "formatVersion": 2, "todos": [] }"#, .newerFormatVersion(2)),
+        (#"{ "formatVersion": 3, "todos": [] }"#, .newerFormatVersion(3)),
+        (#"{ "formatVersion": 2, "todos": [], "events": {} }"#, .unreadable("its events aren't a list")),
         (#"{ "formatVersion": 0, "todos": [] }"#, .unknownFormatVersion("0")),
         (#"{ "formatVersion": "one", "todos": [] }"#, .unknownFormatVersion("\"one\"")),
         (#"{ "formatVersion": 1 }"#, .unreadable("it has no todos list")),
     ])
-    func refusedFilesWriteNothing(json: String, error: HowyImportError) throws {
+    func refusedFilesWriteNothing(json: String, error: HowyImportError) async throws {
         let (store, writes) = try makeStore("target")
         let folder = try importFolder(json: json)
-        #expect(throws: error) { try HowyImporter(store: store).analyze(folder: folder) }
+        await #expect(throws: error) { try await HowyImporter(store: store).analyze(folder: folder) }
         #expect(try store.allTodos().isEmpty)
         #expect(writes.count == 0)
     }
 
-    @Test func folderWithoutJSONIsRefused() throws {
+    @Test func folderWithoutJSONIsRefused() async throws {
         let (store, _) = try makeStore("target")
         try FileManager.default.createDirectory(at: exportFolder, withIntermediateDirectories: true)
-        #expect(throws: HowyImportError.fileNotFound) { try HowyImporter(store: store).analyze(folder: exportFolder) }
+        await #expect(throws: HowyImportError.fileNotFound) { try await HowyImporter(store: store).analyze(folder: exportFolder) }
         #expect(HowyImportError.newerFormatVersion(2).localizedDescription.contains("Update Howy"))
     }
 
@@ -396,7 +398,7 @@ import Testing
         let todos = [done("Old", daysAgo: 10), done("Older", daysAgo: 40), done("Recent", daysAgo: 2), todoJSON(title: "Open")]
         let folder = try importFolder(json: json(todos.joined(separator: ",")))
         let importer = HowyImporter(store: store, retention: ArchiveRetention(days: 7))
-        let plan = try importer.analyze(folder: folder)
+        let plan = try await importer.analyze(folder: folder)
         #expect(plan.report.expiredCount == 2)
         let summary = try await importer.apply(plan)
         #expect(summary.expiredCount == 2)
@@ -412,7 +414,7 @@ import Testing
         let folder = try importFolder(json: HowyFormat.llmExample,
                                       files: ["6F1C2A4E-8B1D-4C55-9E0B-2D7F3A1B9C10/receipt.png": "PNG"])
         let importer = HowyImporter(store: store)
-        let plan = try importer.analyze(folder: folder)
+        let plan = try await importer.analyze(folder: folder)
         #expect(plan.report == ImportReport(importCount: 2, attachmentCount: 1))
         let summary = try await importer.apply(plan)
         #expect(summary == ImportReport(importCount: 2, attachmentCount: 1))

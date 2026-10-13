@@ -33,8 +33,24 @@ public enum TransferText {
         if !skipped.isEmpty { sentence += " (\(skipped.joined(separator: ", ")))" }
         if report.attachmentCount > 0 { sentence += ", \(count(report.attachmentCount, "attachment"))" }
         sentence += "."
-        sentence += report.importCount > 0 ? " Import?" : " Nothing to import."
+        if let history = eventSummary(report) { sentence += " " + history }
+        sentence += report.hasChanges ? " Import?" : " Nothing to import."
         return sentence
+    }
+
+    /// The history part of the preview, e.g. "History: 40 events to add (10 already exist,
+    /// 1 invalid)." `nil` when the file has no events.
+    static func eventSummary(_ report: ImportReport) -> String? {
+        guard report.totalEventCount > 0 else { return nil }
+        var skipped: [String] = []
+        if report.skippedEventCount > 0 {
+            let verb = report.skippedEventCount == 1 ? "exists" : "exist"
+            skipped.append("\(report.skippedEventCount) already \(verb)")
+        }
+        if report.invalidEventCount > 0 { skipped.append("\(report.invalidEventCount) invalid") }
+        var sentence = "History: \(count(report.importedEventCount, "event")) to add"
+        if !skipped.isEmpty { sentence += " (\(skipped.joined(separator: ", ")))" }
+        return sentence + "."
     }
 
     /// The retention warning, or nil when no imported todo is past the archive retention.
