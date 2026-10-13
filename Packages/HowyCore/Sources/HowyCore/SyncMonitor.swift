@@ -3,6 +3,7 @@ import CoreData
 import Foundation
 import Network
 import Observation
+import os
 
 /// The app's live `SyncState`: observes the CloudKit mirroring events and answers the
 /// `SyncGate` from them. It also watches the iCloud account and turns both into the Settings
@@ -131,11 +132,14 @@ public final class SyncMonitor {
     public func receiveNetwork(isOnline: Bool) {
         guard isOnline != self.isOnline else { return }
         self.isOnline = isOnline
+        Self.log.info("Network: \(isOnline ? "online" : "offline", privacy: .public)")
         if isOnline {
             checkAccount()
             onBackOnline()
         }
     }
+
+    private static let log = Logger(subsystem: "lueddemann.howy", category: "SyncMonitor")
 
     /// Follows the Mac's network path. Calling it again does nothing.
     public func startNetworkChecks() {

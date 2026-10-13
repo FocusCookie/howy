@@ -10,7 +10,9 @@ import Foundation
 /// it), then whether something runs, else up to date.
 ///
 /// The network comes first because mirroring reports no error while it's offline: an import
-/// started then (by the import nudge) just doesn't end, which would read as syncing.
+/// started then (by the import nudge) just doesn't end, which would read as syncing. The same
+/// can happen with a network path but no internet behind it, which the path doesn't show; so
+/// an import or export running longer than `hangsAfter` reads as waiting, not syncing.
 public enum SyncStatus: Hashable, Sendable {
     /// The store or the account isn't known yet (launch).
     case checking
@@ -34,6 +36,9 @@ public enum SyncStatus: Hashable, Sendable {
     case unavailable(reason: String)
     /// This build's store doesn't mirror.
     case off
+
+    /// How long an import or export may run before the line stops saying syncing.
+    public static let hangsAfter: TimeInterval = 3 * 60
 
     /// `isOnline` is whether the Mac has a network path (`NWPathMonitor`).
     public init(state: SyncState, account: AccountObservation?, isOnline: Bool = true, now: Date) {
@@ -89,7 +94,7 @@ public enum SyncStatus: Hashable, Sendable {
             return
         }
         if state.isBusy(at: now) {
-            self = .syncing
+            self = state.isBusy(at: now, startedWithin: Self.hangsAfter) ? .syncing : .waiting
             return
         }
         let last = [state.lastImport, state.lastExport].compactMap { $0 }.max()

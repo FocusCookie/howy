@@ -219,6 +219,12 @@ public struct SyncState: Hashable, Sendable {
         inFlightSince.values.contains { now.timeIntervalSince($0) < Self.staleAfter }
     }
 
+    /// Whether an event is in flight that started less than `seconds` before `now`: one that
+    /// still runs normally, not one that hangs.
+    public func isBusy(at now: Date, startedWithin seconds: TimeInterval) -> Bool {
+        inFlightSince.values.contains { now.timeIntervalSince($0) < min(seconds, Self.staleAfter) }
+    }
+
     /// The Mac woke from sleep: what arrived meanwhile hasn't been imported yet, so only an import
     /// that starts from now on counts as the first one again.
     public mutating func noteWake(at now: Date) {

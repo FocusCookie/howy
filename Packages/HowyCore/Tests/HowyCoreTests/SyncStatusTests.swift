@@ -64,6 +64,15 @@ import Testing
         #expect(!status.isProblem)
     }
 
+    @Test func anImportThatHangsReadsWaitingNotSyncing() {
+        // A network path but no internet behind it: the path monitor says online.
+        let running = [SyncEvent(id: UUID(), kind: .import, startDate: at(10))]
+        let hangs = at(10 + SyncStatus.hangsAfter + 1)
+        #expect(SyncStatus(state: state(events: running), account: signedIn, now: at(10 + SyncStatus.hangsAfter - 1)) == .syncing)
+        #expect(SyncStatus(state: state(events: running), account: signedIn, now: hangs) == .waiting)
+        #expect(!SyncStatus(state: state(events: running), account: signedIn, now: hangs).isProblem)
+    }
+
     @Test func noNetworkDoesntHideTheAccount() {
         #expect(SyncStatus(state: state(), account: .noAccount, isOnline: false, now: at(1)) == .notSignedIn)
         #expect(SyncStatus(state: state(), account: .iCloudOffForApp, isOnline: false, now: at(1)) == .iCloudOff)
