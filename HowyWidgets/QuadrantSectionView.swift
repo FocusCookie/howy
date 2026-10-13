@@ -12,7 +12,7 @@ enum WidgetMetrics {
     static let labelFont: Font = .system(size: 10, weight: .semibold)
 }
 
-/// One quadrant: coloured label (→ quick add), rows (checkbox + title → edit), "+N more", or a quiet empty state.
+/// One quadrant: coloured label (→ a new todo there), rows (checkbox + title → edit), "+N more", or a quiet empty state.
 /// `date` is the timeline entry's: a row's clock is red once its due date is at or before it.
 struct QuadrantSectionView: View {
     let content: QuadrantContent

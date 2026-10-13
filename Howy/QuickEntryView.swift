@@ -302,7 +302,7 @@ struct QuickEntryView: View {
     }
 
     /// What Esc does to a new todo: closes the panel, or goes back to where it was opened from
-    /// (Browse's list, an Overview tile's list, the launcher). An edit says "cancel" either way:
+    /// (Browse's grid or list, an Overview tile's list). An edit says "cancel" either way:
     /// Esc discards it.
     private var closeWord: String { model.escapeReturns ? "back" : "close" }
 }

@@ -25,17 +25,14 @@ private struct MenuContent: View {
     let controller: AppController
 
     var body: some View {
-        Button("Quick Add") { controller.showQuickEntry() }
         Button("Open Howy") { controller.showBrowse() }
             .globalKeyboardShortcut(.openHowy)
         Button("Archive") { controller.showArchive() }
         Divider()
-        // Straight into a quadrant: the modal opens on the title, with the picker already answered.
+        // Straight into a quadrant: the editor opens on the title, the quadrant already chosen.
         Menu("Add to Quadrant") {
             ForEach(Quadrant.allCases) { quadrant in
-                Button(quadrant.displayName) {
-                    controller.showQuickEntry(preselected: quadrant, startingInTitle: true)
-                }
+                Button(quadrant.displayName) { controller.showCreate(in: quadrant) }
             }
         }
         Divider()

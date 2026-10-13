@@ -65,7 +65,7 @@ import Testing
     @Test func aWayBackWinsOverTheRememberedQuadrant() throws {
         let first = BrowseFlow(todos: data)
         first.handle(.digit(4))
-        let back = first.returnPoint(viaLauncher: false)
+        let back = first.returnPoint()
         let flow = BrowseFlow(todos: data, lastOpened: MemoryLastQuadrantStore(.notUrgentImportant))
         flow.resume(at: back)
         #expect(flow.phase == .listing)

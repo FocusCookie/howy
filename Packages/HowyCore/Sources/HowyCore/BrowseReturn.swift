@@ -10,14 +10,11 @@ public struct BrowseReturn: Hashable, Sendable {
     public let todoID: UUID?
     /// The row to select when `todoID` is gone from the list (deleted, moved); clamped.
     public let index: Int?
-    /// Browse itself was opened from the launcher, so leaving it goes back there.
-    public let viaLauncher: Bool
 
-    public init(quadrant: Quadrant, todoID: UUID?, index: Int?, viaLauncher: Bool) {
+    public init(quadrant: Quadrant, todoID: UUID?, index: Int?) {
         self.quadrant = quadrant
         self.todoID = todoID
         self.index = index
-        self.viaLauncher = viaLauncher
     }
 
     /// The way back from the create screen. Saved (`created` and `savedInto` both given): the list
@@ -26,17 +23,15 @@ public struct BrowseReturn: Hashable, Sendable {
     /// this point unchanged.
     public func afterCreate(_ created: UUID?, savedInto quadrant: Quadrant?) -> BrowseReturn {
         guard let created, let quadrant else { return self }
-        return BrowseReturn(quadrant: quadrant, todoID: created, index: 0, viaLauncher: viaLauncher)
+        return BrowseReturn(quadrant: quadrant, todoID: created, index: 0)
     }
 }
 
 extension BrowseFlow {
     /// The point to come back to from a screen opened now: the shown quadrant and its selected
     /// row, or, with `opening`, that todo (Enter or a click on a row) at the selected row.
-    public func returnPoint(opening id: UUID? = nil, viaLauncher: Bool) -> BrowseReturn {
-        BrowseReturn(
-            quadrant: quadrant, todoID: id ?? selectedTodo?.id, index: selectedIndex, viaLauncher: viaLauncher
-        )
+    public func returnPoint(opening id: UUID? = nil) -> BrowseReturn {
+        BrowseReturn(quadrant: quadrant, todoID: id ?? selectedTodo?.id, index: selectedIndex)
     }
 
     /// Back from a screen opened from the list: shows `point`'s quadrant with its todo selected,

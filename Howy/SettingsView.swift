@@ -4,13 +4,12 @@ import KeyboardShortcuts
 import SwiftUI
 
 /// The iCloud sync status line (first, so a click on a sync notice lands on it), and the things
-/// worth configuring: how big the panels are drawn, the Open Howy shortcut, the quadrant new todos start on, how attachments open, what plays when a
+/// worth configuring: how big the panels are drawn, the Open Howy shortcut, how attachments open, what plays when a
 /// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, the
 /// default time of due dates (and a hint when notifications are off), the daily backups' folder, and
 /// launching at login.
 struct SettingsView: View {
     let controller: AppController
-    @State private var newTodoQuadrant = NewTodoQuadrant.load()
     @State private var recorder = ShortcutRecorderModel()
     @State private var openMode = AttachmentOpenMode.load()
     @State private var doneAnimation = DoneAnimation.load()
@@ -79,14 +78,6 @@ struct SettingsView: View {
             Text(recorder.message ?? footerHint)
                 .font(.caption)
                 .foregroundStyle(recorder.message == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.red))
-        }
-        Section("New Todos") {
-            Picker("Start on:", selection: $newTodoQuadrant) {
-                ForEach(NewTodoQuadrant.allCases) { option in
-                    Text(option.displayName).tag(option)
-                }
-            }
-            .onChange(of: newTodoQuadrant) { _, value in value.save() }
         }
         Section {
             Picker("Open attachments in:", selection: $openMode) {

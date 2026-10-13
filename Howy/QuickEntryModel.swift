@@ -19,8 +19,8 @@ final class QuickEntryModel {
     let flow: QuickEntryFlow
     @ObservationIgnored private let store: TodoStore
     @ObservationIgnored var close: () -> Void = {}
-    /// Esc goes back to the screen this was opened from (Browse, an Overview tile's list, the
-    /// launcher) instead of closing the panel; the key hints say "back" then (set by the opener).
+    /// Esc goes back to the screen this was opened from (Browse, an Overview tile's list)
+    /// instead of closing the panel; the key hints say "back" then (set by the opener).
     @ObservationIgnored var escapeReturns = false
     /// Runs once the flow has finished (saved, cancelled, deleted), e.g. to clear unused staged files.
     @ObservationIgnored var didFinish: () -> Void = {}

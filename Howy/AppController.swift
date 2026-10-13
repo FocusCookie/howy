@@ -30,9 +30,8 @@ final class AppController {
     /// all panels, saved on every change and applied to an open panel right away.
     private(set) var panelZoom = PanelZoom.load()
 
-    /// `browseCreate`: the create screen `n` opens from Browse's list. Like `edit`, the Quick Add
-    /// hotkey replaces it (its draft stashed first) instead of toggling it closed.
-    private enum PanelKind { case launcher, quickEntry, browseCreate, edit, archive, browse, error }
+    /// `create`: the editor for a new todo (N in Browse, "Add to Quadrant", a widget's quadrant label).
+    private enum PanelKind { case create, edit, archive, browse, error }
 
     @ObservationIgnored private var panel: FloatingPanel?
     @ObservationIgnored private var panelKind: PanelKind?
@@ -342,7 +341,8 @@ final class AppController {
         log.notice("Deep link \(url.absoluteString, privacy: .public)")
         switch link {
         case .edit(let id): showEdit(id: id, activate: true)
-        case .quickAdd(let quadrant): showQuickEntry(preselected: quadrant, activate: true)
+        case .quickAdd(let quadrant?): showCreate(in: quadrant, activate: true)
+        case .quickAdd(nil): showBrowse(activate: true)
         case .archive: showArchive(activate: true)
         }
     }
@@ -372,33 +372,6 @@ final class AppController {
 
     // MARK: Panels
 
-    /// Without a choice (a fresh open), the highlight starts on the Settings default; coming back
-    /// from a screen highlights that screen's choice.
-    func showLauncher(highlighting choice: LauncherChoice? = nil) {
-        let flow = LauncherFlow(highlighted: choice ?? LauncherChoice.loadDefault())
-        let open: (LauncherChoice) -> Void = { [weak self] choice in
-            switch choice {
-            case .create: self?.showQuickEntry(viaLauncher: true)
-            case .browse: self?.showBrowse(resuming: nil, viaLauncher: true)
-            }
-        }
-        let panel = present(.launcher, activate: false) {
-            LauncherView(flow: flow) { choice in
-                if case .open = flow.open(choice) { open(choice) }
-            }
-        }
-        panel.keyHandler = { [weak panel] event in
-            guard let key = QuickEntryKey(event: event) else { return false }
-            switch flow.handle(key) {
-            case .ignored: return false
-            case .handled: break
-            case .open(let choice): open(choice)
-            case .close: panel?.dismiss()
-            }
-            return true
-        }
-    }
-
     /// Closes whatever panel is open (its draft is stashed like on any close without saving).
     func closePanel() {
         panel?.dismiss()
@@ -414,12 +387,8 @@ final class AppController {
         showBrowse(resuming: nil, activate: activate)
     }
 
-    /// With `viaLauncher`, Esc on the quadrants returns to the launcher instead of closing.
     /// `fromArchive` reopens the picker with the Archive button highlighted (Esc in the archive).
-    private func showBrowse(
-        resuming back: BrowseReturn?, viaLauncher: Bool = false, fromArchive: Bool = false, activate: Bool = false
-    ) {
-        let viaLauncher = back?.viaLauncher ?? viaLauncher
+    private func showBrowse(resuming back: BrowseReturn?, fromArchive: Bool = false, activate: Bool = false) {
         guard let store = freshStore(activate: activate) else { return }
         let todos: [Quadrant: [TodoSnapshot]]
         do {
@@ -439,19 +408,17 @@ final class AppController {
             guard let key = QuickEntryKey(event: event) else { return false }
             return model.handle(key)
         }
-        model.close = { [weak self, weak panel] in
-            if viaLauncher { self?.showLauncher(highlighting: .browse) } else { panel?.dismiss() }
-        }
+        model.close = { [weak panel] in panel?.dismiss() }
         model.openTodo = { [weak self, weak flow] id in
-            self?.showEdit(id: id, returningTo: flow?.returnPoint(opening: id, viaLauncher: viaLauncher))
+            self?.showEdit(id: id, returningTo: flow?.returnPoint(opening: id))
         }
         model.createTodo = { [weak self, weak flow] quadrant in
             guard let flow else { return }
-            self?.showCreate(in: quadrant, returningTo: flow.returnPoint(viaLauncher: viaLauncher))
+            self?.showCreate(in: quadrant, returningTo: flow.returnPoint())
         }
         model.openArchive = { [weak self] in
             self?.showArchive(returning: { [weak self] in
-                self?.showBrowse(resuming: nil, viaLauncher: viaLauncher, fromArchive: true)
+                self?.showBrowse(resuming: nil, fromArchive: true)
             })
         }
         model.resizeForOverview = { [weak panel] expanded, animated, changes, completion in
@@ -491,56 +458,32 @@ final class AppController {
         return model
     }
 
-    /// With `viaLauncher`, Esc returns to the launcher (keeping the draft) instead of closing.
-    /// With `startingInTitle`, the modal opens on the title field instead of the picker — for the
-    /// menu bar's "Add to Quadrant", where the quadrant was already chosen.
-    func showQuickEntry(
-        preselected: Quadrant? = nil, startingInTitle: Bool = false,
-        viaLauncher: Bool = false, activate: Bool = false
-    ) {
+    /// A create flow for a new todo in a chosen quadrant, starting in the title. The quadrant wins
+    /// over the stashed draft's quadrant; the draft's text is restored.
+    private func createFlow(in quadrant: Quadrant) -> QuickEntryFlow {
+        QuickEntryFlow(
+            mode: .create(quadrant), lastUsed: lastUsed, drafts: drafts, linkTitles: linkTitles, dueDates: .live()
+        )
+    }
+
+    /// The editor for a new todo in `quadrant`, straight away ("Add to Quadrant", a widget's
+    /// quadrant label): save and Esc close the panel (Esc keeps the draft).
+    func showCreate(in quadrant: Quadrant, activate: Bool = false) {
+        showCreate(in: quadrant, returningTo: nil, activate: activate)
+    }
+
+    /// With `back` (N in Browse): save returns to Browse listing the quadrant it was saved into,
+    /// with the new todo selected; Esc returns to `back` (the draft is stashed). Losing focus
+    /// still closes.
+    private func showCreate(in quadrant: Quadrant, returningTo back: BrowseReturn?, activate: Bool = false) {
         guard let store = freshStore(activate: activate) else { return }
         // A create screen or tile editor being replaced stashes its text now, so this flow
         // restores it (the shared create draft) instead of the one stashed before.
         stashOpenDraft()
-        let flow = QuickEntryFlow(
-            mode: .create(preselected: preselected, startingInTitle: startingInTitle),
-            lastUsed: lastUsed, drafts: drafts,
-            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles, dueDates: .live()
-        )
-        let model = QuickEntryModel(flow: flow, store: store)
-        model.escapeReturns = viaLauncher
-        presentQuickEntry(model, kind: .quickEntry, activate: activate)
-        if viaLauncher {
-            model.close = { [weak self, weak model] in
-                if model?.flow.phase == .cancelled {
-                    self?.showLauncher(highlighting: .create)
-                } else {
-                    self?.closePanel()
-                }
-            }
-        }
-    }
-
-    /// A create flow for a new todo in a quadrant chosen in Browse, starting in the title. The
-    /// quadrant wins over the "New todo starts in" setting and over the stashed draft's quadrant;
-    /// the draft's text is restored.
-    private func createFlow(in quadrant: Quadrant) -> QuickEntryFlow {
-        QuickEntryFlow(
-            mode: .create(preselected: quadrant, startingInTitle: true),
-            lastUsed: lastUsed, drafts: drafts,
-            startQuadrant: NewTodoQuadrant.load(), linkTitles: linkTitles, dueDates: .live()
-        )
-    }
-
-    /// `n` in Browse's list: the create screen for a new todo in that quadrant. Save returns to
-    /// Browse listing the quadrant it was saved into, with the new todo selected; Esc returns to
-    /// `back` (the draft is stashed); losing focus still closes.
-    private func showCreate(in quadrant: Quadrant, returningTo back: BrowseReturn) {
-        guard let store = freshStore() else { return }
-        stashOpenDraft()
         let model = QuickEntryModel(flow: createFlow(in: quadrant), store: store)
-        model.escapeReturns = true
-        presentQuickEntry(model, kind: .browseCreate, activate: false)
+        model.escapeReturns = back != nil
+        presentQuickEntry(model, kind: .create, activate: activate)
+        guard let back else { return }
         model.close = { [weak self, weak model] in
             guard let self, let model else { return }
             self.showBrowse(resuming: back.afterCreate(model.createdTodoID, savedInto: model.flow.savedDraft?.quadrant))
@@ -645,7 +588,7 @@ final class AppController {
     }
 
     /// Shows a screen: inside the open panel when there is one (the card resizes and the contents
-    /// cross-fade, e.g. Browse ↔ edit, launcher → Quick Add), otherwise in a new panel. The caller
+    /// cross-fade, e.g. Browse ↔ edit, Browse → archive), otherwise in a new panel. The caller
     /// sets the returned panel's `keyHandler` / `willClose` right away.
     private func present<Content: View>(
         _ kind: PanelKind, activate: Bool, @ViewBuilder content: () -> Content

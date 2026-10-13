@@ -37,7 +37,7 @@ public enum OpenHowyShortcutMigration {
     /// The settings of the old shortcuts and of the Settings rows that went with them.
     public static let staleKeys = [
         storageKey("quickAdd"), storageKey("browse"), storageKey("launcher"),
-        "shortcutMode", "didMigrateBrowseShortcutToM",
+        "shortcutMode", "didMigrateBrowseShortcutToM", "launcherDefaultChoice", "newTodoQuadrant",
     ]
 
     @discardableResult

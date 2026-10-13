@@ -18,6 +18,18 @@ All notable changes to Howy are documented here. The format follows
 - The grid opens on the quadrant you opened or added to last, instead of
   always on Do First.
 - The menu's "Browse" is now "Open Howy" and shows the shortcut.
+- "Add to Quadrant ▸ 1–4" in the menu and a widget's quadrant label open the
+  editor for a new todo in that quadrant straight away; Esc closes it and keeps
+  the draft. ⇧⇥ from the title still reaches the quadrant picker. Old
+  `howy://quick-add` links without a quadrant open the quadrant grid.
+
+### Removed
+
+- The Quick Add panel and its quadrant-choosing first step, and the menu's
+  "Quick Add" item. New todos start from the grid or list (N), "Add to
+  Quadrant" or a widget.
+- One-shortcut mode with its New Todo / Browse chooser and the "Selected first"
+  setting, and the "New Todos → Start on" setting.
 
 ## [2.0.0] - 2026-10-12
 
