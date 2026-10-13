@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-13
+
 ### Added
 
 - **N on the quadrant grid** opens the editor for a new todo in the highlighted
