@@ -101,3 +101,18 @@ extension QuickEntryKey {
         }
     }
 }
+
+extension QuickEntryKey {
+    /// The vim keys next to the arrows, for the screens with nothing to type into: h ←, j ↓, k ↑,
+    /// l →. `horizontal: false` leaves h and l as they are (Browse's list, the archive). Text
+    /// fields, editors and dialogs never ask, so the letters stay typing there.
+    func vimArrow(horizontal: Bool = true) -> QuickEntryKey {
+        switch self {
+        case .letter("j"): .down
+        case .letter("k"): .up
+        case .letter("h") where horizontal: .left
+        case .letter("l") where horizontal: .right
+        default: self
+        }
+    }
+}

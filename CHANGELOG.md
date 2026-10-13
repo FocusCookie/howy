@@ -29,6 +29,11 @@ All notable changes to Howy are documented here. The format follows
   quadrant. Saving or Esc brings you back to the grid with that quadrant still
   highlighted. The grid's key hints show it.
 
+- **Vim keys** next to the arrows: h j k l on the quadrant grid and in the
+  move picker, j k in a quadrant's list and in the archive. In the Overview,
+  j k move inside a tile, and h l (and now ← →) move to the tile beside it;
+  ↑ ↓ never leave a tile. Text fields and dialogs keep the letters as typing.
+
 ### Removed
 
 - The Quick Add panel and its quadrant-choosing first step, and the menu's

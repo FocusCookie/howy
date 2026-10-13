@@ -4,13 +4,17 @@ import Observation
 /// UI-independent state machine behind the browse panel: a 2×2 picker with open-todo counts,
 /// then one quadrant's open todos as a selectable list.
 ///
+/// Vim keys work next to the arrows wherever there is nothing to type into: h/j/k/l on the grid
+/// and in the move picker, j/k in the list, j/k in an Overview tile and h/l beside ←/→ there.
+/// Never in a tile editor or the due-date dialog, where the letters are typing.
+///
 /// Keys (`handle(_:)` returns what the caller should do):
-/// - Picker: arrows move and clamp; ↓ from the bottom row highlights the Archive button below the
-///   grid and ↑ comes back; 1–4 open that quadrant's list; Enter/Tab open the highlighted one (or
+/// - Picker: arrows (and h/j/k/l) move and clamp; ↓ from the bottom row highlights the Archive
+///   button below the grid and ↑ comes back; 1–4 open that quadrant's list; Enter/Tab open the highlighted one (or
 ///   the archive: `.openArchive`); `n` asks for a new todo in the highlighted quadrant (`.newTodo`;
 ///   nothing with the Archive button highlighted; the grid stays as it is for coming back); `a`
 ///   opens the archive; Esc closes (`.close`). Everything else is swallowed.
-/// - List: ↑/↓ move the selection (clamped); Enter → `.open(id)`; `d` completes the selected
+/// - List: ↑/↓ (j/k) move the selection (clamped); Enter → `.open(id)`; `d` completes the selected
 ///   todo (the row is removed here, the caller writes it: `.complete(id)`); ⌫ archives it the
 ///   same way but without the celebration (`.archive(id)`); 1–4 switch quadrant;
 ///   `t` opens the due-date dialog for the selected todo (see "Due date" below);
@@ -21,7 +25,7 @@ import Observation
 ///   the other one; the caller writes it); `m` opens the move picker. Everything else is
 ///   swallowed.
 /// - Move picker (a 2×2 over the list, for the selected todo): 1–4 (or ⌘1–4) move straight away;
-///   arrows move the highlight and clamp; Enter moves to the highlighted quadrant; Esc closes only
+///   arrows (h/j/k/l) move the highlight and clamp; Enter moves to the highlighted quadrant; Esc closes only
 ///   the picker. The todo's own quadrant does nothing. Everything else is swallowed.
 /// - Picker, list and Overview: ⌘Z takes back the last `d` / ⌫ / move / reorder of this panel: a
 ///   completed todo is put back where it was and the caller clears its done mark (`.restore(id)`);
@@ -32,7 +36,9 @@ import Observation
 /// - Overview (all four quadrants as tiles, one focused; `o` from the picker or the list, or
 ///   `toggleOverview()`): every list key acts on the focused tile (`quadrant`, `rows`,
 ///   `selectedIndex`), except that 1–4 and ⌥1–4 focus that quadrant instead of opening its list
-///   (Tab / Shift-Tab focus the next / previous quadrant in priority order, wrapping),
+///   (Tab / Shift-Tab focus the next / previous quadrant in priority order, wrapping; ←/→ and
+///   h/l focus the tile beside the focused one in its row, clamped; ↑/↓ and j/k only move inside
+///   the tile),
 ///   Enter opens the selected todo in the tile's editor (`.editInTile`), `n` opens a create
 ///   editor there for a new todo in the focused quadrant (`.createInTile`), and Esc goes back to
 ///   the picker with the focused quadrant highlighted (`.hideOverview`). Each tile remembers its
@@ -240,7 +246,7 @@ public final class BrowseFlow {
         case .closed:
             return .ignored
         case .picking:
-            switch key {
+            switch key.vimArrow() {
             case .up:
                 if isArchiveHighlighted { isArchiveHighlighted = false } else { move(rows: -1, columns: 0) }
             case .down:
@@ -264,7 +270,7 @@ public final class BrowseFlow {
             return .handled
         case .listing:
             if let picker = movePicker { return handleMovePicker(key, picker) }
-            switch key {
+            switch key.vimArrow(horizontal: false) {
             case .up: moveSelection(by: -1)
             case .down: moveSelection(by: 1)
             case .enter:
@@ -318,9 +324,12 @@ public final class BrowseFlow {
             return .handled
         }
         if let picker = movePicker { return handleMovePicker(key, picker) }
-        switch key {
+        switch key.vimArrow() {
         case .up: moveSelection(by: -1)
         case .down: moveSelection(by: 1)
+        case .left, .right:
+            // The tile beside the focused one, in the same row (clamped); ↑/↓ stay in the tile.
+            return focus(quadrant.moved(rows: 0, columns: key.vimArrow() == .left ? -1 : 1))
         case .enter:
             if let todo = selectedTodo { return openEditor(id: todo.id) }
         case .letter(Self.doneKey):
@@ -359,7 +368,7 @@ public final class BrowseFlow {
 
     private func handleMovePicker(_ key: QuickEntryKey, _ picker: MovePicker) -> Outcome {
         var target: Quadrant?
-        switch key {
+        switch key.vimArrow() {
         case .digit(let n), .commandDigit(let n): target = Quadrant(shortcutNumber: n)
         case .enter: target = picker.highlighted
         case .up: movePicker?.highlighted = picker.highlighted.moved(rows: -1, columns: 0)

@@ -5,7 +5,7 @@ import Observation
 /// one selected row.
 ///
 /// Keys (`handle(_:)` returns what the caller should do):
-/// - ↑/↓ move the selection (clamped).
+/// - ↑/↓ (or j/k) move the selection (clamped).
 /// - `r` → `.restore(id)`: bring the selected todo back; the row is removed here, the caller
 ///   writes it.
 /// - ⌫ / ⌘⌫ → `.delete(id)`: delete the selected todo for good; the row is removed here, the
@@ -47,7 +47,7 @@ public final class ArchiveFlow {
 
     @discardableResult
     public func handle(_ key: QuickEntryKey) -> Outcome {
-        switch key {
+        switch key.vimArrow(horizontal: false) {
         case .up: moveSelection(by: -1)
         case .down: moveSelection(by: 1)
         case .letter(Self.restoreKey):
