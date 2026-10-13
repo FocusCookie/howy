@@ -5,7 +5,7 @@ import KeyboardShortcuts
 extension KeyboardShortcuts.Name {
     /// The one global shortcut, default ⌃⌥⇧⌘Space: opens Browse's quadrant grid, or closes Howy
     /// when a panel is open. It replaced Quick Add, Browse and the launcher of one-shortcut mode
-    /// (`OpenHowyShortcutMigration`, which must run before this is first read).
+    /// (`OpenHowyShortcutMigration`, which `HowyApp.init()` runs before this is first read).
     static let openHowy = Self(
         OpenHowyShortcutMigration.targetName, default: .init(.space, modifiers: [.control, .option, .shift, .command])
     )

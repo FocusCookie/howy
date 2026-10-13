@@ -33,7 +33,7 @@ import Testing
         #expect(next.phase == .editingNote, "back in the field it was in")
     }
 
-    @Test func startingInTitleKeepsTheDraftButSkipsTheStashedPicker() {
+    @Test func createKeepsTheDraftButStartsInTheTitle() {
         let flow = makeCreate()
         flow.title = "Call landlord"
         flow.abandon()
@@ -119,7 +119,7 @@ import Testing
         #expect(!makeCreate().isRestoredDraft)
     }
 
-    @Test func preselectedQuadrantOverridesOnlyTheStashedQuadrant() {
+    @Test func theGivenQuadrantOverridesOnlyTheStashedQuadrant() {
         let flow = makeCreate()
         flow.handle(.digit(1))
         flow.title = "Keep me"

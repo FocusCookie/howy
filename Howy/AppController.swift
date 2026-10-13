@@ -127,9 +127,6 @@ final class AppController {
     }
 
     func start() {
-        // Before anything reads the Open Howy name, which stores its default when it has none.
-        let migration = OpenHowyShortcutMigration.run()
-        if migration != .alreadyDone { log.notice("Open Howy shortcut migration: \(String(describing: migration), privacy: .public)") }
         ShortcutRecorderModel.removeFunctionModifier()
         KeyboardShortcuts.onKeyUp(for: .openHowy) { [weak self] in
             MainActor.assumeIsolated { self?.toggleOpenHowy() }
@@ -473,8 +470,9 @@ final class AppController {
         showCreate(in: quadrant, returningTo: nil, activate: activate)
     }
 
-    /// With `back` (N in Browse): save returns to Browse listing the quadrant it was saved into,
-    /// with the new todo selected; Esc returns to `back` (the draft is stashed). Losing focus
+    /// With `back` (N in Browse): save and Esc go back through `back.afterCreate` — to the grid
+    /// with the same quadrant highlighted (N on the grid), or to the list of the quadrant it was
+    /// saved into with the new todo selected (N in a list). Esc keeps the draft; losing focus
     /// still closes.
     private func showCreate(in quadrant: Quadrant, returningTo back: BrowseReturn?, activate: Bool = false) {
         guard let store = freshStore(activate: activate) else { return }

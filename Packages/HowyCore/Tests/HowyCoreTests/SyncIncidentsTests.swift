@@ -228,7 +228,7 @@ import Testing
     @Test func everyAlertNamesTheBackupWhenDataWasRemoved() {
         for cause in [DataRemovalCause.signedOut, .accountSwitched, .iCloudDataDeleted] {
             let alert = SyncAlert.dataRemoved(cause)
-            #expect(alert.body.contains("Settings → Import & Export"))
+            #expect(alert.body.contains("Settings → Data"))
             #expect(alert.identifier.hasPrefix(SyncAlert.identifierPrefix))
         }
         #expect(SyncAlert.failing(reason: "iCloud internal error").body.contains("iCloud internal error"))

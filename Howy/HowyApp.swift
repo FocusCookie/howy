@@ -11,6 +11,12 @@ struct HowyApp: App {
     /// The earliest app code: before the delegate's `applicationWillFinishLaunching`, a launching
     /// `howy://` URL and any use of the store (see `AppController.configureStoreSync`).
     init() {
+        // First, before anything (the menu's `.globalKeyboardShortcut(.openHowy)`) reads the Open
+        // Howy name, which stores its default when it has none.
+        let migration = OpenHowyShortcutMigration.run()
+        if migration != .alreadyDone {
+            log.notice("Open Howy shortcut migration: \(String(describing: migration), privacy: .public)")
+        }
         AppController.configureStoreSync()
     }
 

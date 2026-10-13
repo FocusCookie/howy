@@ -10,8 +10,7 @@ import Foundation
 /// Howy's default (⌃⌥⇧⌘Space), so Howy always has a way in. The Browse shortcut is dropped.
 /// Afterwards the old names' values and the mode setting are removed (`staleKeys`).
 ///
-/// Run it before anything reads the `openHowy` name: declaring that name stores its default when
-/// it has no value, and this only writes over a value it copied itself.
+/// Runs once (`doneKey`); run it before anything reads the `openHowy` name.
 public enum OpenHowyShortcutMigration {
     public enum Source: Hashable, Sendable {
         case quickAdd

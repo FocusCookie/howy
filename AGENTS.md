@@ -55,9 +55,9 @@ There is no separate spec. The behaviour is described in `README.md`,
 
 ### Architecture rules
 
-- **Logic lives in `HowyCore`, views stay thin.** The quick-entry, browse,
-  launcher and archive behaviour are UI-independent state machines
-  (`QuickEntryFlow`, `BrowseFlow`, `LauncherFlow`, `ArchiveFlow`) that take key
+- **Logic lives in `HowyCore`, views stay thin.** The quick-entry, browse and
+  archive behaviour are UI-independent state machines
+  (`QuickEntryFlow`, `BrowseFlow`, `ArchiveFlow`) that take key
   events. SwiftUI and AppKit only render state and forward keys. Key-code
   mapping (`KeyMapping`) is in core too.
 - **`TodoStore`** is the only way to read or write todos. It uses a versioned
@@ -139,7 +139,7 @@ xcodebuild -project Howy.xcodeproj -scheme Howy -configuration Release \
 - Widget missing from the gallery: check Console for "Group containers
   identifiers should be prefixed", and check that the extension is sandboxed.
 - `KeyboardShortcuts` saves defaults on first launch. If you change a default
-  shortcut, you need a migration (see the old ⌃⌥⇧⌘H → ⌃⌥⇧⌘M browse migration).
+  shortcut, you need a migration (see `OpenHowyShortcutMigration` in HowyCore, run first thing in `HowyApp.init()`).
 - Panels close when they lose key focus, with a short grace period after
   opening. Keep that in mind when you add flows that activate other apps or
   windows.
