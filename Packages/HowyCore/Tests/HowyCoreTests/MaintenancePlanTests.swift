@@ -9,12 +9,12 @@ import Testing
 
     @Test func theBackupComesFirst() {
         #expect(MaintenancePlan.steps(cleanups: false) == [.backup])
-        #expect(MaintenancePlan.steps(cleanups: true) == [.backup, .duplicates, .deletedTodos, .orphanedAttachments])
+        #expect(MaintenancePlan.steps(cleanups: true) == [.backup, .duplicates, .deletedTodos, .adoptAttachments, .orphanedAttachments])
     }
 
     @Test func eachStepAsksItsOwnGate() {
         #expect(MaintenanceStep.backup.work == .backup)
-        for step in [MaintenanceStep.duplicates, .deletedTodos, .orphanedAttachments] {
+        for step in [MaintenanceStep.duplicates, .deletedTodos, .adoptAttachments, .orphanedAttachments] {
             #expect(step.work == .cleanups)
         }
     }
@@ -33,7 +33,7 @@ import Testing
         state.apply(SyncEvent(id: id, kind: .setup, startDate: at(0), endDate: at(1), succeeded: true), at: at(1))
         let decide: (MaintenanceWork) -> SyncGate.Decision = { SyncGate.decide($0, sync: state, retentionKnown: true, now: self.at(60)) }
         let blocked = MaintenancePlan.steps(cleanups: true).filter { MaintenancePlan.blocker(for: $0, decide: decide) != nil }
-        #expect(blocked == [.duplicates, .deletedTodos, .orphanedAttachments])
+        #expect(blocked == [.duplicates, .deletedTodos, .adoptAttachments, .orphanedAttachments])
     }
 
     // MARK: Throttle

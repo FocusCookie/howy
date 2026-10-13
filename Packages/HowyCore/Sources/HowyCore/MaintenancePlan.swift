@@ -4,18 +4,20 @@ import Foundation
 public enum MaintenanceStep: Hashable, Sendable, CaseIterable {
     /// The daily backup.
     case backup
-    /// Duplicate todos and events.
+    /// Duplicate todos, events and attachments.
     case duplicates
     /// Todos that came back after a delete.
     case deletedTodos
-    /// Attachment folders of todos that no longer exist.
+    /// Attachments an older build kept as files, for todos that arrived since launch.
+    case adoptAttachments
+    /// Attachments (store rows and local folders) of todos that no longer exist.
     case orphanedAttachments
 
     /// What the sync gate is asked about this step.
     public var work: MaintenanceWork {
         switch self {
         case .backup: .backup
-        case .duplicates, .deletedTodos, .orphanedAttachments: .cleanups
+        case .duplicates, .deletedTodos, .adoptAttachments, .orphanedAttachments: .cleanups
         }
     }
 }
@@ -29,7 +31,7 @@ public enum MaintenanceStep: Hashable, Sendable, CaseIterable {
 public enum MaintenancePlan {
     /// The steps of a run: the backup alone, or the backup and then the cleanups.
     public static func steps(cleanups: Bool) -> [MaintenanceStep] {
-        cleanups ? [.backup, .duplicates, .deletedTodos, .orphanedAttachments] : [.backup]
+        cleanups ? [.backup, .duplicates, .deletedTodos, .adoptAttachments, .orphanedAttachments] : [.backup]
     }
 
     /// The first decision that keeps `step` from running now, or `nil` when it may run.

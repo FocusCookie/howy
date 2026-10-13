@@ -90,6 +90,7 @@ struct AttachmentStrip: View {
                 AttachmentTile(
                     attachment: attachment,
                     url: model.url(for: attachment),
+                    isPending: model.isPending(attachment),
                     isSelected: flow.selectedAttachment?.id == attachment.id,
                     isLinked: model.noteReferenceName == attachment.name,
                     model: model
@@ -174,6 +175,8 @@ private struct StripDropDelegate: DropDelegate {
 private struct AttachmentTile: View {
     let attachment: TodoAttachment
     let url: URL?
+    /// No file yet, but this Mac is writing it (it came through sync).
+    let isPending: Bool
     let isSelected: Bool
     let isLinked: Bool
     let model: QuickEntryModel
@@ -185,7 +188,7 @@ private struct AttachmentTile: View {
     private var shape: RoundedRectangle { RoundedRectangle(cornerRadius: 8 * scale, style: .continuous) }
 
     var body: some View {
-        AttachmentThumbnail(url: url, isImage: attachment.isImage, name: attachment.name)
+        AttachmentThumbnail(url: url, isImage: attachment.isImage, name: attachment.name, isPending: isPending)
             .frame(width: Self.size * scale, height: Self.size * scale)
             .clipShape(shape)
             .overlay { shape.strokeBorder(Color.primary.opacity(0.12), lineWidth: 1) }
@@ -249,6 +252,8 @@ struct AttachmentThumbnail: View {
     let url: URL?
     let isImage: Bool
     let name: String
+    /// While `url` is `nil` because the file is on its way: a spinner instead of the "missing" icon.
+    var isPending = false
     @State private var image: NSImage?
 
     var body: some View {
@@ -259,6 +264,8 @@ struct AttachmentThumbnail: View {
                     .resizable()
                     .aspectRatio(contentMode: isImage ? .fill : .fit)
                     .padding(isImage ? 0 : 6)
+            } else if url == nil, isPending {
+                ProgressView().controlSize(.small)
             } else if url == nil {
                 Image(systemName: "questionmark.square.dashed").foregroundStyle(.tertiary)
             }

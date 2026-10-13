@@ -278,8 +278,10 @@ import Testing
         let receipt = try files.stage(data: Data("PNG".utf8), as: "receipt.png")
         try store.setAttachments([receipt], for: todo.id)
         for name in ["Howy Backup 2026-10-01", "Howy Backup 2026-10-02", "Howy Backup 2026-10-03"] { try complete(name) }
-        // The attachment file goes missing, so the export lists it as a problem.
+        // The attachment's bytes go missing, so the export lists it as a problem.
         try FileManager.default.removeItem(at: files.url(for: receipt, todoID: todo.id)!)
+        try store.attachmentRows(for: todo.id).forEach { $0.data = nil }
+        try store.context.save()
 
         try await backup(keep: 1).run()
 

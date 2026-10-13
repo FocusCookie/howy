@@ -112,15 +112,15 @@ public struct HowyExport: Encodable, Sendable {
         self.events = events
     }
 
-    /// The export of these todos (with their committed attachments) and events. Shared by
-    /// `HowyExporter` and `DailyBackup`, each on its own context.
+    /// The export of these todos (with their attachments, by todo id, in order) and events.
+    /// Shared by `HowyExporter` and `DailyBackup`, each on its own context.
     init(
         appVersion: String?, exportedAt: Date,
-        todos: [HowyCore.Todo], events: [TodoEvent], attachments: AttachmentStore?
+        todos: [HowyCore.Todo], events: [TodoEvent], attachments: [UUID: [TodoAttachment]]
     ) {
         self.init(
             appVersion: appVersion, exportedAt: exportedAt,
-            todos: todos.map { Todo(record: $0.record, attachments: attachments?.attachments(for: $0.id) ?? []) },
+            todos: todos.map { Todo(record: $0.record, attachments: attachments[$0.id] ?? []) },
             events: events.map { Event(record: $0.record) }
         )
     }

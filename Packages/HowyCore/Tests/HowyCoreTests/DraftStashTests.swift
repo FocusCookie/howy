@@ -15,6 +15,17 @@ import Testing
         QuickEntryFlow(mode: .edit(source), lastUsed: lastUsed, drafts: drafts)
     }
 
+    @Test func theStartListSurvivesTheUserDefaultsRoundTrip() {
+        let defaults = UserDefaults(suiteName: "howy-stash-\(UUID().uuidString)")!
+        let store = UserDefaultsDraftStore(defaults: defaults, key: "stash")
+        let id = UUID()
+        let start = [TodoAttachment(name: "a.txt")]
+        store.setEditDraft(
+            StashedDraft(quadrant: .urgentImportant, title: "T", note: "", field: .title, attachments: [], originalAttachments: start), for: id
+        )
+        #expect(store.editDraft(for: id)?.originalAttachments == start)
+    }
+
     // MARK: create mode
 
     @Test func escapeInCreateModeStashesAndTheNextNewTodoRestores() {

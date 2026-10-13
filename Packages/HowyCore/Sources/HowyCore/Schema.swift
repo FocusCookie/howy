@@ -62,25 +62,34 @@ enum HowySchemaV2: VersionedSchema {
     }
 }
 
-/// Version 3, the live schema: CloudKit-ready `Todo` (no unique constraint, a default for every
-/// attribute, `updatedAt`) and the append-only `TodoEvent` log.
-/// Add a `HowySchemaV4` (and freeze copies of `Todo` and `TodoEvent` here) before changing
-/// either model again.
+/// Version 3, frozen: CloudKit-ready `Todo` (no unique constraint, a default for every
+/// attribute, `updatedAt`) and the append-only `TodoEvent` log. Never change its model list.
 ///
-/// After the first CloudKit Production deploy, schema changes must be additive only: no rename,
-/// no retype, no removal of an attribute or model, and every new attribute optional or defaulted.
-/// Production record types can't lose or change fields, and older Macs keep syncing with them.
+/// It names the live `Todo` and `TodoEvent` classes, which are unchanged since v3. Before
+/// changing either, freeze a copy of it here (and in every later version that has it).
 enum HowySchemaV3: VersionedSchema {
     static let versionIdentifier = Schema.Version(3, 0, 0)
     static var models: [any PersistentModel.Type] { [Todo.self, TodoEvent.self] }
 }
 
+/// Version 4, the live schema: v3 plus `StoredAttachment`, the attached files' bytes in the store,
+/// so CloudKit syncs them with the todos.
+/// Add a `HowySchemaV5` (and freeze copies of the changed models) before changing any model.
+///
+/// After the first CloudKit Production deploy, schema changes must be additive only: no rename,
+/// no retype, no removal of an attribute or model, and every new attribute optional or defaulted.
+/// Production record types can't lose or change fields, and older Macs keep syncing with them.
+enum HowySchemaV4: VersionedSchema {
+    static let versionIdentifier = Schema.Version(4, 0, 0)
+    static var models: [any PersistentModel.Type] { [Todo.self, TodoEvent.self, StoredAttachment.self] }
+}
+
 enum HowyMigrationPlan: SchemaMigrationPlan {
     static var schemas: [any VersionedSchema.Type] {
-        [HowySchemaV1.self, HowySchemaV2.self, HowySchemaV3.self]
+        [HowySchemaV1.self, HowySchemaV2.self, HowySchemaV3.self, HowySchemaV4.self]
     }
 
-    static var stages: [MigrationStage] { [v1ToV2, v2ToV3] }
+    static var stages: [MigrationStage] { [v1ToV2, v2ToV3, v3ToV4] }
 
     /// v1 → v2 adds an optional attribute: lightweight, existing todos get no due date.
     static let v1ToV2 = MigrationStage.lightweight(fromVersion: HowySchemaV1.self, toVersion: HowySchemaV2.self)
@@ -100,6 +109,11 @@ enum HowyMigrationPlan: SchemaMigrationPlan {
             try backfillEvents(in: context)
         }
     )
+
+    /// v3 → v4 adds the `StoredAttachment` model: lightweight. The files that older builds kept
+    /// only on disk move into it afterwards, in the app (`TodoStore.adoptLegacyAttachments`),
+    /// since a migration stage can't see the App Group's attachment folder.
+    static let v3ToV4 = MigrationStage.lightweight(fromVersion: HowySchemaV3.self, toVersion: HowySchemaV4.self)
 
     /// Backfills the history the store already knows: a `created` event at `createdAt` (with
     /// the quadrant) for every todo, a `completed` event at `completedAt` for every archived

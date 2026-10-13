@@ -1,4 +1,5 @@
 import Foundation
+import SwiftData
 
 /// What an export wrote.
 public struct ExportResult: Hashable, Sendable {
@@ -15,7 +16,9 @@ public struct ExportResult: Hashable, Sendable {
 /// (format v2) into an export folder.
 ///
 /// The data is read on a background context (`StoreMaintenance`); writing the folder and
-/// copying files runs off the main actor too.
+/// the attachment files runs off the main actor too. An attachment's bytes come straight from
+/// the store into the export; no local copy is made on the way (a local folder written from a
+/// background task could come back after the todo was deleted).
 @MainActor
 public struct HowyExporter {
     public let store: TodoStore
@@ -34,7 +37,7 @@ public struct HowyExporter {
         let document = try await StoreMaintenance.exportDocument(
             store.modelContainer, appVersion: appVersion, exportedAt: store.currentDate, attachments: store.attachments
         )
-        return try await Self.write(document, to: folder, files: store.attachments)
+        return try await Self.write(document, to: folder, files: store.attachments, container: store.modelContainer)
     }
 
     /// The sibling folder an atomic write builds in: `<name>.partial`.
@@ -48,13 +51,17 @@ public struct HowyExporter {
     /// the half-written folder. Export… uses this, because the user's save panel only grants
     /// access to `folder` itself.
     ///
+    /// `container` is where the attachments' bytes are read (one at a time, on fresh contexts);
+    /// an attachment the store has no bytes for (one an older build kept only as a file, or
+    /// whose bytes haven't arrived) is copied from `files`' local copy if there is one.
+    ///
     /// `atomic` (the daily backup): builds the whole folder in `<folder>.partial`, and only once
     /// `howy.json` is written moves it to `folder`, replacing what is there (`replaceItemAt`
     /// removes the old one only after the new one is in place). A failure removes only the
     /// `.partial` folder, so an existing complete folder is never lost to a failed run.
     @concurrent
     nonisolated static func write(
-        _ document: HowyExport, to folder: URL, files: AttachmentStore?, atomic: Bool = false
+        _ document: HowyExport, to folder: URL, files: AttachmentStore?, container: ModelContainer? = nil, atomic: Bool = false
     ) async throws -> ExportResult {
         let fileManager = FileManager.default
         let scoped = folder.startAccessingSecurityScopedResource()
@@ -73,17 +80,26 @@ public struct HowyExporter {
             for todo in document.todos {
                 for attachment in todo.attachments {
                     let label = "\"\(todo.title)\": attachment \"\(attachment.name)\""
-                    guard HowyFormat.isSafeAttachmentName(attachment.name),
-                          let source = files?.url(for: attachment, todoID: todo.id)
-                    else {
+                    guard HowyFormat.isSafeAttachmentName(attachment.name) else {
                         problems.append("\(label) not found")
                         continue
                     }
                     let target = HowyFormat.attachmentURL(in: work, todoID: todo.id, name: attachment.name)
                     do {
                         try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
-                        try fileManager.copyItem(at: source, to: target)
-                        copied += 1
+                        // The pool frees the bytes of one file before the next one is read.
+                        let written = try autoreleasepool { () throws -> Bool in
+                            if let container, let data = Self.storedBytes(of: attachment, todoID: todo.id, in: container) {
+                                try data.write(to: target)
+                                return true
+                            }
+                            if let source = files?.url(for: attachment, todoID: todo.id) {
+                                try fileManager.copyItem(at: source, to: target)
+                                return true
+                            }
+                            return false
+                        }
+                        if written { copied += 1 } else { problems.append("\(label) not found") }
                     } catch {
                         problems.append("\(label) could not be read")
                     }
@@ -103,5 +119,15 @@ public struct HowyExporter {
             try? fileManager.removeItem(at: work)
             throw error
         }
+    }
+
+    /// The bytes the store has for an attachment, read on a fresh context.
+    nonisolated private static func storedBytes(of attachment: TodoAttachment, todoID: UUID, in container: ModelContainer) -> Data? {
+        let context = ModelContext(container)
+        let id = attachment.id
+        let rows = (try? context.fetch(FetchDescriptor<StoredAttachment>(
+            predicate: #Predicate { $0.id == id && $0.todoID == todoID }
+        ))) ?? []
+        return rows.bytes
     }
 }

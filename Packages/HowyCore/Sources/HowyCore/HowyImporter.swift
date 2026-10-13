@@ -216,6 +216,7 @@ public struct HowyImporter {
         let stillFresh = try store.allIDs()
         var records: [TodoRecord] = []
         var withFiles: [UUID] = []
+        var committed: [UUID: [TodoAttachment]] = [:]
         for todo in fresh {
             guard !stillFresh.contains(todo.id) else {
                 report.duplicateCount += 1
@@ -226,6 +227,7 @@ public struct HowyImporter {
                 do {
                     try files.commitImport(attachments, for: todo.id, from: area)
                     withFiles.append(todo.id)
+                    committed[todo.id] = attachments
                     report.attachmentCount += attachments.count
                 } catch {
                     files.removeAll(for: todo.id)
@@ -237,7 +239,7 @@ public struct HowyImporter {
             if isExpired(todo.record) { report.expiredCount += 1 }
         }
         do {
-            let result = try store.insertReporting(records, events: plan.events)
+            let result = try store.insertReporting(records, events: plan.events, attachments: committed)
             report.importCount = result.todoIDs.count
             report.importedEventCount = result.eventCount
             report.skippedEventCount = plan.events.count - result.eventCount

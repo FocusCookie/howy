@@ -64,7 +64,8 @@ Everything happens from a shortcut.
 - **Attachments**: paste or drop screenshots and files into a todo. You get
   thumbnails, and files open in Quick Look (or in their app, see Settings →
   General). Drop files on the strip under the note, or click it, to attach
-  them without putting them in the note.
+  them without putting them in the note. A file can be up to 100 MB; a bigger
+  one is refused with a message, because attachments sync through iCloud.
 - **Attachment chips** in notes: an attachment in the note shows as a chip like
   a link, with a paperclip (a file) or a photo (an image) and its title. Paste
   or drop one file into the note and an **Add Attachment** dialog asks for the
@@ -195,13 +196,23 @@ Everything happens from a shortcut.
 
 ### iCloud sync
 
-- Todos, their history and the archive period sync between your Macs through
-  iCloud (your private iCloud database, no sharing). It's always on while you're
+- Todos, their attachments, their history and the archive period sync between
+  your Macs through iCloud (your private iCloud database, no sharing). It's always on while you're
   signed in to iCloud; without an account Howy works locally.
 - Changes from another Mac arrive by push, and Howy also checks for them when a
   panel opens, after the Mac wakes and every 5 minutes while it runs. So a
   change can take a few minutes to show up.
-- Attachments don't sync yet: a todo synced to another Mac shows without them.
+- Attachments sync with their todo. The files are stored in Howy's data (and
+  in iCloud). A Mac writes a local copy of a file only when you open that todo
+  for editing (in the background; the thumbnail shows a spinner until it is
+  there), or when the file is added on that Mac. Export… and the daily backups
+  read the files straight from Howy's data and make no local copies. Saving a
+  todo only deletes the attachments you removed in that edit, so a file
+  another Mac added meanwhile stays. Attachments added before this version
+  show at once and move into Howy's data when the new version starts, one todo
+  at a time (a file Howy can't read holds back only its own todo), and again
+  after later syncs; then they sync too. Large files take longer to arrive and
+  count against your iCloud storage.
 - Drafts, the last quadrant, panel size and the other display settings stay
   per Mac.
 - The widget shows what the app last received; it updates while Howy runs.
@@ -236,7 +247,15 @@ removes the copies that differ from the most recently changed one (exact copies
 stay; they are harmless), removes todos that were deleted on another Mac, and
 moves attachment folders whose todo is gone into
 `Attachments/.trash` (emptied after 14 days). It never does that for an empty
-store, or when more than half of the attachment folders look orphaned.
+store, or when more than half of the attachment folders look orphaned. The
+synced attachments of a todo that is gone are removed an hour after the todo's
+`deleted` history event (deleting a todo leaves its attachments until then, so a
+delete that races an edit on another Mac doesn't cost the todo its files), under
+the same two limits (the limit on a share of todos applies when more than 3
+todos have attachments). Attachments of a todo that has history but no `deleted`
+event, or that hasn't arrived yet, are left alone, and so are attachments that
+Howy stored without ever creating their todo (a crash in between) for 30 days,
+after which they are removed.
 
 ## Requirements
 

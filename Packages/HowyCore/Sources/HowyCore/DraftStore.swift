@@ -16,10 +16,14 @@ public struct StashedDraft: Codable, Hashable, Sendable {
     public var attachments: [TodoAttachment]
     /// The draft's due date, if one was set.
     public var due: Date?
+    /// An edit draft's attachments as the edit started (`QuickEntryFlow.originalAttachments`), so
+    /// a save after a restart or a sync still only deletes what the user removed. `nil` for a
+    /// new todo's draft and for drafts stashed by older builds.
+    public var originalAttachments: [TodoAttachment]?
 
     public init(
         quadrant: Quadrant, title: String, note: String, field: Field,
-        attachments: [TodoAttachment] = [], due: Date? = nil
+        attachments: [TodoAttachment] = [], due: Date? = nil, originalAttachments: [TodoAttachment]? = nil
     ) {
         self.quadrant = quadrant
         self.title = title
@@ -27,9 +31,10 @@ public struct StashedDraft: Codable, Hashable, Sendable {
         self.field = field
         self.attachments = attachments
         self.due = due
+        self.originalAttachments = originalAttachments
     }
 
-    private enum CodingKeys: String, CodingKey { case quadrant, title, note, field, attachments, due }
+    private enum CodingKeys: String, CodingKey { case quadrant, title, note, field, attachments, due, originalAttachments }
 
     /// Drafts stashed before attachments (or due dates) existed have none.
     public init(from decoder: any Decoder) throws {
@@ -40,6 +45,7 @@ public struct StashedDraft: Codable, Hashable, Sendable {
         field = try container.decode(Field.self, forKey: .field)
         attachments = try container.decodeIfPresent([TodoAttachment].self, forKey: .attachments) ?? []
         due = try container.decodeIfPresent(Date.self, forKey: .due)
+        originalAttachments = try container.decodeIfPresent([TodoAttachment].self, forKey: .originalAttachments)
     }
 }
 

@@ -49,9 +49,32 @@ final class QuickEntryModel {
     /// the store only once the dialog is confirmed (`AttachmentRequest.stage`).
     @ObservationIgnored private var incoming: [UUID: AttachmentSource] = [:]
 
+    /// Whether this Mac is still writing missing local copies of the todo's attachments (they
+    /// came through sync). The strip shows a placeholder meanwhile.
+    private(set) var isFetchingCopies = false
+    /// Counts finished fetches, so views that look up a file re-read it.
+    private(set) var copiesVersion = 0
+
     init(flow: QuickEntryFlow, store: TodoStore) {
         self.flow = flow
         self.store = store
+        fetchMissingCopies()
+    }
+
+    /// Writes the local copies this Mac lacks, from the store's bytes and off the main actor
+    /// (`TodoStore.materializeAttachments`), so a view never does that while it renders.
+    private func fetchMissingCopies() {
+        guard let id = flow.todoID, !flow.attachments.isEmpty else { return }
+        isFetchingCopies = true
+        Task { [weak self, store] in
+            do {
+                try await store.materializeAttachments(for: id)
+            } catch {
+                log.error("Fetching attachment files failed: \(error, privacy: .public)")
+            }
+            self?.isFetchingCopies = false
+            self?.copiesVersion += 1
+        }
     }
 
     /// Returns `true` when the key was consumed.
@@ -78,8 +101,22 @@ final class QuickEntryModel {
         hoveredAttachment?.name ?? flow.selectedAttachment?.name
     }
 
+    /// The attachment's file: its local copy or its staged file, if this Mac has one. It only
+    /// looks (no writing, safe in a view body); copies of attachments that came through sync
+    /// are written when the panel opens (`fetchMissingCopies`), and this re-reads after.
     func url(for attachment: TodoAttachment) -> URL? {
-        store.attachments?.url(for: attachment, todoID: flow.todoID)
+        _ = copiesVersion
+        return store.attachmentURL(for: attachment, todoID: flow.todoID)
+    }
+
+    /// The attachment has no file yet, but is still being fetched: a placeholder, not "missing".
+    func isPending(_ attachment: TodoAttachment) -> Bool {
+        isFetchingCopies && url(for: attachment) == nil
+    }
+
+    /// What to tell the user when an attachment can't be opened.
+    private var missingFileMessage: String {
+        isFetchingCopies ? "That file is still downloading." : "That file is missing."
     }
 
     /// Copies the sources into staging and attaches them. Returns the attachments, in order.
@@ -116,6 +153,10 @@ final class QuickEntryModel {
             }
             errorMessage = nil
             return attachment
+        } catch let error as AttachmentError {
+            // Too big: say so, with the limit.
+            errorMessage = error.localizedDescription
+            return nil
         } catch {
             log.error("Attaching failed: \(error, privacy: .public)")
             errorMessage = "Couldn't attach that file."
@@ -132,6 +173,15 @@ final class QuickEntryModel {
         let kept: AttachmentSource
         switch source {
         case .file(let url):
+            // Too big to attach: refused before anything is copied.
+            if let files = store.attachments {
+                do {
+                    try files.validateSize(ofFileAt: url)
+                } catch {
+                    errorMessage = error.localizedDescription
+                    return
+                }
+            }
             // Copied now: a screenshot thumbnail or a file that is moved while the dialog is open
             // would be gone by the time ↩ stages it. Nothing enters the attachment store yet.
             guard let copy = keepTemporarily(url, token: token) else {
@@ -250,7 +300,7 @@ final class QuickEntryModel {
     func presenterOpen(_ attachment: TodoAttachment, mode: AttachmentOpenMode) {
         let available = flow.attachments.compactMap { item in url(for: item).map { (item.id, $0) } }
         guard let index = available.firstIndex(where: { $0.0 == attachment.id }) else {
-            errorMessage = "That file is missing."
+            errorMessage = missingFileMessage
             return
         }
         flow.selectAttachment(id: attachment.id)
@@ -325,7 +375,9 @@ final class QuickEntryModel {
         do {
             if let id = draft.todoID {
                 try store.update(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant, due: draft.due)
-                try store.setAttachments(draft.attachments, for: id) // a retry after a failure redoes only this
+                // Only what the edit started with can be deleted; files another Mac added meanwhile stay.
+                // A retry after a failure redoes only this.
+                try store.setAttachments(draft.attachments, for: id, startedWith: flow.originalAttachments)
             } else {
                 // Files first: if they fail, no todo exists yet that a retry would duplicate.
                 let id = UUID()
@@ -334,7 +386,7 @@ final class QuickEntryModel {
                     try store.add(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant, due: draft.due)
                     createdTodoID = id
                 } catch {
-                    store.attachments?.removeAll(for: id)
+                    store.discardAttachments(for: id)
                     throw error
                 }
             }

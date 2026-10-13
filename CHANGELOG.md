@@ -6,6 +6,37 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Attachments sync through iCloud** now, like the todos. They used to stay on
+  the Mac they were added on, so a synced todo showed without its files on your
+  other Macs. Attachments you already have move into Howy's synced data the
+  first time this version starts (the files stay where they were as the local
+  copies), and Export and the daily backup include attachments that came from
+  another Mac.
+- Saving a todo no longer deletes attachments another Mac added while you were
+  editing (or while a draft was waiting); it only deletes the ones you removed.
+- Deleting a todo on one Mac while another edits it no longer brings the todo
+  back without its attachments: a deleted todo's attachments are removed an
+  hour after the delete, and only if the todo is really gone.
+- Attachments from an older version show right away, before they are moved into
+  the synced data; that move now works one todo at a time (one unreadable
+  file blocks only its own todo), appends after existing attachments, and runs
+  again after later syncs.
+- Opening a todo no longer reads files on the main thread while it draws:
+  missing local copies of synced attachments are fetched in the background and
+  show a spinner until they are there.
+- Export and the daily backup read attachments straight from Howy's data and no
+  longer write local copies, so they can't recreate a deleted todo's folder.
+- Cleanups no longer remove the attachments of a todo only because its record
+  hasn't arrived; they need its delete event. Attachments saved for a todo that
+  was never created are removed after 30 days.
+
+### Changed
+
+- A file bigger than 100 MB can't be attached; Howy says so instead of trying
+  to sync it.
+
 ## [2.3.0] - 2026-10-13
 
 ### Added
