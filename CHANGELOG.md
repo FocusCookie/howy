@@ -6,6 +6,32 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Attachment chips** in notes: references to attachments show as chips like
+  links, with a paperclip for a file and a photo for an image. They behave as
+  one character (the cursor steps over them, the first ⌫ selects one). Notes you
+  already have get chips by themselves; the Markdown stays the same.
+- **Add Attachment dialog**: pasting or dropping one file into the note asks for
+  the chip's title first; Esc attaches nothing. Pasted over a one-line
+  selection, the selection becomes the title without a dialog.
+- **I in the attachments** inserts the selected one into the note where the
+  cursor was, shown as a ghost caret while you're in the attachments. Dragging
+  a thumbnail onto the note does the same at the drop point; dragging it to
+  Finder copies the file.
+- **⌘O / ⌥⌘O / ⌘-click** on an attachment chip opens it, also in the Overview's
+  tiles; **⌘E** edits its title (Edit Attachment), where ⌘⌫ removes the chip and
+  asks "Also delete the attachment?" when it was the last one.
+- The chips of the selected or hovered attachment are highlighted, and a popover
+  on a chip shows the file name (with a thumbnail for an image).
+
+### Changed
+
+- Pasted or dropped files go into the note inline at the cursor, several on one
+  line, instead of each on a line of its own.
+- ⌘Z takes back an added attachment chip in one step and keeps the
+  attachment, the same as ⌫⌫.
+
 ## [2.1.0] - 2026-10-13
 
 ### Added

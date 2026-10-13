@@ -40,6 +40,7 @@ struct QuickEntryView: View {
             }
         }
         .overlay { linkDialog }
+        .overlay { attachmentDialog }
         .dueDialogOverlay(isPresented: flow.dueDialog != nil, topInset: 40 * scale, onDismiss: { flow.cancelDue() }) {
             dueDialog
         }
@@ -148,23 +149,29 @@ struct QuickEntryView: View {
 
         MarkdownNoteEditor(
             text: flow.note,
-            isFocused: flow.phase == .editingNote && flow.linkDialog == nil && flow.dueDialog == nil,
+            isFocused: flow.phase == .editingNote && !flow.hasDialog,
             onChange: { flow.note = $0 },
             onFocus: { flow.focus(.editingNote) },
             attachmentNames: Set(flow.attachmentNames),
             highlightedName: model.highlightedName,
+            ghostSelection: flow.ghostNoteSelection,
+            onSelectionChange: { flow.noteSelectionChanged($0) },
             onAttach: { model.attach($0) },
+            onPasteAttachment: { model.beginAddingAttachment($0, replacing: $1) },
+            onDropAttachment: { model.dropAttachment(id: $0, replacing: $1) },
+            onOpenAttachment: { model.openAttachment(named: $0, alternate: $1) },
+            onEditAttachment: { chip in withAnimation(.snappy(duration: 0.15)) { flow.beginEditingAttachment(chip) } },
             onReferenceChange: { model.noteReferenceName = $0 },
             pendingEdit: flow.pendingNoteEdit,
             onEditApplied: { flow.noteEditApplied(id: $0) },
             onPasteURL: { flow.beginAddingLink(url: $0, replacing: $1) },
             onEditLink: { flow.beginEditingLink($0) },
             onOpenLink: { model.openLink($0) },
-            onLinkChange: { model.noteLink = $0 },
+            onChipChange: { model.noteChip = $0 },
             fillsHeight: fillsHeight
         )
         .frame(maxHeight: fillsHeight ? .infinity : nil)
-        .overlay(alignment: .topLeading) { linkPopover }
+        .overlay(alignment: .topLeading) { chipPopover }
         .overlay(alignment: .topLeading) {
             if flow.note.isEmpty {
                 Text("Note (Markdown)")
@@ -183,16 +190,29 @@ struct QuickEntryView: View {
         }
     }
 
-    /// Under the chip at the caret: its URL, Open and Edit.
-    @ViewBuilder private var linkPopover: some View {
-        if let anchor = model.noteLink, anchor.link.isChip, let frame = anchor.frame,
-           flow.phase == .editingNote, flow.linkDialog == nil {
+    /// Under the chip at the caret: a link's URL, or an attachment's file name (and thumbnail),
+    /// with Open and Edit.
+    @ViewBuilder private var chipPopover: some View {
+        if let anchor = model.noteChip, anchor.chip.isChip, let frame = anchor.frame,
+           flow.phase == .editingNote, !flow.hasDialog {
             GeometryReader { editor in
-                LinkPopover(
-                    link: anchor.link,
-                    onOpen: { model.openLink(anchor.link) },
-                    onEdit: { flow.beginEditingLink(anchor.link) }
-                )
+                Group {
+                    switch anchor.chip {
+                    case .link(let link):
+                        LinkPopover(
+                            link: link,
+                            onOpen: { model.openLink(link) },
+                            onEdit: { flow.beginEditingLink(link) }
+                        )
+                    case .attachment(let chip):
+                        AttachmentChipPopover(
+                            chip: chip,
+                            source: model.attachment(named: chip.name).flatMap(model.url(for:)).map { .file($0) },
+                            onOpen: { model.openAttachment(named: chip.name, alternate: NSEvent.modifierFlags.contains(.option)) },
+                            onEdit: { withAnimation(.snappy(duration: 0.15)) { flow.beginEditingAttachment(chip) } }
+                        )
+                    }
+                }
                 // Starts under the chip, but not so far right that it leaves the card.
                 .offset(x: max(0, min(frame.minX, editor.size.width - Self.popoverRoom * scale)), y: frame.maxY + 4 * scale)
             }
@@ -219,6 +239,21 @@ struct QuickEntryView: View {
     /// The link dialog over the whole card; a click beside it cancels. Not dimmed, like the
     /// due-date dialog: a tint here covers only the screen inside the card's padding, a
     /// square-cornered block rather than the rounded card.
+    /// The attachment dialog over the whole card, like the link dialog; a click beside it cancels.
+    @ViewBuilder private var attachmentDialog: some View {
+        if let dialog = flow.attachmentDialog {
+            ZStack(alignment: .top) {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .onTapGesture { model.cancelAttachment() }
+                AttachmentDialogView(model: model, dialog: dialog)
+                    .padding(.top, 40 * scale)
+                    .padding(.horizontal, 16 * scale)
+            }
+            .transition(.opacity)
+        }
+    }
+
     @ViewBuilder private var linkDialog: some View {
         if let dialog = flow.linkDialog {
             ZStack(alignment: .top) {
@@ -277,10 +312,15 @@ struct QuickEntryView: View {
 
     /// ⇧⌘L (checklist items) only while the note has focus; it is the first hint to go when the
     /// footer is too narrow.
-    /// With the caret on a link, its keys take the checklist's place.
+    /// With the caret on a link or an attachment chip, its keys take the checklist's place.
     private var hint: String {
         guard shownPhase == .editingNote else { return baseHint }
-        return baseHint + KeyHint.separator + (model.noteLink != nil ? Self.linkHint : Self.checklistHint)
+        let chipHint = switch model.noteChip?.chip {
+        case .link: Self.linkHint
+        case .attachment: Self.attachmentHint
+        case nil: Self.checklistHint
+        }
+        return baseHint + KeyHint.separator + chipHint
     }
 
     private var hintWithoutChecklist: String? {
@@ -289,6 +329,7 @@ struct QuickEntryView: View {
 
     private static let checklistHint = "⇧⌘L checklist"
     private static let linkHint = "⌘O open · ⌘E edit link"
+    private static let attachmentHint = "⌘O open · ⌘E edit"
 
     private var baseHint: String {
         switch shownPhase {
@@ -296,7 +337,7 @@ struct QuickEntryView: View {
         case .editingTitle: "↩ note · ⌥↩ files · ⌘T due · ⌘↩ save · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)
         case .browsingAttachments where flow.attachments.isEmpty: "↩ add files · ⇧⇥ note · ⌘↩ save · esc " + (flow.isEditing ? "cancel" : closeWord)
         case .browsingAttachments where flow.isAddSelected: "↩ add files · ← select · ⇧⇥ note · ⌘↩ save"
-        case .browsingAttachments: "←→ select · space open · ⌥↩ other way · ⌫ remove · ⇧⇥ note"
+        case .browsingAttachments: "←→ select · space open · I insert · ⌥↩ other way · ⌫ remove · ⇧⇥ note"
         default: "⌘↩ save · ⌥↩ files · ⌘T due · ⇧⇥ title · esc " + (flow.isEditing ? "cancel · ⌘D done" : closeWord)
         }
     }
