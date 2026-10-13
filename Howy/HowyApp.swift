@@ -25,16 +25,9 @@ private struct MenuContent: View {
     let controller: AppController
 
     var body: some View {
-        // Shortcut hints only for the shortcuts that are live in the current mode.
-        if controller.shortcutMode == .single {
-            Button("Quick Add") { controller.showQuickEntry() }
-            Button("Browse") { controller.showBrowse() }
-        } else {
-            Button("Quick Add") { controller.showQuickEntry() }
-                .globalKeyboardShortcut(.quickAdd)
-            Button("Browse") { controller.showBrowse() }
-                .globalKeyboardShortcut(.browse)
-        }
+        Button("Quick Add") { controller.showQuickEntry() }
+        Button("Open Howy") { controller.showBrowse() }
+            .globalKeyboardShortcut(.openHowy)
         Button("Archive") { controller.showArchive() }
         Divider()
         // Straight into a quadrant: the modal opens on the title, with the picker already answered.

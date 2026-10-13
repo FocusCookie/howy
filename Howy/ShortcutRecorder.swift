@@ -11,20 +11,10 @@ import SwiftUI
 /// Click a field to listen; held modifiers show live; the first key with ⌘, ⌃ or ⌥ (or an F-key)
 /// is stored. Esc cancels, Delete clears, clicking anywhere else stops. All global shortcuts are
 /// paused while listening, so pressing the current one records it instead of opening a panel.
-/// Quick Add and Browse must differ; the launcher is alone in its mode, so it may reuse either.
 @MainActor
 @Observable
 final class ShortcutRecorderModel {
-    static let names: [KeyboardShortcuts.Name] = [.quickAdd, .browse, .launcher]
-
-    /// The shortcuts active alongside `name` (in the same shortcut mode), which it must not equal.
-    static func peers(of name: KeyboardShortcuts.Name) -> [KeyboardShortcuts.Name] {
-        switch name {
-        case .quickAdd: [.browse]
-        case .browse: [.quickAdd]
-        default: []
-        }
-    }
+    static let names: [KeyboardShortcuts.Name] = [.openHowy]
 
     private(set) var recording: KeyboardShortcuts.Name?
     private(set) var liveModifiers: QuickEntryModifiers = []
@@ -108,11 +98,6 @@ final class ShortcutRecorderModel {
                 carbonKeyCode: Int(event.keyCode),
                 carbonModifiers: Self.carbonModifiers(modifiers)
             )
-            if let other = Self.peers(of: name).first(where: { KeyboardShortcuts.getShortcut(for: $0) == shortcut }) {
-                message = "\(shortcut) is already used for \(Self.title(other))."
-                NSSound.beep()
-                return
-            }
             KeyboardShortcuts.setShortcut(shortcut, for: name)
             message = nil
             revision += 1
@@ -122,8 +107,7 @@ final class ShortcutRecorderModel {
 
     static func title(_ name: KeyboardShortcuts.Name) -> String {
         switch name {
-        case .quickAdd: "Quick Add"
-        case .browse: "Browse"
+        case .openHowy: "Open Howy"
         default: "Howy"
         }
     }

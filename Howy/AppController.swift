@@ -26,8 +26,6 @@ final class AppController {
     static let shared = AppController()
 
     private(set) var launchesAtLogin = false
-    /// One launcher shortcut, or separate Quick Add and Browse shortcuts (Settings).
-    private(set) var shortcutMode = ShortcutMode.load()
     /// How big the panels are drawn (⌘+ / ⌘- / ⌘0 in a panel, the Settings slider). One value for
     /// all panels, saved on every change and applied to an open panel right away.
     private(set) var panelZoom = PanelZoom.load()
@@ -70,6 +68,7 @@ final class AppController {
     /// The open Browse or Archive panel's model, refreshed when the store changes elsewhere.
     @ObservationIgnored private weak var browseModel: BrowseModel?
     @ObservationIgnored private weak var archiveModel: ArchiveModel?
+    /// The quadrant last opened in Browse or saved into, where a fresh Browse grid starts.
     @ObservationIgnored private let lastUsed = UserDefaultsLastQuadrantStore()
     @ObservationIgnored private let drafts = UserDefaultsDraftStore()
     /// Fetches a pasted link's page title for the link dialog.
@@ -78,7 +77,6 @@ final class AppController {
     @ObservationIgnored private let transferWindow = TransferWindowController()
 
     private static let didRegisterLoginItemKey = "didRegisterLoginItem"
-    private static let didMigrateBrowseShortcutKey = "didMigrateBrowseShortcutToM"
     private static let panelWidth: CGFloat = 560
 
     /// The shared store's CloudKit mirroring and the iCloud account as the app sees them (the
@@ -130,27 +128,12 @@ final class AppController {
     }
 
     func start() {
+        // Before anything reads the Open Howy name, which stores its default when it has none.
+        let migration = OpenHowyShortcutMigration.run()
+        if migration != .alreadyDone { log.notice("Open Howy shortcut migration: \(String(describing: migration), privacy: .public)") }
         ShortcutRecorderModel.removeFunctionModifier()
-        migrateBrowseShortcut()
-        // All three stay registered (the launcher shares Quick Add's default keys, and disabling one
-        // would unregister the shared hotkey); a press only acts in the mode its shortcut belongs to.
-        KeyboardShortcuts.onKeyUp(for: .quickAdd) { [weak self] in
-            MainActor.assumeIsolated {
-                guard self?.shortcutMode == .separate else { return }
-                self?.toggleQuickEntry()
-            }
-        }
-        KeyboardShortcuts.onKeyUp(for: .browse) { [weak self] in
-            MainActor.assumeIsolated {
-                guard self?.shortcutMode == .separate else { return }
-                self?.toggleBrowse()
-            }
-        }
-        KeyboardShortcuts.onKeyUp(for: .launcher) { [weak self] in
-            MainActor.assumeIsolated {
-                guard self?.shortcutMode == .single else { return }
-                self?.toggleLauncher()
-            }
+        KeyboardShortcuts.onKeyUp(for: .openHowy) { [weak self] in
+            MainActor.assumeIsolated { self?.toggleOpenHowy() }
         }
         launchesAtLogin = SMAppService.mainApp.status == .enabled
         // The notification delegate must be in place before launching finishes.
@@ -389,16 +372,6 @@ final class AppController {
 
     // MARK: Panels
 
-    func setShortcutMode(_ mode: ShortcutMode) {
-        mode.save()
-        shortcutMode = mode
-    }
-
-    /// The launcher shortcut closes whatever is open (launcher, or a screen opened from it).
-    func toggleLauncher() {
-        if panel != nil { closePanel() } else { showLauncher() }
-    }
-
     /// Without a choice (a fresh open), the highlight starts on the Settings default; coming back
     /// from a screen highlights that screen's choice.
     func showLauncher(highlighting choice: LauncherChoice? = nil) {
@@ -426,27 +399,15 @@ final class AppController {
         }
     }
 
-    func toggleQuickEntry() {
-        // Only a quick-entry panel toggles closed; an edit, Browse create or archive panel is
-        // replaced by Quick Add.
-        if panel != nil, panelKind == .quickEntry {
-            panel?.dismiss()
-        } else {
-            showQuickEntry()
-        }
-    }
-
     /// Closes whatever panel is open (its draft is stashed like on any close without saving).
     func closePanel() {
         panel?.dismiss()
     }
 
-    func toggleBrowse() {
-        if panel != nil, panelKind == .browse {
-            panel?.dismiss()
-        } else {
-            showBrowse()
-        }
+    /// The Open Howy shortcut: opens Browse's quadrant grid, or, with any panel open, closes Howy
+    /// from whatever screen it shows, like ⌘W (an unsaved todo is kept as a draft).
+    func toggleOpenHowy() {
+        if panel != nil { closePanel() } else { showBrowse() }
     }
 
     func showBrowse(activate: Bool = false) {
@@ -468,7 +429,7 @@ final class AppController {
             showError(title: "Can't read Howy's data", message: error.localizedDescription, activate: activate)
             return
         }
-        let flow = BrowseFlow(todos: todos, dueDates: .live())
+        let flow = BrowseFlow(todos: todos, lastOpened: lastUsed, dueDates: .live())
         if let back { flow.resume(at: back) }
         if fromArchive { flow.highlightArchive() }
         let model = BrowseModel(flow: flow, store: store)
@@ -992,19 +953,6 @@ final class AppController {
     func showSyncSettings() {
         syncLineHighlightRequest = .now
         showSettings()
-    }
-
-    /// KeyboardShortcuts stores a name's default on first launch, so early installs kept the old
-    /// ⌃⌥⇧⌘H browse default after it moved to M. Reset that once; a shortcut the user recorded
-    /// later is left alone.
-    private func migrateBrowseShortcut() {
-        let defaults = UserDefaults.standard
-        guard !defaults.bool(forKey: Self.didMigrateBrowseShortcutKey) else { return }
-        defaults.set(true, forKey: Self.didMigrateBrowseShortcutKey)
-        let oldDefault = KeyboardShortcuts.Shortcut(.h, modifiers: [.control, .option, .shift, .command])
-        if KeyboardShortcuts.getShortcut(for: .browse) == oldDefault {
-            KeyboardShortcuts.reset(.browse)
-        }
     }
 
     // MARK: Launch at login

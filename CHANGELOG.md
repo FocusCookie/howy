@@ -6,6 +6,19 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **One global shortcut: Open Howy** (default ⌃⌥⇧⌘Space). It opens the quadrant
+  grid; pressed while Howy is open, it closes Howy from any screen, like ⌘W, and
+  keeps an unsaved todo as a draft. It replaces the Quick Add, Browse and
+  one-shortcut-mode shortcuts: on the first launch Open Howy takes over your
+  Quick Add shortcut (or your one shortcut, if you used one-shortcut mode); the
+  Browse shortcut (⌃⌥⇧⌘M) is gone. Record it in Settings, where "Restore
+  Default" brings back ⌃⌥⇧⌘Space.
+- The grid opens on the quadrant you opened or added to last, instead of
+  always on Do First.
+- The menu's "Browse" is now "Open Howy" and shows the shortcut.
+
 ## [2.0.0] - 2026-10-12
 
 ### Added

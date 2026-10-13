@@ -183,10 +183,18 @@ public final class BrowseFlow {
     public private(set) var dueDialog: DueDateDialog?
     public private(set) var dueDialogTodoID: UUID?
     private let dueContext: DueDateContext
+    /// Remembers the quadrant opened last (a list, a focused Overview tile), where the next
+    /// Browse's grid starts.
+    @ObservationIgnored private let lastOpened: (any LastQuadrantStore)?
 
-    public init(todos: [Quadrant: [TodoSnapshot]], quadrant: Quadrant = .urgentImportant, dueDates: DueDateContext = DueDateContext()) {
+    /// The grid starts on `quadrant`, else on the quadrant `lastOpened` remembers, else on Do First.
+    public init(
+        todos: [Quadrant: [TodoSnapshot]], quadrant: Quadrant? = nil,
+        lastOpened: (any LastQuadrantStore)? = nil, dueDates: DueDateContext = DueDateContext()
+    ) {
         self.todos = todos
-        self.quadrant = quadrant
+        self.quadrant = quadrant ?? lastOpened?.load() ?? .urgentImportant
+        self.lastOpened = lastOpened
         self.dueContext = dueDates
     }
 
@@ -470,6 +478,7 @@ public final class BrowseFlow {
         rememberSelection()
         movePicker = nil
         quadrant = target
+        lastOpened?.save(target)
         selectedIndex = rememberedIndex(in: target)
         return editor.map { .dismissEditor($0, stash: true) } ?? .handled
     }
@@ -647,6 +656,7 @@ public final class BrowseFlow {
     public func choose(_ quadrant: Quadrant) {
         guard phase != .closed else { return }
         self.quadrant = quadrant
+        lastOpened?.save(quadrant)
         isArchiveHighlighted = false
         movePicker = nil
         closeDueDialog()

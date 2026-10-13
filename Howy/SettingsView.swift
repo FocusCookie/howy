@@ -4,8 +4,7 @@ import KeyboardShortcuts
 import SwiftUI
 
 /// The iCloud sync status line (first, so a click on a sync notice lands on it), and the things
-/// worth configuring: how big the panels are drawn, the global shortcuts (one launcher shortcut, or separate Quick Add
-/// and Browse shortcuts), the quadrant new todos start on, how attachments open, what plays when a
+/// worth configuring: how big the panels are drawn, the Open Howy shortcut, the quadrant new todos start on, how attachments open, what plays when a
 /// todo is marked done, how big Browse's Overview is, how long the archive keeps done todos, the
 /// default time of due dates (and a hint when notifications are off), the daily backups' folder, and
 /// launching at login.
@@ -13,7 +12,6 @@ struct SettingsView: View {
     let controller: AppController
     @State private var newTodoQuadrant = NewTodoQuadrant.load()
     @State private var recorder = ShortcutRecorderModel()
-    @State private var launcherDefault = LauncherChoice.loadDefault()
     @State private var openMode = AttachmentOpenMode.load()
     @State private var doneAnimation = DoneAnimation.load()
     @State private var overviewSize = OverviewSize.load()
@@ -30,7 +28,6 @@ struct SettingsView: View {
             column { rightSections }
         }
         .fixedSize()
-        .animation(.snappy(duration: 0.2), value: controller.shortcutMode)
         .onAppear { controller.refreshLaunchesAtLogin() }
         .task { await notifications.refreshAuthorization() }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
@@ -72,29 +69,12 @@ struct SettingsView: View {
                 .foregroundStyle(.secondary)
         }
         Section {
-            Toggle("Use one shortcut for everything", isOn: Binding(
-                get: { controller.shortcutMode == .single },
-                set: { single in
-                    recorder.stop()
-                    controller.setShortcutMode(single ? .single : .separate)
-                }
-            ))
-            if controller.shortcutMode == .single {
-                LabeledContent("Open Howy:") { ShortcutField(name: .launcher, model: recorder) }
-                Picker("Selected first:", selection: $launcherDefault) {
-                    Text("New Todo").tag(LauncherChoice.create)
-                    Text("Browse").tag(LauncherChoice.browse)
-                }
-                .onChange(of: launcherDefault) { _, value in value.saveAsDefault() }
-            } else {
-                LabeledContent("Quick Add:") { ShortcutField(name: .quickAdd, model: recorder) }
-                LabeledContent("Browse:") { ShortcutField(name: .browse, model: recorder) }
-            }
-            Button("Restore Default Shortcuts") {
-                recorder.restoreDefaults() // ⌃⌥⇧⌘Space, ⌃⌥⇧⌘M and ⌃⌥⇧⌘Space
+            LabeledContent("Open Howy:") { ShortcutField(name: .openHowy, model: recorder) }
+            Button("Restore Default") {
+                recorder.restoreDefaults() // ⌃⌥⇧⌘Space
             }
         } header: {
-            Text("Shortcuts")
+            Text("Shortcut")
         } footer: {
             Text(recorder.message ?? footerHint)
                 .font(.caption)
@@ -304,9 +284,7 @@ extension SettingsView {
     }
 
     private var footerHint: String {
-        let recording = "Click a shortcut, then press the new keys. Esc cancels, Delete removes it."
-        guard controller.shortcutMode == .single else { return recording }
-        return "Opens a chooser: ← or 1 for New Todo, → or 2 for Browse, ↩ for the selected one. " + recording
+        "Opens the quadrants, or closes Howy when it is open. Click the shortcut, then press the new keys. Esc cancels, Delete removes it."
     }
 }
 
