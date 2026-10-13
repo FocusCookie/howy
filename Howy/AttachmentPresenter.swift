@@ -94,7 +94,8 @@ final class AttachmentPreviewer: NSObject, QLPreviewPanelDataSource, QLPreviewPa
 
     func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
         guard event.type == .keyDown, event.keyCode == 49 else { return false } // Space
-        panel.orderOut(nil)
+        // Quick Look calls its delegate on the main thread.
+        MainActor.assumeIsolated { panel.orderOut(nil) }
         return true
     }
 }

@@ -256,12 +256,12 @@ final class ArchiveModel {
     }
 
     func restore(_ item: Item) {
-        withAnimation(.snappy(duration: 0.25)) { flow.remove(id: item.id) }
+        _ = withAnimation(.snappy(duration: 0.25)) { flow.remove(id: item.id) }
         write { try store.restore(id: item.id) }
     }
 
     func delete(_ item: Item) {
-        withAnimation(.snappy(duration: 0.25)) { flow.remove(id: item.id) }
+        _ = withAnimation(.snappy(duration: 0.25)) { flow.remove(id: item.id) }
         write { try store.delete(id: item.id) }
     }
 
