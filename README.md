@@ -76,8 +76,9 @@ Everything happens from a shortcut.
   highlighted. On a chip, a popover shows the file name; **⌘O** (or
   **⌘-click**) opens it, **⌥⌘O** the other way, and **⌘E** edits the title
   (**⌘⌫** there removes the chip and, for its last chip, asks whether to
-  delete the attachment too). **⌫⌫** and **⌘Z** take only the chip out; the
-  attachment stays. In the file the note keeps plain Markdown, `[title](file)`
+  delete the attachment too: **Y** yes, **N** or **↩** no, so ↩ never deletes
+  by accident; **⌘Z** after a yes brings the attachment back). **⌫⌫** and
+  **⌘Z** take only the chip out; the attachment stays. In the file the note keeps plain Markdown, `[title](file)`
   or `![title](image)`.
 - A small emoji and confetti burst when you finish something. You can turn it
   off.

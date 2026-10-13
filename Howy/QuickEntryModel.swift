@@ -88,7 +88,7 @@ final class QuickEntryModel {
         var attached: [TodoAttachment] = []
         for source in sources {
             guard let attachment = stage(source) else { continue }
-            withAnimation(.snappy(duration: 0.2)) { _ = flow.attach(attachment) }
+            withAnimation(.snappy(duration: 0.2)) { flow.attach(attachment) }
             attached.append(attachment)
         }
         return attached
@@ -129,7 +129,20 @@ final class QuickEntryModel {
     /// title, the file kept here until it is confirmed (then staged, `performRequest`) or not.
     func beginAddingAttachment(_ source: AttachmentSource, replacing range: NSRange) {
         let token = UUID()
-        incoming[token] = source
+        let kept: AttachmentSource
+        switch source {
+        case .file(let url):
+            // Copied now: a screenshot thumbnail or a file that is moved while the dialog is open
+            // would be gone by the time ↩ stages it. Nothing enters the attachment store yet.
+            guard let copy = keepTemporarily(url, token: token) else {
+                errorMessage = "Couldn't read that file."
+                return
+            }
+            kept = .file(copy)
+        case .image:
+            kept = source
+        }
+        incoming[token] = kept
         let isScreenshot = if case .image = source { true } else { false }
         withAnimation(.snappy(duration: 0.15)) {
             flow.beginAddingAttachment(fileName: attachmentName(for: source), token: token, isScreenshot: isScreenshot, replacing: range)
@@ -138,10 +151,12 @@ final class QuickEntryModel {
     }
 
     /// A thumbnail from the strip dropped onto the note at `range`: the dialog for its chip.
-    func dropAttachment(id: UUID, replacing range: NSRange) {
-        guard let attachment = flow.attachments.first(where: { $0.id == id }) else { return }
+    /// False when the todo has no such attachment (nothing happens then).
+    func dropAttachment(id: UUID, replacing range: NSRange) -> Bool {
+        guard let attachment = flow.attachments.first(where: { $0.id == id }) else { return false }
         if flow.phase != .editingNote { flow.focus(.editingNote) }
         withAnimation(.snappy(duration: 0.15)) { flow.beginAddingAttachment(attachment, replacing: range) }
+        return true
     }
 
     /// ⌘O / ⌥⌘O / ⌘-click on an attachment chip (also where no strip is shown).
@@ -190,7 +205,34 @@ final class QuickEntryModel {
     private func dropUnusedIncoming() {
         guard !incoming.isEmpty else { return }
         let waiting: UUID? = if case .addIncoming(let token) = flow.attachmentDialog?.kind { token } else { nil }
-        incoming = incoming.filter { $0.key == waiting }
+        for token in incoming.keys where token != waiting { discardKept(token) }
+    }
+
+    private func keptFolder(_ token: UUID) -> URL {
+        FileManager.default.temporaryDirectory.appending(path: token.uuidString, directoryHint: .isDirectory)
+    }
+
+    /// Copies a pasted / dropped file to `<tmp>/<token>/<name>`. Nil when that fails.
+    private func keepTemporarily(_ url: URL, token: UUID) -> URL? {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        let folder = keptFolder(token)
+        let copy = folder.appending(path: url.lastPathComponent, directoryHint: .notDirectory)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: url, to: copy)
+            return copy
+        } catch {
+            log.error("Keeping the file failed: \(error, privacy: .public)")
+            try? FileManager.default.removeItem(at: folder)
+            return nil
+        }
+    }
+
+    /// Forgets a kept file and deletes its temporary copy.
+    private func discardKept(_ token: UUID) {
+        incoming[token] = nil
+        try? FileManager.default.removeItem(at: keptFolder(token))
     }
 
     func remove(_ attachment: TodoAttachment) {
@@ -240,11 +282,12 @@ final class QuickEntryModel {
         case .chooseFiles: chooseFiles()
         case .stage(let token):
             // The Add Attachment dialog was confirmed: only now does the file go into the store.
-            if let source = incoming.removeValue(forKey: token), let attachment = stage(source) {
+            if let source = incoming[token], let attachment = stage(source) {
                 withAnimation(.snappy(duration: 0.2)) { flow.attachStaged(attachment, token: token) }
             } else {
                 flow.stagingFailed(token: token)
             }
+            discardKept(token)
         case nil: break
         }
         dropUnusedIncoming()
@@ -271,7 +314,10 @@ final class QuickEntryModel {
         default:
             return
         }
-        if flow.isFinished { didFinish() }
+        if flow.isFinished {
+            for token in Array(incoming.keys) { discardKept(token) }
+            didFinish()
+        }
     }
 
     private func persist() -> Bool {

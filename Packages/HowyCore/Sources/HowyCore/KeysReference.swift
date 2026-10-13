@@ -183,8 +183,8 @@ public enum KeysReference {
         Screen(id: .attachmentDialog, title: "Attachment dialog", note: "Pasting or dropping a file into the note, \(cap(QuickEntryFlow.insertKey)) in the attachments, or ⌘E on an attachment.", rows: [
             Row(["↩", "⌘↩"], "Add the attachment, or save its title", [.enter, .commandEnter]),
             Row(["⌘⌫"], "Remove it from the note (⌘E); asks whether to delete the attachment too", [.commandDelete]),
-            Row(["Y", "↩"], "Asked: yes, delete the attachment too", [.letter("y")]),
-            Row(["N"], "Asked: no, keep the attachment", [.letter("n")]),
+            Row(["Y"], "Asked: yes, delete the attachment too", [.letter("y")]),
+            Row(["N", "↩"], "Asked: no, keep the attachment (the default)", [.letter("n")]),
             Row(["esc"], "Cancel (asked: back to the title)", [.escape]),
         ]),
     ]

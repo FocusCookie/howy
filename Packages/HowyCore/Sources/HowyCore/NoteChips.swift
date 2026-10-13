@@ -236,6 +236,32 @@ public enum NoteAttachments {
         return NoteLinks.Edit(range: range, replacement: "", selection: NSRange(location: range.location, length: 0))
     }
 
+    /// `text` without any chip for the attachment `name` (⌫ on it in the strip, deleting it): each
+    /// goes with one space beside it so no double space is left, and a line left blank by that
+    /// loses its line break too.
+    public static func removeReferences(to name: String, in text: String) -> String {
+        var result = text
+        for chip in NoteChips.attachments(in: text, attachmentNames: [name]).reversed() {
+            let ns = result as NSString
+            let line = ns.lineRange(for: chip.range)
+            let lineText = ns.substring(with: line)
+            let rest = (lineText as NSString).replacingCharacters(
+                in: NSRange(location: chip.range.location - line.location, length: chip.range.length), with: ""
+            )
+            if rest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                var drop = line
+                if NSMaxRange(line) == ns.length, !lineText.hasSuffix("\n"), line.location > 0 {
+                    drop = NSRange(location: line.location - 1, length: line.length + 1)
+                }
+                result = ns.replacingCharacters(in: drop, with: "")
+            } else {
+                let edit = remove(chip, in: result)
+                result = ns.replacingCharacters(in: edit.range, with: edit.replacement)
+            }
+        }
+        return result
+    }
+
     /// No other chip in the note points to `chip`'s attachment.
     public static func isLastReference(_ chip: AttachmentChip, in text: String, attachmentNames: Set<String>) -> Bool {
         !NoteChips.attachments(in: text, attachmentNames: attachmentNames).contains { $0.name == chip.name && $0.range != chip.range }

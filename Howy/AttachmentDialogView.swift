@@ -6,7 +6,7 @@ import SwiftUI
 /// style of `LinkDialogView`: "Add Attachment" for a pasted or dropped file, **I** or a thumbnail
 /// dragged onto the note, "Edit Attachment" for ⌘E on a chip. Only the chip's title is edited, the
 /// file name is the subtitle; images show a thumbnail. Keys come through the flow (↩, Esc, ⌘⌫,
-/// and Y / N while it asks "Also delete the attachment?"); this only renders the dialog, keeps
+/// and Y / N / ↩ while it asks "Also delete the attachment?"); this only renders the dialog, keeps
 /// the field focused and offers buttons for the mouse.
 struct AttachmentDialogView: View {
     let model: QuickEntryModel
@@ -44,13 +44,14 @@ struct AttachmentDialogView: View {
                     .panelFont(.body)
                     .fixedSize(horizontal: false, vertical: true)
                 HStack(spacing: 8 * scale) {
-                    KeyHints("Y yes · N no · esc back")
+                    KeyHints("Y yes · N or ↩ no · esc back")
                     Spacer(minLength: 8 * scale)
-                    Button("No") { model.answerDeleteAttachment(false) }
-                        .help("Remove only the chip; keep the attachment (N)")
                     Button("Yes", role: .destructive) { model.answerDeleteAttachment(true) }
-                        .buttonStyle(.borderedProminent)
                         .help("Remove the chip and delete the attachment (Y)")
+                    Button("No") { model.answerDeleteAttachment(false) }
+                        .buttonStyle(.borderedProminent)
+                        .keyboardShortcut(.defaultAction)
+                        .help("Remove only the chip; keep the attachment (N or ↩)")
                 }
                 .buttonStyle(.bordered)
                 .panelControlSize(.small)
@@ -150,15 +151,20 @@ struct AttachmentChipPopover: View {
 private struct AttachmentPreviewImage: View {
     let source: QuickEntryModel.AttachmentSource?
     let name: String
+    /// Decoded once per image, not on every keystroke in the title field.
+    @State private var pastedImage: NSImage?
 
     var body: some View {
         switch source {
         case .image(let data):
-            if let image = NSImage(data: data) {
-                Image(nsImage: image).resizable().aspectRatio(contentMode: .fill)
-            } else {
-                Color.primary.opacity(0.05)
+            Group {
+                if let pastedImage {
+                    Image(nsImage: pastedImage).resizable().aspectRatio(contentMode: .fill)
+                } else {
+                    Color.primary.opacity(0.05)
+                }
             }
+            .task(id: data) { pastedImage = NSImage(data: data) }
         case .file(let url):
             AttachmentThumbnail(url: url, isImage: true, name: name)
         case nil:

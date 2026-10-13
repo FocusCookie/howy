@@ -166,8 +166,10 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 ///   Esc inserts nothing; the attachment stays.
 /// - ⌘E on an attachment chip edits its title only (`beginEditingAttachment`). ⌘⌫ there removes
 ///   the reference; when it was the attachment's last one in the note the dialog first asks
-///   "Also delete the attachment?" (`isAskingToDeleteAttachment`): ↩ or Y yes (the attachment goes
-///   too), N no (only the reference goes), Esc back to the title. Nothing else is typed while asking.
+///   "Also delete the attachment?" (`isAskingToDeleteAttachment`): Y yes (the attachment goes
+///   too), N or ↩ no (only the reference goes; the safe default), Esc back to the title. Nothing
+///   else is typed while asking. ⌘Z in the note after a yes brings the reference back, and with it
+///   the attachment (its file is only deleted on save).
 /// - While the dialog is open its keys come first: ↩ (or ⌘↩) inserts / saves, Esc cancels, ⌘⌫ as
 ///   above (adding: the field's), ⌘D, ⌥↩ and ⇥ are swallowed; other keys type into the title.
 /// - Every change goes to the editor as `pendingNoteEdit` (one undo step), as for links.
@@ -226,7 +228,12 @@ public final class QuickEntryFlow {
     /// The highlighted / chosen quadrant.
     public var quadrant: Quadrant
     public var title: String
-    public var note: String
+    public var note: String {
+        didSet { if !deletedFromDialog.isEmpty { reattachReferencedDeletions() } }
+    }
+    /// Attachments "Also delete" took out of the list, with where they were. They come back when
+    /// the note references them again (⌘Z in the editor); their files stay until the save.
+    @ObservationIgnored private var deletedFromDialog: [(index: Int, attachment: TodoAttachment)] = []
     /// The attachments, in the order they were added. Changed via `attach` / `removeAttachment`.
     public private(set) var attachments: [TodoAttachment]
     /// The selection while `phase == .browsingAttachments`: an attachment, or `attachments.count`
@@ -436,14 +443,12 @@ public final class QuickEntryFlow {
     /// The names already used, for naming a new attachment (`AttachmentNaming`).
     public var attachmentNames: [String] { attachments.map(\.name) }
 
-    /// Adds an attachment (its file is already staged). Returns the Markdown reference for the
-    /// note; the caller inserts it where it belongs (paste, drop on the note) or ignores it.
-    @discardableResult
-    public func attach(_ attachment: TodoAttachment) -> String {
-        guard !isFinished else { return "" }
+    /// Adds an attachment (its file is already staged). The caller puts a reference in the note
+    /// where it belongs (`NoteAttachments`) or leaves the attachment without one.
+    public func attach(_ attachment: TodoAttachment) {
+        guard !isFinished else { return }
         // With Add selected, its index now points at the first new file, which gets selected.
         attachments.append(attachment)
-        return AttachmentReference.markdown(for: attachment)
     }
 
     /// Removes an attachment and its references in the note. The selection stays in place (clamped).
@@ -455,7 +460,7 @@ public final class QuickEntryFlow {
         guard !isFinished, let index = attachments.firstIndex(where: { $0.id == id }) else { return }
         let removed = attachments.remove(at: index)
         if updatingNote, !attachments.contains(where: { $0.name == removed.name }) {
-            note = AttachmentReference.removing(name: removed.name, from: note)
+            note = NoteAttachments.removeReferences(to: removed.name, in: note)
         }
         if let selected = selectedAttachmentIndex, selected > index || selected == attachments.count {
             // Keep the same attachment selected, or stay on the last one (Add once none are left).
@@ -840,8 +845,8 @@ public final class QuickEntryFlow {
         /// The file's name with its extension (the subtitle; never edited here).
         public let fileName: String
         public fileprivate(set) var title: String
-        /// Shown while the title field is empty: what a blank title stands for ("Screenshot" for
-        /// a pasted screenshot).
+        /// Shown while the title field is empty ("Screenshot" for a pasted screenshot); a blank
+        /// title falls back to the file name without its extension.
         public let placeholder: String
         /// ⌘⌫ removed the attachment's last reference: "Also delete the attachment?" (Yes / No).
         public fileprivate(set) var isAskingToDeleteAttachment = false
@@ -933,10 +938,10 @@ public final class QuickEntryFlow {
     }
 
     /// ↩ (or Add / Save): inserts the chip, saves the title, or for a pasted file asks for it to be
-    /// staged first. While asking about the attachment, ↩ is Yes.
+    /// staged first. While asking about the attachment, ↩ is No.
     public func confirmAttachment() {
         guard let dialog = attachmentDialog else { return }
-        if dialog.isAskingToDeleteAttachment { return answerDeleteAttachment(true) }
+        if dialog.isAskingToDeleteAttachment { return answerDeleteAttachment(false) }
         switch dialog.kind {
         case .addIncoming(let token):
             closeAttachmentDialog()
@@ -986,8 +991,23 @@ public final class QuickEntryFlow {
         guard alsoDelete, applies else { return }
         // The editor takes the chip out with the pending edit (one undo step), so the note stays.
         for attachment in attachments where attachment.name == chip.name {
+            if let index = attachments.firstIndex(of: attachment) { deletedFromDialog.append((index, attachment)) }
             removeAttachment(id: attachment.id, updatingNote: false)
         }
+    }
+
+    /// The note references a deleted attachment again (⌘Z took the removal back): it is attached
+    /// again, at its old place. Its file is still there; the save is what deletes files.
+    private func reattachReferencedDeletions() {
+        let names = Set(deletedFromDialog.map(\.attachment.name))
+        let referenced = Set(AttachmentReference.matches(in: note, names: names).map(\.name))
+        guard !referenced.isEmpty, !isFinished else { return }
+        for entry in deletedFromDialog where referenced.contains(entry.attachment.name) {
+            if !attachments.contains(where: { $0.name == entry.attachment.name }) {
+                attachments.insert(entry.attachment, at: min(entry.index, attachments.count))
+            }
+        }
+        deletedFromDialog.removeAll { referenced.contains($0.attachment.name) }
     }
 
     /// Esc: back from the question to the title, else closes the dialog without touching the note.
@@ -1032,8 +1052,8 @@ public final class QuickEntryFlow {
     private func handleAttachmentDialogKey(_ key: QuickEntryKey) -> Bool {
         if attachmentDialog?.isAskingToDeleteAttachment == true {
             switch key {
-            case .enter, .letter("y"): answerDeleteAttachment(true)
-            case .letter("n"): answerDeleteAttachment(false)
+            case .letter("y"): answerDeleteAttachment(true)
+            case .enter, .letter("n"): answerDeleteAttachment(false) // ↩ is the safe answer
             case .escape: cancelAttachment()
             default: break // nothing to type into
             }

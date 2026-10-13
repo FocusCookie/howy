@@ -236,9 +236,6 @@ struct QuickEntryView: View {
         }
     }
 
-    /// The link dialog over the whole card; a click beside it cancels. Not dimmed, like the
-    /// due-date dialog: a tint here covers only the screen inside the card's padding, a
-    /// square-cornered block rather than the rounded card.
     /// The attachment dialog over the whole card, like the link dialog; a click beside it cancels.
     @ViewBuilder private var attachmentDialog: some View {
         if let dialog = flow.attachmentDialog {
@@ -254,6 +251,9 @@ struct QuickEntryView: View {
         }
     }
 
+    /// The link dialog over the whole card; a click beside it cancels. Not dimmed, like the
+    /// due-date dialog: a tint here covers only the screen inside the card's padding, a
+    /// square-cornered block rather than the rounded card.
     @ViewBuilder private var linkDialog: some View {
         if let dialog = flow.linkDialog {
             ZStack(alignment: .top) {

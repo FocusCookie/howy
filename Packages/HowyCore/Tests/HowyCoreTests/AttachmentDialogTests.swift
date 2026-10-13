@@ -122,7 +122,7 @@ import Testing
         #expect(flow.pendingNoteEdit == nil)
     }
 
-    @Test func anAttachedFileDroppedFromTheStripInsertsRightAway() {
+    @Test func anAttachedFileDroppedFromTheStripAsksForATitle() {
         let flow = makeFlow(attachments: [png])
         flow.beginAddingAttachment(png, replacing: NSRange(location: 6, length: 0))
         #expect(flow.attachmentDialog?.title == "shot")
@@ -131,6 +131,32 @@ import Testing
         #expect(flow.request == nil, "nothing to stage")
         #expect(noteAfterEdit(flow) == "go now ![shot](shot.png)|")
         #expect(flow.attachments == [png])
+    }
+
+    @Test func aStagedFileWithAnotherTokenIsIgnoredAndThePendingOneStillWorks() {
+        let flow = makeFlow()
+        let token = UUID()
+        flow.beginAddingAttachment(fileName: "report.pdf", token: token, replacing: NSRange(location: 2, length: 0))
+        flow.confirmAttachment()
+        flow.attachStaged(png, token: UUID())
+        #expect(flow.attachments.isEmpty)
+        #expect(flow.pendingNoteEdit == nil)
+        flow.attachStaged(pdf, token: token)
+        #expect(flow.attachments == [pdf])
+        #expect(flow.pendingNoteEdit != nil)
+    }
+
+    @Test func aStagedFileAfterSavingOrCancellingIsIgnored() {
+        for finish in [{ (flow: QuickEntryFlow) in flow.title = "T"; _ = flow.save() }, { (flow: QuickEntryFlow) in flow.cancel() }] {
+            let flow = makeFlow()
+            let token = UUID()
+            flow.beginAddingAttachment(fileName: "report.pdf", token: token, replacing: NSRange(location: 2, length: 0))
+            flow.confirmAttachment()
+            finish(flow)
+            flow.attachStaged(pdf, token: token)
+            #expect(flow.attachments.isEmpty)
+            #expect(flow.pendingNoteEdit == nil)
+        }
     }
 
     @Test func theDialogOpensOnlyInTheNoteWithoutAnotherDialog() {
@@ -196,15 +222,72 @@ import Testing
     }
 
     @Test func yesRemovesTheReferenceAndTheAttachment() {
-        for yes in [QuickEntryKey.enter, .letter("y")] {
-            let flow = makeFlow(note: "a [Report](report.pdf) b", attachments: [pdf, png])
-            flow.beginEditingAttachment(chip(flow))
-            flow.handle(.commandDelete)
-            flow.handle(yes)
-            #expect(flow.attachmentDialog == nil)
-            #expect(flow.attachments == [png])
-            #expect(noteAfterEdit(flow) == "a| b", "the note changes through the editor, as one undo step")
-        }
+        let flow = makeFlow(note: "a [Report](report.pdf) b", attachments: [pdf, png])
+        flow.beginEditingAttachment(chip(flow))
+        flow.handle(.commandDelete)
+        flow.handle(.letter("y"))
+        #expect(flow.attachmentDialog == nil)
+        #expect(flow.attachments == [png])
+        #expect(noteAfterEdit(flow) == "a| b", "the note changes through the editor, as one undo step")
+    }
+
+    @Test func enterWhileAskingAnswersNo() {
+        let flow = makeFlow(note: "a [Report](report.pdf) b", attachments: [pdf])
+        flow.beginEditingAttachment(chip(flow))
+        flow.handle(.commandDelete)
+        #expect(flow.handle(.enter))
+        #expect(flow.attachmentDialog == nil)
+        #expect(flow.attachments == [pdf], "the safe default keeps the attachment")
+        #expect(noteAfterEdit(flow) == "a| b")
+    }
+
+    @Test func undoAfterYesBringsTheAttachmentBack() {
+        let original = "a [Report](report.pdf) b"
+        let flow = makeFlow(note: original, attachments: [pdf, png])
+        flow.beginEditingAttachment(chip(flow))
+        flow.handle(.commandDelete)
+        flow.handle(.letter("y"))
+        applyEdit(flow)
+        #expect(flow.attachments == [png])
+        flow.note = original // ⌘Z in the editor
+        #expect(flow.attachments == [pdf, png], "back at its old place")
+        flow.note = "a b"
+        #expect(flow.attachments == [pdf, png], "not removed again by a later edit")
+        flow.title = "T"
+        flow.save()
+        #expect(flow.savedDraft?.attachments == [pdf, png])
+    }
+
+    @Test func yesAfterTheNoteChangedMakesNoEditAndKeepsTheAttachment() {
+        let flow = makeFlow(note: "a [Report](report.pdf) b", attachments: [pdf])
+        flow.beginEditingAttachment(chip(flow))
+        flow.handle(.commandDelete)
+        flow.note = "a [Report](report.pdf) b!"
+        flow.answerDeleteAttachment(true)
+        #expect(flow.pendingNoteEdit == nil)
+        #expect(flow.attachments == [pdf])
+    }
+
+    @Test func savingATitleAfterTheNoteChangedMakesNoEdit() {
+        let flow = makeFlow(note: "a [Report](report.pdf) b", attachments: [pdf])
+        flow.beginEditingAttachment(chip(flow))
+        flow.setAttachmentTitle("Q4")
+        flow.note = "a [Report](report.pdf) b!"
+        flow.confirmAttachment()
+        #expect(flow.attachmentDialog == nil)
+        #expect(flow.pendingNoteEdit == nil)
+    }
+
+    @Test func removingAFromTheStripLeavesNoDoubleSpace() {
+        let flow = makeFlow(note: "see [x](report.pdf) here", attachments: [pdf])
+        flow.removeAttachment(id: pdf.id)
+        #expect(flow.note == "see here")
+    }
+
+    @Test func removingFromTheStripDropsALineLeftBlankAndEveryChip() {
+        let flow = makeFlow(note: "a\n[x](report.pdf)\nb [y](report.pdf)", attachments: [pdf])
+        flow.removeAttachment(id: pdf.id)
+        #expect(flow.note == "a\nb")
     }
 
     @Test func noRemovesOnlyTheReference() {
@@ -330,6 +413,22 @@ import Testing
         #expect(flow.isAddSelected)
         flow.handle(.letter("i"))
         #expect(flow.phase == .browsingAttachments)
+        #expect(flow.attachmentDialog == nil)
+    }
+
+    @Test func iWithAnotherDialogOpenInsertsNothing() {
+        let flow = makeFlow(attachments: [pdf])
+        flow.beginAddingLink(url: "https://a.io", replacing: NSRange(location: 0, length: 0))
+        flow.handle(.letter("i"))
+        #expect(flow.pendingNoteEdit == nil)
+        #expect(flow.attachmentDialog == nil)
+    }
+
+    @Test func iOutsideTheAttachmentsDoesNotInsert() {
+        let flow = makeFlow(attachments: [pdf])
+        flow.handle(.letter("i")) // typed into the note, by the editor
+        #expect(flow.phase == .editingNote)
+        #expect(flow.pendingNoteEdit == nil)
         #expect(flow.attachmentDialog == nil)
     }
 

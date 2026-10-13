@@ -78,6 +78,12 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: lueddemann.howy
             CFBundleURLSchemes: [howy]
+        # The drag type of an attachment thumbnail (`AttachmentDrag`): the id, for dropping it on
+        # the note as a chip.
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: lueddemann.howy.attachment-id
+            UTTypeDescription: Howy attachment id
+            UTTypeConformsTo: [public.data]
   HowyWidgets:
     type: app-extension
     attributes:

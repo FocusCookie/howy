@@ -31,6 +31,20 @@ All notable changes to Howy are documented here. The format follows
   line, instead of each on a line of its own.
 - ⌘Z takes back an added attachment chip in one step and keeps the
   attachment, the same as ⌫⌫.
+- In "Also delete the attachment?", **↩** now answers No (the safe default);
+  **Y** is Yes, **N** is No. ⌘Z after a Yes brings the attachment back.
+
+### Fixed
+
+- Dragging an attachment out of the strip to Finder always copies the file; it
+  can no longer move it out of Howy.
+- A file pasted or dropped onto the note is copied when you paste it, so the
+  dialog still works if the original (a screenshot thumbnail, say) goes away.
+- Removing an attachment with ⌫ in the strip no longer leaves a double space
+  where its chip was.
+- The strip no longer lights up as a drop target for its own thumbnails.
+- A note changed from outside (an undo, a removed chip) keeps the cursor
+  where it was instead of jumping to the end.
 
 ## [2.1.0] - 2026-10-13
 

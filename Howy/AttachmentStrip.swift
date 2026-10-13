@@ -37,13 +37,21 @@ struct AttachmentDivider: View {
 /// attachment's id under a type of Howy's own, so the note editor inserts a chip for the
 /// attachment instead of attaching the file again, and the strip ignores it.
 enum AttachmentDrag {
+    /// Declared in Info.plist (`UTExportedTypeDeclarations`, `project.yml`).
     static let typeIdentifier = "lueddemann.howy.attachment-id"
+    static let type = UTType(exportedAs: typeIdentifier)
     static let pasteboardType = NSPasteboard.PasteboardType(typeIdentifier)
 
-    /// The drag's item: the file URL, and the id as UTF-8 text under `typeIdentifier`.
+    /// The drag's item: the file as a representation receivers copy (so Finder never moves the
+    /// stored file out of the container), and the id as UTF-8 text under `typeIdentifier`.
     static func itemProvider(for attachment: TodoAttachment, at url: URL) -> NSItemProvider {
-        let provider = NSItemProvider(object: url as NSURL)
+        let provider = NSItemProvider()
         provider.suggestedName = attachment.name
+        let fileType = UTType(filenameExtension: url.pathExtension)?.identifier ?? UTType.data.identifier
+        provider.registerFileRepresentation(forTypeIdentifier: fileType, fileOptions: [], visibility: .all) { completion in
+            completion(url, false, nil) // not open-in-place: the system copies the file for the receiver
+            return nil
+        }
         let id = Data(attachment.id.uuidString.utf8)
         provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .all) { completion in
             completion(id, nil)
@@ -100,10 +108,7 @@ struct AttachmentStrip: View {
             )
         }
         .contentShape(shape)
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
-            load(providers)
-            return true
-        }
+        .onDrop(of: [.fileURL], delegate: StripDropDelegate(isTargeted: $isTargeted) { load($0) })
         .animation(.easeOut(duration: 0.15), value: isTargeted)
         .animation(.easeOut(duration: 0.15), value: isActive)
     }
@@ -134,13 +139,33 @@ struct AttachmentStrip: View {
     }
 
     private func load(_ providers: [NSItemProvider]) {
-        // A thumbnail dragged from here is attached already.
-        for provider in providers where !provider.hasItemConformingToTypeIdentifier(AttachmentDrag.typeIdentifier) {
+        for provider in providers {
             _ = provider.loadObject(ofClass: URL.self) { url, _ in
                 guard let url else { return }
                 Task { @MainActor in model.attach([.file(url)]) }
             }
         }
+    }
+}
+
+/// Accepts files dropped from elsewhere, but not the strip's own thumbnails (they are attached
+/// already): those neither light the strip up nor drop.
+private struct StripDropDelegate: DropDelegate {
+    @Binding var isTargeted: Bool
+    let load: ([NSItemProvider]) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !info.hasItemsConforming(to: [AttachmentDrag.type]) && info.hasItemsConforming(to: [.fileURL])
+    }
+
+    func dropEntered(info: DropInfo) { isTargeted = true }
+
+    func dropExited(info: DropInfo) { isTargeted = false }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        load(info.itemProviders(for: [.fileURL]))
+        return true
     }
 }
 
@@ -187,10 +212,7 @@ private struct AttachmentTile: View {
             .scaleEffect(isLinked && !isSelected ? 1.06 : 1)
             .animation(.snappy(duration: 0.15), value: isLinked)
             .contentShape(shape)
-            .onDrag {
-                guard let url else { return NSItemProvider() }
-                return AttachmentDrag.itemProvider(for: attachment, at: url)
-            }
+            .draggable(file: url.map { url in { AttachmentDrag.itemProvider(for: attachment, at: url) } })
             .onTapGesture {
                 model.open(attachment, alternate: NSEvent.modifierFlags.contains(.option))
             }
@@ -212,6 +234,13 @@ private struct AttachmentTile: View {
             .accessibilityLabel(attachment.name)
             .accessibilityAddTraits(isSelected ? [.isButton, .isSelected] : .isButton)
             .accessibilityAction(named: "Remove") { model.remove(attachment) }
+    }
+}
+
+private extension View {
+    /// Draggable only while there is a file to drag (a missing one has nothing to offer).
+    @ViewBuilder func draggable(file makeProvider: (() -> NSItemProvider)?) -> some View {
+        if let makeProvider { onDrag(makeProvider) } else { self }
     }
 }
 

@@ -63,6 +63,14 @@ import Testing
         #expect(chips.map(\.name) == ["Q4 plan.pdf"])
     }
 
+    @Test func aNameWithBracketsAndParenthesesRoundTrips() {
+        let attachment = TodoAttachment(name: "a[1] (x).pdf")
+        let markdown = NoteAttachments.markdown(for: attachment, title: "t")
+        #expect(markdown == "[t](a%5B1%5D%20%28x%29.pdf)")
+        let chips = NoteChips.attachments(in: markdown, attachmentNames: [attachment.name])
+        #expect(chips.map(\.name) == ["a[1] (x).pdf"])
+    }
+
     @Test func referencesToUnknownFilesStayAsBefore() {
         // A link to a name that isn't attached is a link chip; an unknown image is no chip.
         let chips = NoteChips.chips(in: "[Old](old.pdf) ![Gone](gone.png)", attachmentNames: names)

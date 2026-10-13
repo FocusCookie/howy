@@ -53,7 +53,8 @@ struct MarkdownNoteEditor: NSViewRepresentable {
     /// One file pasted or dropped: ask for its chip's title, the chip going over this range.
     var onPasteAttachment: (QuickEntryModel.AttachmentSource, NSRange) -> Void = { _, _ in }
     /// A thumbnail from the strip dropped on the text (the attachment's id, the drop point).
-    var onDropAttachment: (UUID, NSRange) -> Void = { _, _ in }
+    /// False when there is no such attachment: the drop is then handled as a file.
+    var onDropAttachment: (UUID, NSRange) -> Bool = { _, _ in false }
     /// ⌘O, ⌥⌘O (`alternate`) or ⌘-click on an attachment chip (the attachment's name).
     var onOpenAttachment: (String, Bool) -> Void = { _, _ in }
     /// ⌘E on an attachment chip.
@@ -132,7 +133,12 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         let coordinator = context.coordinator
         if textView.string != text, !textView.hasMarkedText() {
             // Changed from outside (e.g. an attachment's reference was removed).
+            // The caret stays where it was (clamped), not at the end.
+            let selection = textView.selectedRange()
             textView.string = text
+            let length = (text as NSString).length
+            let location = min(selection.location, length)
+            textView.setSelectedRange(NSRange(location: location, length: min(selection.length, length - location)))
             restyle(textView, scale: scale, coordinator: coordinator)
         } else if coordinator.appliedHighlight != highlightedName || coordinator.appliedScale != scale
                     || coordinator.appliedNames != attachmentNames, !textView.hasMarkedText() {
@@ -369,11 +375,14 @@ struct MarkdownNoteEditor: NSViewRepresentable {
 
         /// A thumbnail from the strip dropped at `index`: a chip for it there (after a chip the
         /// point falls in), through the title dialog.
-        func dropAttachment(id: UUID, at index: Int, in textView: NSTextView) {
+        func dropAttachment(id: UUID, at index: Int, in textView: NSTextView) -> Bool {
             let caret = NoteChips.widen(NSRange(location: index, length: 0), in: textView.string, attachmentNames: parent.attachmentNames)
             let point = NSRange(location: NSMaxRange(caret), length: 0)
+            let previous = textView.selectedRange()
             textView.setSelectedRange(point)
-            parent.onDropAttachment(id, point)
+            if parent.onDropAttachment(id, point) { return true }
+            textView.setSelectedRange(previous)
+            return false
         }
 
         /// Enter inside a list item continues the list; Enter on an empty item ends it.
@@ -834,8 +843,8 @@ final class NoteTextView: NSTextView {
         let index = characterIndexForInsertion(at: convert(sender.draggingLocation, from: nil))
         if let id = AttachmentDrag.attachmentID(on: pasteboard) {
             window?.makeFirstResponder(self)
-            coordinator?.dropAttachment(id: id, at: index, in: self)
-            return true
+            if coordinator?.dropAttachment(id: id, at: index, in: self) == true { return true }
+            // Not one of this todo's attachments: treated like any other file below.
         }
         guard let urls = Self.fileURLs(on: pasteboard), !urls.isEmpty else {
             return super.performDragOperation(sender)
@@ -882,6 +891,12 @@ final class NoteTextView: NSTextView {
     }
 
     // MARK: Drops from the strip
+
+    /// NSTextView re-registers its own types now and then (a font or ruler change, a new window);
+    /// listing the strip's type here keeps it registered.
+    override var acceptableDragTypes: [NSPasteboard.PasteboardType] {
+        super.acceptableDragTypes + [AttachmentDrag.pasteboardType]
+    }
 
     override func draggingEntered(_ sender: any NSDraggingInfo) -> NSDragOperation {
         acceptingStripDrag(super.draggingEntered(sender), sender)
