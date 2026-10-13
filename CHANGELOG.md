@@ -6,6 +6,8 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-13
+
 ### Added
 
 - **Code highlighting** in notes: the code in a fenced block is coloured by the
@@ -24,7 +26,8 @@ All notable changes to Howy are documented here. The format follows
 ### Fixed
 
 - Typing in a long note keeps the line with the cursor in view; new lines no
-  longer disappear below the editor until you scroll.
+  longer disappear below the editor until you scroll, and the text no longer
+  jumps by a line while you type in a note with a scrollbar.
 
 ## [2.2.0] - 2026-10-13
 
