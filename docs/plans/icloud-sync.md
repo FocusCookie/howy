@@ -558,7 +558,11 @@ Test 3, iCloud off for Howy only: passed. A "sync stopped" notice arrived
 (macOS reports it like iCloud being off, as guessed). Turning it back on resumed
 sync.
 Test 5, clicking a notice: passed. Settings opened.
-Test 4 (offline for over an hour) is still open. Test 6 is skipped: there's no
+Test 4, offline for over an hour: no notice (passed), but the line stayed on
+"Syncing…": offline, mirroring reports no error, and the nudged import just
+never ends. Fixed: `SyncMonitor` follows the network path (`NWPathMonitor`), the
+line says "Offline" while there's none, and the app nudges an import when it
+returns. Test 4 needs to be run again. Test 6 is skipped: there's no
 second iCloud account.
 
 #### Known limits

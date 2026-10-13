@@ -68,6 +68,21 @@ import Testing
         #expect(alerts == [.dataRemoved(.signedOut)], "signed out while Howy wasn't running")
     }
 
+    @Test func theMonitorShowsOfflineAndReportsTheNetworkComingBack() {
+        let monitor = SyncMonitor(mode: .iCloud, now: { self.start })
+        monitor.receiveAccount(.available(userRecordName: "_alice"))
+        var backOnline = 0
+        monitor.onBackOnline = { backOnline += 1 }
+
+        monitor.receiveNetwork(isOnline: false)
+        #expect(monitor.status == .offline)
+        monitor.receiveNetwork(isOnline: false)
+        monitor.receiveNetwork(isOnline: true)
+        monitor.receiveNetwork(isOnline: true)
+        #expect(monitor.status != .offline)
+        #expect(backOnline == 1, "only the change from offline to online counts")
+    }
+
     @Test func theAccountIsOnlyComparedOnceTheStoreMirrors() {
         let defaults = Memory()
         defaults.values[SyncMonitor.accountKey(storeFileName: "Howy.store")] = "_alice"

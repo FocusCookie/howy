@@ -1,6 +1,7 @@
 import CloudKit
 import CoreData
 import Foundation
+import Network
 import Observation
 
 /// The app's live `SyncState`: observes the CloudKit mirroring events and answers the
@@ -24,6 +25,10 @@ import Observation
 /// local wiped nothing, so it leaves the remembered account alone, and an account read before the
 /// store is open is compared once it is (`setMode(_:)`).
 ///
+/// **Network.** `startNetworkChecks()` follows the Mac's network path (`NWPathMonitor`); tests
+/// call `receiveNetwork(isOnline:)`. While offline the line says so (`SyncStatus`), and
+/// `onBackOnline` runs when the network returns.
+///
 /// **Notifications.** Events and account changes go through `SyncIncidents` (the CKError matrix,
 /// once per incident, over an hour); what it returns is handed to `onAlert`. `tick()` checks the
 /// "over an hour" rule between events. When each kind was last posted is saved in `defaults`, so
@@ -34,6 +39,11 @@ public final class SyncMonitor {
     public private(set) var state: SyncState
     /// The iCloud account as last read; `nil` until the first check returns.
     public private(set) var account: AccountObservation?
+    /// Whether the Mac has a network path; `true` until a check says otherwise.
+    public private(set) var isOnline = true
+    /// The network came back after being offline: check for changes.
+    @ObservationIgnored public var onBackOnline: () -> Void = {}
+    @ObservationIgnored private var pathMonitor: NWPathMonitor?
     /// After an import finished successfully: reload what shows the data.
     @ObservationIgnored public var onImport: () -> Void = {}
     /// After every event (and a mode change): check the deferred maintenance again.
@@ -76,7 +86,7 @@ public final class SyncMonitor {
 
     /// The line Settings shows now.
     public var status: SyncStatus {
-        SyncStatus(state: state, account: account, now: now())
+        SyncStatus(state: state, account: account, isOnline: isOnline, now: now())
     }
 
     /// The mode for how the shared store really opened: `.starting` while it isn't built,
@@ -115,6 +125,35 @@ public final class SyncMonitor {
         account = observation
         if observation.isGone { incidents.accountUnavailable() }
         if state.mirrors { compareAccount(observation) }
+    }
+
+    /// Takes in whether the Mac has a network path (from `startNetworkChecks`, or a test).
+    public func receiveNetwork(isOnline: Bool) {
+        guard isOnline != self.isOnline else { return }
+        self.isOnline = isOnline
+        if isOnline {
+            checkAccount()
+            onBackOnline()
+        }
+    }
+
+    /// Follows the Mac's network path. Calling it again does nothing.
+    public func startNetworkChecks() {
+        guard pathMonitor == nil else { return }
+        pathMonitor = Self.makePathMonitor { [weak self] isOnline in
+            Task { @MainActor in self?.receiveNetwork(isOnline: isOnline) }
+        }
+    }
+
+    /// Built outside the main actor, so the handler (called on the monitor's queue) doesn't
+    /// inherit main-actor isolation; only the plain `Bool` crosses over.
+    private nonisolated static func makePathMonitor(
+        _ report: @escaping @Sendable (Bool) -> Void
+    ) -> NWPathMonitor {
+        let monitor = NWPathMonitor()
+        monitor.pathUpdateHandler = { @Sendable path in report(path.status == .satisfied) }
+        monitor.start(queue: DispatchQueue(label: "lueddemann.howy.network"))
+        return monitor
     }
 
     /// Checks the "failing for over an hour" rule between events (the app calls it every few

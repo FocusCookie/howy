@@ -6,8 +6,11 @@ import Foundation
 /// as states, not errors; only `isProblem` ones are shown as errors.
 ///
 /// In order: the store's mode (doesn't mirror, CloudKit fallback, not known yet), then the
-/// account, then the last error (until a successful import or export clears it), then whether
-/// something runs, else up to date.
+/// account, then the network, then the last error (until a successful import or export clears
+/// it), then whether something runs, else up to date.
+///
+/// The network comes first because mirroring reports no error while it's offline: an import
+/// started then (by the import nudge) just doesn't end, which would read as syncing.
 public enum SyncStatus: Hashable, Sendable {
     /// The store or the account isn't known yet (launch).
     case checking
@@ -15,7 +18,7 @@ public enum SyncStatus: Hashable, Sendable {
     case syncing
     /// Nothing runs and the last import or export succeeded (at `lastSync`, if any did).
     case upToDate(lastSync: Date?)
-    /// The last attempt found no network.
+    /// The Mac has no network, or the last attempt found none.
     case offline
     /// iCloud is busy, rate-limits Howy, or the account isn't ready yet; mirroring retries.
     case waiting
@@ -32,7 +35,8 @@ public enum SyncStatus: Hashable, Sendable {
     /// This build's store doesn't mirror.
     case off
 
-    public init(state: SyncState, account: AccountObservation?, now: Date) {
+    /// `isOnline` is whether the Mac has a network path (`NWPathMonitor`).
+    public init(state: SyncState, account: AccountObservation?, isOnline: Bool = true, now: Date) {
         switch state.mode {
         case .local:
             self = .off
@@ -49,7 +53,7 @@ public enum SyncStatus: Hashable, Sendable {
         switch account {
         case nil, .couldNotDetermine?:
             // An event already says enough; without one, wait for the account.
-            guard state.lastEventDate != nil else {
+            guard state.lastEventDate != nil || !isOnline else {
                 self = .checking
                 return
             }
@@ -63,10 +67,14 @@ public enum SyncStatus: Hashable, Sendable {
             self = .restricted
             return
         case .temporarilyUnavailable?:
-            self = .waiting
+            self = isOnline ? .waiting : .offline
             return
         case .available?:
             break
+        }
+        guard isOnline else {
+            self = .offline
+            return
         }
         if let error = state.lastError {
             switch error.kind {

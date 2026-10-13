@@ -214,9 +214,11 @@ final class AppController {
         syncMonitor.onImport = { [weak self] in self?.storeChangedRemotely() }
         syncMonitor.onChange = { [weak self] in self?.retryDeferredWork() }
         syncMonitor.onAlert = { alert in NotificationCoordinator.shared.post(alert) }
+        syncMonitor.onBackOnline = { [weak self] in self?.nudgeImport() }
         // Only a build that mirrors (a valid store file name) has an account worth watching.
         if TodoStore.hasValidStoreFileName {
             syncMonitor.startAccountChecks(containerIdentifier: StoreSync.containerIdentifier)
+            syncMonitor.startNetworkChecks()
         }
         // The widget's checkbox writes from its own process; the open panel reads again.
         CFNotificationCenterAddObserver(

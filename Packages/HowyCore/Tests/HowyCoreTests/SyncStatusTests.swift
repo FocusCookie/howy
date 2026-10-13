@@ -56,6 +56,25 @@ import Testing
         #expect(!status.isProblem)
     }
 
+    @Test func noNetworkReadsOfflineEvenWhileAnImportHangs() {
+        // Offline, mirroring reports no error: the nudged import just never ends.
+        let running = [SyncEvent(id: UUID(), kind: .import, startDate: at(10))]
+        let status = SyncStatus(state: state(events: running), account: signedIn, isOnline: false, now: at(11))
+        #expect(status == .offline)
+        #expect(!status.isProblem)
+    }
+
+    @Test func noNetworkDoesntHideTheAccount() {
+        #expect(SyncStatus(state: state(), account: .noAccount, isOnline: false, now: at(1)) == .notSignedIn)
+        #expect(SyncStatus(state: state(), account: .iCloudOffForApp, isOnline: false, now: at(1)) == .iCloudOff)
+        #expect(SyncStatus(state: state(), account: .couldNotDetermine, isOnline: false, now: at(1)) == .offline)
+        #expect(SyncStatus(state: state(), account: .temporarilyUnavailable, isOnline: false, now: at(1)) == .offline)
+    }
+
+    @Test func noNetworkDoesntApplyToALocalStore() {
+        #expect(SyncStatus(state: state(.local), account: nil, isOnline: false, now: at(1)) == .off)
+    }
+
     @Test func offlineIsNotAnError() {
         let status = SyncStatus(state: state(events: done(.export, at: 5, error: .networkUnavailable)), account: signedIn, now: at(10))
         #expect(status == .offline)
