@@ -66,9 +66,10 @@ import Testing
     }
 }
 
+@MainActor
 @Suite struct AttachmentStoreTests {
     let root = FileManager.default.temporaryDirectory.appending(path: "howy-attachments-\(UUID().uuidString)", directoryHint: .isDirectory)
-    var store: AttachmentStore { AttachmentStore(root: root) }
+    var files: AttachmentStore { AttachmentStore(root: root) }
 
     func file(_ text: String) throws -> URL {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -81,55 +82,63 @@ import Testing
         try url.map { String(decoding: try Data(contentsOf: $0), as: UTF8.self) }
     }
 
-    @Test func stagedFilesBecomeTheTodosOnCommit() throws {
-        let todo = UUID()
-        let a = try store.stage(copying: file("A"), as: "a.txt")
-        let b = try store.stage(data: Data("B".utf8), as: "attachment-1.png")
-        #expect(try contents(store.url(for: a, todoID: todo)) == "A")
-        #expect(store.attachments(for: todo).isEmpty)
-
-        #expect(try store.commit([b, a], for: todo))
-        #expect(store.attachments(for: todo) == [b, a])
-        #expect(try contents(store.url(for: a, todoID: todo)) == "A")
-        #expect(store.url(for: a, todoID: nil) == nil) // no longer staged
-        #expect(try !store.commit([b, a], for: todo)) // unchanged
+    func makeStore() throws -> TodoStore {
+        try TodoStore.inMemory(attachments: files)
     }
 
-    @Test func committingWithoutAnAttachmentDeletesIt() throws {
+    @Test func stagedFilesBecomeTheTodosOnSave() throws {
+        let store = try makeStore()
         let todo = UUID()
-        let a = try store.stage(data: Data("A".utf8), as: "a.txt")
-        let b = try store.stage(data: Data("B".utf8), as: "b.txt")
-        try store.commit([a, b], for: todo)
-        #expect(try store.commit([b], for: todo))
-        #expect(store.attachments(for: todo) == [b])
-        #expect(store.url(for: a, todoID: todo) == nil)
-        try store.commit([], for: todo)
+        let a = try files.stage(copying: file("A"), as: "a.txt")
+        let b = try files.stage(data: Data("B".utf8), as: "attachment-1.png")
+        #expect(try contents(store.attachmentURL(for: a, todoID: todo)) == "A")
+        #expect(store.attachmentList(for: todo).isEmpty)
+
+        try store.setAttachments([b, a], for: todo)
+        #expect(store.attachmentList(for: todo) == [b, a])
+        #expect(try contents(store.attachmentURL(for: a, todoID: todo)) == "A")
+        #expect(files.url(for: a, todoID: nil) == nil) // no longer staged
+    }
+
+    @Test func savingWithoutAnAttachmentDeletesIt() throws {
+        let store = try makeStore()
+        let todo = UUID()
+        let a = try files.stage(data: Data("A".utf8), as: "a.txt")
+        let b = try files.stage(data: Data("B".utf8), as: "b.txt")
+        try store.setAttachments([a, b], for: todo)
+        try store.setAttachments([b], for: todo)
+        #expect(store.attachmentList(for: todo) == [b])
+        #expect(store.attachmentURL(for: a, todoID: todo) == nil)
+        try store.setAttachments([], for: todo)
+        #expect(store.attachmentList(for: todo).isEmpty)
         #expect(!FileManager.default.fileExists(atPath: root.appending(path: todo.uuidString).path(percentEncoded: false)))
     }
 
-    @Test func missingFilesAreDroppedOnCommit() throws {
+    @Test func missingFilesAreDroppedOnSave() throws {
+        let store = try makeStore()
         let todo = UUID()
         let ghost = TodoAttachment(name: "gone.png")
-        let a = try store.stage(data: Data("A".utf8), as: "a.txt")
-        try store.commit([ghost, a], for: todo)
-        #expect(store.attachments(for: todo) == [a])
+        let a = try files.stage(data: Data("A".utf8), as: "a.txt")
+        try store.setAttachments([ghost, a], for: todo)
+        #expect(store.attachmentList(for: todo) == [a])
     }
 
     @Test func stagingKeepsOnlyWhatDraftsReferTo() throws {
-        let keep = try store.stage(data: Data("K".utf8), as: "k.txt")
-        let drop = try store.stage(data: Data("D".utf8), as: "d.txt")
-        store.collectStaging(keeping: [keep.id])
-        #expect(store.url(for: keep, todoID: nil) != nil)
-        #expect(store.url(for: drop, todoID: nil) == nil)
+        let keep = try files.stage(data: Data("K".utf8), as: "k.txt")
+        let drop = try files.stage(data: Data("D".utf8), as: "d.txt")
+        files.collectStaging(keeping: [keep.id])
+        #expect(files.url(for: keep, todoID: nil) != nil)
+        #expect(files.url(for: drop, todoID: nil) == nil)
     }
 
-    @Test func removeAllDeletesATodosFiles() throws {
+    @Test func discardingDeletesATodosAttachments() throws {
+        let store = try makeStore()
         let todo = UUID()
-        let a = try store.stage(data: Data("A".utf8), as: "a.txt")
-        try store.commit([a], for: todo)
-        store.removeAll(for: todo)
-        #expect(store.attachments(for: todo).isEmpty)
-        #expect(store.url(for: a, todoID: todo) == nil)
+        let a = try files.stage(data: Data("A".utf8), as: "a.txt")
+        try store.setAttachments([a], for: todo)
+        store.discardAttachments(for: todo)
+        #expect(store.attachmentList(for: todo).isEmpty)
+        #expect(store.attachmentURL(for: a, todoID: todo) == nil)
     }
 }
 

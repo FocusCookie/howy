@@ -142,7 +142,10 @@ import Testing
         let files = try #require(store.attachments)
         let todo = try #require(try store.allTodos().first)
         let receipt = try #require(store.attachmentList(for: todo.id).first)
+        // Neither a local copy nor the bytes in the store (they never arrived).
         try FileManager.default.removeItem(at: try #require(files.url(for: receipt, todoID: todo.id)))
+        try store.attachmentRows(for: todo.id).filter { $0.id == receipt.id }.forEach { $0.data = nil }
+        try store.context.save()
 
         let result = try await HowyExporter(store: store).export(to: exportFolder)
         #expect(result.attachmentCount == 1)

@@ -173,15 +173,15 @@ import Testing
         try attach(to: open.id)
         try attach(to: archived.id)
         let gone = UUID()
-        try attach(to: gone)
-        #expect(files.attachments(for: gone).count == 1)
+        let goneFile = try attach(to: gone)
+        #expect(exists(folder(gone)))
 
         let moved = try await store.removeOrphanedAttachments()
 
         #expect(moved == 1)
         #expect(!exists(folder(gone)))
-        #expect(files.attachments(for: gone).isEmpty)
-        #expect(exists(trashed(gone).appending(path: AttachmentStore.manifestName)), "the files are kept, not deleted")
+        #expect(files.url(for: goneFile, todoID: gone) == nil)
+        #expect(exists(trashed(gone).appending(path: "\(goneFile.id.uuidString)/file.txt")), "the files are kept, not deleted")
         #expect(store.attachmentList(for: open.id).count == 1)
         #expect(store.attachmentList(for: archived.id).count == 1)
         for id in [open.id, archived.id] {

@@ -179,6 +179,7 @@ final class AppController {
             self?.registerLoginItemOnFirstLaunch()
             await self?.prepareStore()
             self?.openStoreAndReportSync()
+            await self?.adoptLegacyAttachments()
             self?.purgeArchive()
             self?.collectStagedAttachments()
             self?.runMaintenance(cleanups: true)
@@ -222,6 +223,17 @@ final class AppController {
             try await TodoStore.prepareSharedContainer()
         } catch {
             log.error("Could not prepare the store: \(error, privacy: .public)")
+        }
+    }
+
+    /// Moves attachments that an older build kept only on disk into the store, so they sync. Not
+    /// behind the sync gate: it only adds, and until it ran those attachments don't show.
+    private func adoptLegacyAttachments() async {
+        guard let store = quietStore() else { return }
+        do {
+            try await store.adoptLegacyAttachments()
+        } catch {
+            log.error("Moving attachments into the store failed: \(error, privacy: .public)")
         }
     }
 
@@ -828,7 +840,7 @@ final class AppController {
             do {
                 let removed = try await store.removeDuplicates()
                 if !removed.isEmpty {
-                    log.notice("Removed \(removed.removedTodos) duplicate todos and \(removed.removedEvents) duplicate events")
+                    log.notice("Removed \(removed.removedTodos) duplicate todos, \(removed.removedEvents) duplicate events and \(removed.removedAttachments) duplicate attachments")
                 }
             } catch {
                 log.error("Duplicate cleanup failed: \(error, privacy: .public)")

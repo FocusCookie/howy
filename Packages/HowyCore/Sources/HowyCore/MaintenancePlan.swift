@@ -4,11 +4,11 @@ import Foundation
 public enum MaintenanceStep: Hashable, Sendable, CaseIterable {
     /// The daily backup.
     case backup
-    /// Duplicate todos and events.
+    /// Duplicate todos, events and attachments.
     case duplicates
     /// Todos that came back after a delete.
     case deletedTodos
-    /// Attachment folders of todos that no longer exist.
+    /// Attachments (store rows and local folders) of todos that no longer exist.
     case orphanedAttachments
 
     /// What the sync gate is asked about this step.

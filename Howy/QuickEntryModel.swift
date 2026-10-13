@@ -78,8 +78,10 @@ final class QuickEntryModel {
         hoveredAttachment?.name ?? flow.selectedAttachment?.name
     }
 
+    /// The attachment's file: its local copy (written from the store when this Mac has none
+    /// yet, e.g. it came through sync) or its staged file.
     func url(for attachment: TodoAttachment) -> URL? {
-        store.attachments?.url(for: attachment, todoID: flow.todoID)
+        store.attachmentURL(for: attachment, todoID: flow.todoID)
     }
 
     /// Copies the sources into staging and attaches them. Returns the attachments, in order.
@@ -334,7 +336,7 @@ final class QuickEntryModel {
                     try store.add(id: id, title: draft.title, note: draft.note, quadrant: draft.quadrant, due: draft.due)
                     createdTodoID = id
                 } catch {
-                    store.attachments?.removeAll(for: id)
+                    store.discardAttachments(for: id)
                     throw error
                 }
             }

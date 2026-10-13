@@ -7,14 +7,17 @@ public struct DuplicateCleanup: Hashable, Sendable {
     public var removedTodos: Int
     /// Event rows deleted because a row with the same id and other values survived.
     public var removedEvents: Int
+    /// Attachment rows deleted because a row with the same id and other values survived.
+    public var removedAttachments: Int
 
-    public init(removedTodos: Int = 0, removedEvents: Int = 0) {
+    public init(removedTodos: Int = 0, removedEvents: Int = 0, removedAttachments: Int = 0) {
         self.removedTodos = removedTodos
         self.removedEvents = removedEvents
+        self.removedAttachments = removedAttachments
     }
 
     /// Whether nothing was removed (and nothing written).
-    public var isEmpty: Bool { removedTodos == 0 && removedEvents == 0 }
+    public var isEmpty: Bool { removedTodos == 0 && removedEvents == 0 && removedAttachments == 0 }
 }
 
 /// Store work that runs on its own background `ModelContext` (same container as the
@@ -62,6 +65,16 @@ actor StoreMaintenance {
             .exportDocument(appVersion: appVersion, exportedAt: exportedAt, attachments: attachments)
     }
 
+    @concurrent
+    nonisolated static func adoptLegacyAttachments(_ container: ModelContainer, files: AttachmentStore) async throws -> Int {
+        try await StoreMaintenance(modelContainer: container).adoptLegacyAttachments(files: files)
+    }
+
+    @concurrent
+    nonisolated static func removeOrphanedAttachmentRows(_ container: ModelContainer, lastEventBefore cutoff: Date) async throws -> Int {
+        try await StoreMaintenance(modelContainer: container).removeOrphanedAttachmentRows(lastEventBefore: cutoff)
+    }
+
     // MARK: Duplicates
 
     /// Removes rows that share an `id` with a row of other values (schema v3 has no unique
@@ -70,7 +83,7 @@ actor StoreMaintenance {
     ///
     /// Safe across devices: every Mac runs this on its own, so it must delete the same records
     /// everywhere. Per id the survivor is chosen by a total order over the stored values
-    /// (`Todo.prefers(_:over:)`, `TodoEvent.prefers(_:over:)`), never by fetch order or
+    /// (`Todo.prefers(_:over:)`, `TodoEvent.prefers(_:over:)`, `StoredAttachment.prefers(_:over:)`), never by fetch order or
     /// anything device-local, and every row with the survivor's exact values stays. Fully
     /// identical rows are never deleted (each Mac could delete a different one, and both records
     /// would go); reads show them as one. Records no events. A clean store isn't saved.
@@ -82,7 +95,8 @@ actor StoreMaintenance {
         // are in the decision, and no twin is deleted from a stale snapshot.
         let todoIDs = try repeatedIDs(\Todo.id)
         let eventIDs = try repeatedIDs(\TodoEvent.id)
-        guard !todoIDs.isEmpty || !eventIDs.isEmpty else { return result }
+        let attachmentIDs = try repeatedIDs(\StoredAttachment.id)
+        guard !todoIDs.isEmpty || !eventIDs.isEmpty || !attachmentIDs.isEmpty else { return result }
         let fresh = ModelContext(modelContainer)
         if !todoIDs.isEmpty {
             let ids = Array(todoIDs)
@@ -98,6 +112,14 @@ actor StoreMaintenance {
             for row in DuplicateRules.losers(rows) {
                 fresh.delete(row)
                 result.removedEvents += 1
+            }
+        }
+        if !attachmentIDs.isEmpty {
+            let ids = Array(attachmentIDs)
+            let rows = try fresh.fetch(FetchDescriptor<StoredAttachment>(predicate: #Predicate { ids.contains($0.id) }))
+            for row in DuplicateRules.losers(rows) {
+                fresh.delete(row)
+                result.removedAttachments += 1
             }
         }
         guard !result.isEmpty else { return result }
@@ -181,17 +203,117 @@ actor StoreMaintenance {
             && modelContext.fetchCount(FetchDescriptor<TodoEvent>()) == 0
     }
 
-    /// Everything an export writes, read on this background context: one todo and one event per
-    /// id (the survivors, as `TodoStore` reads them).
+    /// Everything an export writes, read on this background context: one todo, one event and
+    /// one attachment per id (the survivors, as `TodoStore` reads them). Every listed attachment
+    /// that has bytes gets a local copy in `attachments` first (one that came through sync may
+    /// have none yet), so the export can copy the files; one without bytes stays listed and
+    /// the export reports it.
     func exportDocument(appVersion: String?, exportedAt: Date, attachments: AttachmentStore?) throws -> HowyExport {
         assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
+        var lists: [UUID: [TodoAttachment]] = [:]
+        let rows = try modelContext.fetch(FetchDescriptor<StoredAttachment>())
+        for (todoID, group) in Dictionary(grouping: rows, by: \.todoID) {
+            let survivors = group.orderedSurvivors
+            lists[todoID] = survivors.map(\.attachment)
+            guard let attachments else { continue }
+            for row in survivors where attachments.committedFile(row.attachment, todoID: todoID) == nil {
+                guard let data = row.data else { continue }
+                _ = try? attachments.writeCommitted(data, for: row.attachment, todoID: todoID)
+            }
+        }
         return try HowyExport(
             appVersion: appVersion, exportedAt: exportedAt,
             todos: DuplicateRules.collapsed(modelContext.fetch(FetchDescriptor<Todo>(sortBy: [SortDescriptor(\.createdAt)]))),
             events: DuplicateRules.collapsed(
                 modelContext.fetch(FetchDescriptor<TodoEvent>(sortBy: [SortDescriptor(\.date), SortDescriptor(\.seq)]))
             ),
-            attachments: attachments
+            attachments: lists
         )
+    }
+
+    // MARK: Attachments
+
+    /// See `TodoStore.adoptLegacyAttachments`. Returns how many attachments it stored.
+    func adoptLegacyAttachments(files: AttachmentStore) throws -> Int {
+        assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
+        let folders = files.legacyTodoIDs()
+        guard !folders.isEmpty else { return 0 }
+        let todos = try todoIDs().intersection(folders)
+        guard !todos.isEmpty else { return 0 }
+        var descriptor = FetchDescriptor<StoredAttachment>()
+        descriptor.propertiesToFetch = [\.id]
+        var stored = Set(try modelContext.fetch(descriptor).map(\.id))
+        var adopted = 0
+        var finished: [UUID] = []
+        for todoID in todos {
+            guard let list = files.legacyAttachments(for: todoID) else { continue }
+            var complete = true
+            for (position, attachment) in list.enumerated() where !stored.contains(attachment.id) {
+                // A file the list names but that is gone has nothing to adopt (it couldn't be
+                // opened before either); one that can't be read keeps the list for a retry.
+                guard let url = files.committedFile(attachment, todoID: todoID) else { continue }
+                guard let data = try? Data(contentsOf: url) else {
+                    complete = false
+                    continue
+                }
+                modelContext.insert(StoredAttachment(
+                    id: attachment.id, todoID: todoID, name: attachment.name, position: position,
+                    data: data, updatedAt: .distantPast
+                ))
+                stored.insert(attachment.id)
+                adopted += 1
+            }
+            if complete { finished.append(todoID) }
+        }
+        if adopted > 0 {
+            do {
+                try modelContext.save()
+            } catch {
+                modelContext.rollback()
+                throw error
+            }
+        }
+        finished.forEach(files.removeLegacyList(for:))
+        return adopted
+    }
+
+    /// Deletes the attachment rows of todos that are gone: no todo row with the id, but events
+    /// (so it existed and was deleted or purged), the newest of them before `cutoff`. Nothing
+    /// when the store has no todos, or when more than 3 todos have attachments and more than
+    /// half of them would go (a store that looks wiped). The rows are read again on a fresh
+    /// context right before the delete. Returns how many rows it deleted.
+    func removeOrphanedAttachmentRows(lastEventBefore cutoff: Date) throws -> Int {
+        assert(!Thread.isMainThread, "StoreMaintenance must run off the main thread")
+        var descriptor = FetchDescriptor<StoredAttachment>()
+        descriptor.propertiesToFetch = [\.todoID]
+        let owners = Set(try modelContext.fetch(descriptor).map(\.todoID))
+        guard !owners.isEmpty else { return 0 }
+        let existing = try todoIDs()
+        guard !existing.isEmpty else { return 0 }
+        let missing = Array(owners.subtracting(existing))
+        guard !missing.isEmpty else { return 0 }
+        var events = FetchDescriptor<TodoEvent>(predicate: #Predicate { missing.contains($0.todoID) })
+        events.propertiesToFetch = [\.todoID, \.date]
+        var newest: [UUID: Date] = [:]
+        for event in try modelContext.fetch(events) {
+            newest[event.todoID] = max(newest[event.todoID] ?? event.date, event.date)
+        }
+        let gone = Set(newest.filter { $0.value < cutoff }.keys)
+        guard !gone.isEmpty, !(owners.count > 3 && gone.count * 2 > owners.count) else { return 0 }
+        let fresh = ModelContext(modelContainer)
+        var still = FetchDescriptor<Todo>()
+        still.propertiesToFetch = [\.id]
+        let ids = Array(gone.subtracting(try fresh.fetch(still).map(\.id)))
+        guard !ids.isEmpty else { return 0 }
+        let rows = try fresh.fetch(FetchDescriptor<StoredAttachment>(predicate: #Predicate { ids.contains($0.todoID) }))
+        guard !rows.isEmpty else { return 0 }
+        rows.forEach(fresh.delete)
+        do {
+            try fresh.save()
+        } catch {
+            fresh.rollback()
+            throw error
+        }
+        return rows.count
     }
 }

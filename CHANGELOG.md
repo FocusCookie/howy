@@ -6,6 +6,15 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Attachments sync through iCloud** now, like the todos. They used to stay on
+  the Mac they were added on, so a synced todo showed without its files on your
+  other Macs. Attachments you already have move into Howy's synced data the
+  first time this version starts (the files stay where they were as the local
+  copies), and Export and the daily backup include attachments that came from
+  another Mac.
+
 ## [2.3.0] - 2026-10-13
 
 ### Added

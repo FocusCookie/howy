@@ -219,7 +219,7 @@ struct ICloudSettingsView: View {
             } header: {
                 Text("Sync")
             } footer: {
-                FooterText("Howy syncs your todos through your iCloud account; attachments stay on this Mac for now. Signing out of iCloud or turning it off for Howy removes the synced todos from this Mac (signing back in brings them back). Howy tells you when that happens, when iCloud is full, or when sync has failed for over an hour. The daily backups are under Data.")
+                FooterText("Howy syncs your todos and their attachments through your iCloud account. Signing out of iCloud or turning it off for Howy removes the synced todos from this Mac (signing back in brings them back). Howy tells you when that happens, when iCloud is full, or when sync has failed for over an hour. The daily backups are under Data.")
             }
         }
         .settingsForm()

@@ -61,9 +61,9 @@ There is no separate spec. The behaviour is described in `README.md`,
   events. SwiftUI and AppKit only render state and forward keys. Key-code
   mapping (`KeyMapping`) is in core too.
 - **`TodoStore`** is the only way to read or write todos. It uses a versioned
-  SwiftData schema (`Schema.swift`, currently v3: a `Todo` without a unique
-  constraint plus the append-only `TodoEvent` log, with a migration plan from
-  frozen v1 and v2) inside the App Group container, shared by the app and the
+  SwiftData schema (`Schema.swift`, currently v4: a `Todo` without a unique
+  constraint, the append-only `TodoEvent` log and `StoredAttachment`, with a
+  migration plan from frozen v1, v2 and v3) inside the App Group container, shared by the app and the
   widget. Every write that changes something records its events in the same
   save and reloads the widget timelines. Time comes from an injected clock.
 - **Cleanups and backups.** At launch the app calls
@@ -71,9 +71,12 @@ There is no separate spec. The behaviour is described in `README.md`,
   `DailyBackup.run`; they work on a background context (`StoreMaintenance`)
   and off the main actor. Backups are exports (format v2, with the events) in
   `Backups/` in the App Group container, newest 7 kept.
-- **Attachments** are files in the App Group container
-  (`Attachments/<todo>/<attachment>/…` plus `attachments.json`). No schema
-  change was needed for them. See `AttachmentStore`.
+- **Attachments** are `StoredAttachment` rows in the store (bytes in
+  `.externalStorage`), so CloudKit syncs them. The files in the App Group
+  container (`Attachments/<todo>/<attachment>/…`) are only local copies plus
+  staging; `TodoStore.attachmentURL` writes a missing copy from the store.
+  Folders with `attachments.json` come from builds before v4 and are moved into
+  the store at launch (`TodoStore.adoptLegacyAttachments`). See `AttachmentStore`.
 - **Widgets** render the output of the pure `WidgetContentBuilder`. Tapping a
   widget opens the app through the `howy://` URL scheme (`DeepLink`). The
   checkbox runs `CompleteTodoIntent`.

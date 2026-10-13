@@ -1,18 +1,25 @@
 import Foundation
 
-/// The bytes behind `TodoAttachment`s, in a folder (the App Group container in the app).
+/// The local files behind `TodoAttachment`s, in a folder (the App Group container in the app).
+///
+/// Since schema v4 the attachments themselves (the list and the bytes) live in the store as
+/// `StoredAttachment`s, which CloudKit syncs. The todo folders here are a local copy of those
+/// bytes, so Quick Look and other apps get a file URL; `TodoStore` writes a missing one again
+/// from the store when it is needed. Staging and import areas are where new files wait.
 ///
 /// Layout:
-/// - `<root>/<todo id>/attachments.json`: the todo's attachments, in the order they were added.
-/// - `<root>/<todo id>/<attachment id>/<name>`: a committed file.
+/// - `<root>/<todo id>/<attachment id>/<name>`: a committed file (the local copy).
+/// - `<root>/<todo id>/attachments.json`: only in folders an older build wrote, the list as it
+///   kept it; `TodoStore.adoptLegacyAttachments` moves those attachments into the store and
+///   then removes the list.
 /// - `<root>/staging/<attachment id>/<name>`: a file added during an unsaved edit or draft.
 /// - `<root>/import-<uuid>/<attachment id>/<name>`: a file on its way in from an import.
 /// - `<root>/.trash/<todo id>/…`: a todo folder the orphan cleanup took out of service. Not a
 ///   UUID name, so it is never a todo folder; emptied after `trashRetention`.
 ///
-/// An edit only changes a todo's files on `commit`; until then new files wait in staging, so
-/// Esc can throw them away and drafts can carry them. `collectStaging(keeping:)` deletes staged
-/// files nothing refers to any more.
+/// An edit only changes a todo's files on save (`TodoStore.setAttachments`); until then new
+/// files wait in staging, so Esc can throw them away and drafts can carry them.
+/// `collectStaging(keeping:)` deletes staged files nothing refers to any more.
 public final class AttachmentStore: Sendable {
     public let root: URL
     static let manifestName = "attachments.json"
@@ -52,23 +59,18 @@ public final class AttachmentStore: Sendable {
 
     // MARK: Reading
 
-    /// A todo's committed attachments, in order (empty when it has none).
-    public func attachments(for todoID: UUID) -> [TodoAttachment] {
-        guard let data = try? Data(contentsOf: todoDirectory(todoID).appending(path: Self.manifestName)),
-              let list = try? JSONDecoder().decode([TodoAttachment].self, from: data)
-        else { return [] }
-        return list
-    }
-
     /// Where an attachment's file is: committed for `todoID` if it is there, else staged.
-    /// `nil` when the file is gone.
+    /// `nil` when neither file exists (`TodoStore.attachmentURL` then writes it from the store).
     public func url(for attachment: TodoAttachment, todoID: UUID?) -> URL? {
-        if let todoID {
-            let committed = committedURL(attachment, todoID: todoID)
-            if fileManager.fileExists(atPath: committed.path(percentEncoded: false)) { return committed }
-        }
+        if let todoID, let committed = committedFile(attachment, todoID: todoID) { return committed }
         let staged = stagedURL(attachment)
         return fileManager.fileExists(atPath: staged.path(percentEncoded: false)) ? staged : nil
+    }
+
+    /// The committed file of an attachment, if it is on disk.
+    func committedFile(_ attachment: TodoAttachment, todoID: UUID) -> URL? {
+        let committed = committedURL(attachment, todoID: todoID)
+        return fileManager.fileExists(atPath: committed.path(percentEncoded: false)) ? committed : nil
     }
 
     // MARK: Staging
@@ -103,40 +105,72 @@ public final class AttachmentStore: Sendable {
 
     // MARK: Committing
 
-    /// Makes `attachments` the todo's attachments: staged files move in, committed ones not in
-    /// the list are deleted, the manifest is rewritten. Attachments whose file is missing are
-    /// dropped. Returns whether anything changed.
-    @discardableResult
-    public func commit(_ attachments: [TodoAttachment], for todoID: UUID) throws -> Bool {
-        let old = self.attachments(for: todoID)
-        var kept: [TodoAttachment] = []
-        for attachment in attachments {
-            let committed = committedURL(attachment, todoID: todoID)
-            if fileManager.fileExists(atPath: committed.path(percentEncoded: false)) {
-                kept.append(attachment)
-                continue
-            }
-            let staged = stagedURL(attachment)
-            guard fileManager.fileExists(atPath: staged.path(percentEncoded: false)) else { continue }
-            try fileManager.createDirectory(at: committed.deletingLastPathComponent(), withIntermediateDirectories: true)
-            try fileManager.moveItem(at: staged, to: committed)
-            try? fileManager.removeItem(at: staged.deletingLastPathComponent())
-            kept.append(attachment)
-        }
-        let keptIDs = Set(kept.map(\.id))
-        for attachment in old where !keptIDs.contains(attachment.id) {
-            try? fileManager.removeItem(at: committedURL(attachment, todoID: todoID).deletingLastPathComponent())
-        }
+    /// Moves an attachment's staged file into the todo's folder. Returns the committed file:
+    /// the one already there, the one just moved in, or `nil` when there is neither.
+    func commitStaged(_ attachment: TodoAttachment, for todoID: UUID) throws -> URL? {
+        if let committed = committedFile(attachment, todoID: todoID) { return committed }
+        let staged = stagedURL(attachment)
+        guard fileManager.fileExists(atPath: staged.path(percentEncoded: false)) else { return nil }
+        let committed = committedURL(attachment, todoID: todoID)
+        try fileManager.createDirectory(at: committed.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.moveItem(at: staged, to: committed)
+        try? fileManager.removeItem(at: staged.deletingLastPathComponent())
+        return committed
+    }
+
+    /// Writes an attachment's bytes (from the store) as its committed file, replacing whatever
+    /// its folder held (a copy under an older name). Returns the file.
+    func writeCommitted(_ data: Data, for attachment: TodoAttachment, todoID: UUID) throws -> URL {
+        let target = committedURL(attachment, todoID: todoID)
+        let folder = target.deletingLastPathComponent()
+        try? fileManager.removeItem(at: folder)
+        try fileManager.createDirectory(at: folder, withIntermediateDirectories: true)
+        try data.write(to: target, options: .atomic)
+        return target
+    }
+
+    /// Deletes the todo folder's attachment copies whose id isn't in `keeping`, and the folder
+    /// when nothing is left in it. A folder that still has a legacy list (`attachments.json`,
+    /// not adopted into the store yet) is left alone: its files are the only copy.
+    func prune(_ todoID: UUID, keeping: Set<UUID>) {
         let directory = todoDirectory(todoID)
-        if kept.isEmpty {
-            if fileManager.fileExists(atPath: directory.path(percentEncoded: false)) {
-                try fileManager.removeItem(at: directory)
-            }
-        } else {
-            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
-            try JSONEncoder().encode(kept).write(to: directory.appending(path: Self.manifestName), options: .atomic)
+        guard !fileManager.fileExists(atPath: directory.appending(path: Self.manifestName).path(percentEncoded: false)),
+              let entries = try? fileManager.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else { return }
+        for entry in entries {
+            guard let id = UUID(uuidString: entry.lastPathComponent), !keeping.contains(id) else { continue }
+            try? fileManager.removeItem(at: entry)
         }
-        return kept != old
+        if (try? fileManager.contentsOfDirectory(atPath: directory.path(percentEncoded: false)))?.isEmpty == true {
+            try? fileManager.removeItem(at: directory)
+        }
+    }
+
+    // MARK: Older builds
+
+    /// The todo ids whose folder still has the list an older build kept (`attachments.json`).
+    func legacyTodoIDs() -> Set<UUID> {
+        guard let entries = try? fileManager.contentsOfDirectory(at: root, includingPropertiesForKeys: nil) else { return [] }
+        var ids = Set<UUID>()
+        for entry in entries {
+            guard let id = UUID(uuidString: entry.lastPathComponent),
+                  fileManager.fileExists(atPath: entry.appending(path: Self.manifestName).path(percentEncoded: false))
+            else { continue }
+            ids.insert(id)
+        }
+        return ids
+    }
+
+    /// The list an older build kept for a todo, in order; `nil` when there is none or it can't
+    /// be read.
+    func legacyAttachments(for todoID: UUID) -> [TodoAttachment]? {
+        guard let data = try? Data(contentsOf: todoDirectory(todoID).appending(path: Self.manifestName)) else { return nil }
+        return try? JSONDecoder().decode([TodoAttachment].self, from: data)
+    }
+
+    /// Removes a todo's legacy list, once the store has its attachments. The files stay as the
+    /// local copies.
+    func removeLegacyList(for todoID: UUID) {
+        try? fileManager.removeItem(at: todoDirectory(todoID).appending(path: Self.manifestName))
     }
 
     // MARK: Importing
@@ -157,11 +191,9 @@ public final class AttachmentStore: Sendable {
         try fileManager.copyItem(at: source, to: target)
     }
 
-    /// Makes `attachments` (copied into `area` by `copyForImport`) the attachments of a todo that
-    /// has none yet. Throws instead of touching a todo that already has attachments.
+    /// Moves `attachments` (copied into `area` by `copyForImport`) into a new todo's folder;
+    /// `TodoStore.insert` then stores them.
     func commitImport(_ attachments: [TodoAttachment], for todoID: UUID, from area: URL) throws {
-        guard !attachments.isEmpty else { return }
-        guard self.attachments(for: todoID).isEmpty else { throw CocoaError(.fileWriteFileExists) }
         for attachment in attachments {
             let source = area.appending(path: attachment.id.uuidString, directoryHint: .isDirectory).appending(path: attachment.name)
             let target = committedURL(attachment, todoID: todoID)
@@ -169,7 +201,6 @@ public final class AttachmentStore: Sendable {
             try fileManager.createDirectory(at: target.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fileManager.moveItem(at: source, to: target)
         }
-        try JSONEncoder().encode(attachments).write(to: todoDirectory(todoID).appending(path: Self.manifestName), options: .atomic)
     }
 
     /// The todo ids that have a folder here, among folders last changed before `cutoff`.
@@ -189,7 +220,7 @@ public final class AttachmentStore: Sendable {
         return ids
     }
 
-    /// Deletes all of a todo's files (the todo was deleted or purged).
+    /// Deletes all of a todo's local files (the todo was deleted or purged).
     public func removeAll(for todoID: UUID) {
         try? fileManager.removeItem(at: todoDirectory(todoID))
     }
