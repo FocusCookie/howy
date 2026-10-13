@@ -639,6 +639,11 @@ first (Export…), and keep `Backups/` safe.
 10. **Debug.** Launch Debug on one Mac: it opens `Howy-Debug.store`, downloads
     the real data, and its backups go to `Backups-Howy-Debug`.
 
+**Result (2026-10-13):** test 6, delete: a todo deleted on one Mac disappears on
+the other (the attachment folder moving to `.trash` wasn't checked). Test 8,
+widget: a todo ticked in the widget shows as done on the other Mac (Howy running
+or not wasn't recorded). Both passed.
+
 **Phase 3c** is done (see above). The CloudKit Console steps and the
 Production schema deploy were dropped (no Production). **Left:** the two-Mac
 hand tests (the joining list above and the 3c list), the 2.0.0 release (version
