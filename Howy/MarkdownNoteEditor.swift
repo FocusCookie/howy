@@ -1105,6 +1105,10 @@ enum MarkdownStyler {
             applyChip(chip, to: storage, scale: scale, color: isHighlighted ? .controlAccentColor : .linkColor)
         }
         storage.endEditing()
+        // Restyling every line drops their layout; lines out of view would get estimated heights,
+        // the text's height would change with each keystroke and the view jump. Notes are short:
+        // lay it all out again.
+        if let layout = textView.textLayoutManager { layout.ensureLayout(for: layout.documentRange) }
         textView.typingAttributes = base
         (textView as? NoteTextView)?.bodyScale = scale
         (textView as? NoteTextView)?.setNeedsChipUpdate()
