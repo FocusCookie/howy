@@ -4,6 +4,27 @@ All notable changes to Howy are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Move the panel.** Drag it by its background and Howy remembers the spot,
+  also across restarts: it opens there on the screen under the mouse, pulled
+  back onto the screen if it wouldn't fit. **⌘⇧P** in any panel shows a
+  position picker over the panel, a 3×3 grid of spots on the screen; choose one
+  with the arrows or **h j k l** and press **↩** to move the panel there, or
+  **Esc** to leave it where it is (what you typed is kept). The middle spot is
+  the old default. Settings → Keys lists the picker's keys.
+- A panel in the lower third of the screen grows upward, and the panel zoom
+  keeps the edge of the panel's side of the screen in place (the centre for a
+  panel in the middle).
+
+### Changed
+
+- **The Overview opens in the middle of the screen**, wherever the panel is,
+  and flies back to the panel's spot when it closes. With Reduce Motion it
+  fades in instead. The Overview size preview in Settings shows it centred.
+
 ## [2.5.0] - 2026-10-13
 
 ### Added
