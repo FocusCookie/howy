@@ -91,6 +91,14 @@ public struct PanelLayout: Hashable, Sendable {
     public var cardInset: CGPoint
     /// The tallest the card may get before it would leave the visible frame (keeping `edgeGap`).
     public var maxCardHeight: CGFloat
+
+    /// Where a card `height` tall ends up on screen in this layout: at `cardMinX`, hanging from
+    /// the top anchor edge or standing on the bottom one, and cut to `maxCardHeight`.
+    public func cardFrame(height: CGFloat) -> CGRect {
+        let height = min(height, maxCardHeight)
+        let width = windowFrame.width - 2 * cardInset.x
+        return CGRect(x: cardMinX, y: anchor == .top ? anchorEdge - height : anchorEdge, width: width, height: height)
+    }
 }
 
 /// Turns a stored `PanelPosition` into frames on a screen and back. Pure geometry in AppKit
@@ -124,13 +132,13 @@ public enum PanelPlacement {
         }
     }
 
-    /// The slot `position` is (within a fraction of a point), or `nil` for a dragged position.
+    /// The slot `position` is (within a point), or `nil` for a dragged position.
     public static func slot(at position: PanelPosition, in visible: CGRect) -> PanelSlot? {
         PanelSlot.allCases.first { slot in
             let candidate = self.position(for: slot, in: visible)
             return candidate.anchor == position.anchor && candidate.column == position.column
-                && abs(candidate.x - position.x) * visible.width < 0.5
-                && abs(candidate.y - position.y) * visible.height < 0.5
+                && abs(candidate.x - position.x) * visible.width <= 1
+                && abs(candidate.y - position.y) * visible.height <= 1
         }
     }
 
@@ -200,8 +208,11 @@ public enum PanelPlacement {
     /// window reach from above its top edge down to the bottom of the visible frame; a
     /// bottom-anchored one has it reach from below its bottom edge up past the top of the visible
     /// frame, so the transparent part where the card can grow is above the card. Either way the
-    /// card keeps `minimumRoom` to grow into.
-    public static func layout(for position: PanelPosition, cardWidth: CGFloat, in visible: CGRect, margin: CGFloat) -> PanelLayout {
+    /// card keeps `minimumRoom` to grow into. With `screen` (the screen's whole frame) the window's
+    /// top stops at the screen's top edge, and the card's inset above it shrinks to what is left.
+    public static func layout(
+        for position: PanelPosition, cardWidth: CGFloat, in visible: CGRect, margin: CGFloat, screen: CGRect? = nil
+    ) -> PanelLayout {
         let position = position.normalized
         let point = anchorPoint(of: position, in: visible)
         var cardMinX = minX(anchorX: point.x, width: cardWidth, column: position.column)
@@ -212,16 +223,18 @@ public enum PanelPlacement {
         switch position.anchor {
         case .top:
             let top = min(max(point.y, visible.minY + room), visible.maxY).rounded()
+            let windowTop = min(top + margin, screen?.maxY ?? .infinity)
             return PanelLayout(
-                windowFrame: CGRect(x: windowX, y: visible.minY, width: windowWidth, height: top + margin - visible.minY),
+                windowFrame: CGRect(x: windowX, y: visible.minY, width: windowWidth, height: windowTop - visible.minY),
                 cardMinX: cardMinX, anchorEdge: top, anchor: .top, column: position.column,
-                cardInset: CGPoint(x: margin, y: margin), maxCardHeight: top - visible.minY - edgeGap
+                cardInset: CGPoint(x: margin, y: windowTop - top), maxCardHeight: top - visible.minY - edgeGap
             )
         case .bottom:
             let bottom = max(min(point.y, visible.maxY - room), visible.minY).rounded()
             let maxHeight = visible.maxY - edgeGap - bottom
+            let windowTop = min(bottom + maxHeight + margin, screen?.maxY ?? .infinity)
             return PanelLayout(
-                windowFrame: CGRect(x: windowX, y: bottom - margin, width: windowWidth, height: maxHeight + 2 * margin),
+                windowFrame: CGRect(x: windowX, y: bottom - margin, width: windowWidth, height: windowTop - bottom + margin),
                 cardMinX: cardMinX, anchorEdge: bottom, anchor: .bottom, column: position.column,
                 cardInset: CGPoint(x: margin, y: margin), maxCardHeight: maxHeight
             )
@@ -239,6 +252,21 @@ public enum PanelPlacement {
             }
         guard newWidth <= visible.width else { return visible.minX }
         return min(max(minX, visible.minX), visible.maxX - newWidth)
+    }
+
+    // MARK: Picker
+
+    /// How far the position picker (`pickerSize`, centred on the card) moves so that it lies inside
+    /// `bounds` (the visible frame within the window): a short card at an edge, or a zoomed picker,
+    /// would otherwise reach past it. Screen coordinates (y up). A picker larger than `bounds` is
+    /// pinned to its top-leading corner.
+    public static func pickerOffset(pickerSize: CGSize, cardFrame: CGRect, bounds: CGRect) -> CGSize {
+        let centred = CGRect(
+            x: cardFrame.midX - pickerSize.width / 2, y: cardFrame.midY - pickerSize.height / 2,
+            width: pickerSize.width, height: pickerSize.height
+        )
+        let fitted = clamped(centred, in: bounds)
+        return CGSize(width: fitted.minX - centred.minX, height: fitted.minY - centred.minY)
     }
 
     // MARK: Helpers

@@ -72,7 +72,7 @@ import Testing
         let v = Self.visible
         let frame = frame(.center)
         #expect(isClose(frame.midX, v.midX))
-        #expect(isClose(frame.maxY, OverviewSize.compactCardTop(in: v)))
+        #expect(isClose(frame.maxY, (v.maxY - v.height * OverviewSize.compactPanelTopFraction)))
     }
 
     // MARK: Normalised positions
@@ -189,6 +189,16 @@ import Testing
         #expect(PanelPlacement.slot(at: position, in: Self.visible) == nil)
     }
 
+    @Test func aSlotIsRecognisedWithinAPoint() {
+        let v = Self.visible
+        var position = PanelPlacement.position(for: .bottomTrailing, in: v)
+        position.x += 0.8 / v.width
+        position.y -= 0.9 / v.height
+        #expect(PanelPlacement.slot(at: position, in: v) == .bottomTrailing)
+        position.x += 1.5 / v.width
+        #expect(PanelPlacement.slot(at: position, in: v) == nil)
+    }
+
     // MARK: Window layout
 
     static let margin: CGFloat = 128
@@ -196,7 +206,7 @@ import Testing
     @Test func topAnchoredWindowReachesDownToTheScreenBottom() {
         let v = Self.visible
         let layout = PanelPlacement.layout(for: .default, cardWidth: 600, in: v, margin: Self.margin)
-        let cardTop = OverviewSize.compactCardTop(in: v)
+        let cardTop = (v.maxY - v.height * OverviewSize.compactPanelTopFraction)
         #expect(layout.anchor == .top)
         #expect(layout.windowFrame == CGRect(x: v.midX - 300 - 128, y: v.minY, width: 600 + 256, height: cardTop + 128 - v.minY))
         #expect(layout.cardInset == CGPoint(x: 128, y: 128))
@@ -228,6 +238,69 @@ import Testing
         #expect(PanelPlacement.layout(for: low, cardWidth: 600, in: v, margin: 128).maxCardHeight >= PanelPlacement.minimumRoom - PanelPlacement.edgeGap)
         let high = PanelPosition(x: 0.5, y: 0.01, anchor: .bottom, column: .center)
         #expect(PanelPlacement.layout(for: high, cardWidth: 600, in: v, margin: 128).maxCardHeight >= PanelPlacement.minimumRoom - PanelPlacement.edgeGap)
+    }
+
+    @Test func aTopSlotWindowStopsAtTheScreensTop() {
+        let v = Self.visible
+        let screen = CGRect(x: 0, y: 0, width: 1500, height: 960) // 30 pt Dock below, 30 pt menu bar above
+        let position = PanelPlacement.position(for: .top, in: v)
+        let layout = PanelPlacement.layout(for: position, cardWidth: 600, in: v, margin: Self.margin, screen: screen)
+        let top = v.maxY - 24
+        #expect(layout.windowFrame.maxY == screen.maxY)
+        #expect(layout.windowFrame.minY == v.minY)
+        // The card keeps its place: the inset above it is what is left of the margin.
+        #expect(layout.cardInset == CGPoint(x: 128, y: screen.maxY - top))
+        #expect(layout.windowFrame.maxY - layout.cardInset.y == top)
+        // A window that fits is left alone.
+        let middle = PanelPlacement.layout(for: .default, cardWidth: 600, in: v, margin: Self.margin, screen: screen)
+        #expect(middle == PanelPlacement.layout(for: .default, cardWidth: 600, in: v, margin: Self.margin))
+        // A bottom-anchored window reaches up past the visible frame, but not past the screen.
+        let bottom = PanelPlacement.layout(for: PanelPlacement.position(for: .bottom, in: v), cardWidth: 600, in: v, margin: Self.margin, screen: screen)
+        #expect(bottom.windowFrame.maxY == screen.maxY)
+        #expect(bottom.cardInset == CGPoint(x: 128, y: 128))
+    }
+
+    @Test func aLayoutKnowsWhereItsCardEndsUp() {
+        let v = Self.visible
+        let topLayout = PanelPlacement.layout(for: PanelPlacement.position(for: .topTrailing, in: v), cardWidth: 600, in: v, margin: Self.margin)
+        #expect(topLayout.cardFrame(height: 300) == frame(.topTrailing))
+        let bottomLayout = PanelPlacement.layout(for: PanelPlacement.position(for: .bottomLeading, in: v), cardWidth: 600, in: v, margin: Self.margin)
+        #expect(bottomLayout.cardFrame(height: 300) == frame(.bottomLeading))
+        // A card taller than the layout allows is cut to it, from its fixed edge.
+        let tall = topLayout.cardFrame(height: 5000)
+        #expect(tall.height == topLayout.maxCardHeight)
+        #expect(tall.maxY == topLayout.anchorEdge)
+    }
+
+    // MARK: Picker
+
+    @Test func aPickerThatFitsStaysCentredOnTheCard() {
+        let card = CGRect(x: 400, y: 400, width: 600, height: 300)
+        let bounds = CGRect(x: 0, y: 0, width: 1500, height: 900)
+        #expect(PanelPlacement.pickerOffset(pickerSize: CGSize(width: 400, height: 250), cardFrame: card, bounds: bounds) == .zero)
+    }
+
+    @Test func aPickerIsPushedBackInsideTheBounds() {
+        let bounds = CGRect(x: 0, y: 30, width: 1500, height: 900)
+        // A short card at the top: the 334 pt picker would reach 77 pt past the top.
+        let top = CGRect(x: 400, y: 800, width: 600, height: 100)
+        let pushedDown = PanelPlacement.pickerOffset(pickerSize: CGSize(width: 400, height: 334), cardFrame: top, bounds: bounds)
+        #expect(pushedDown == CGSize(width: 0, height: -(850 + 167 - 930)))
+        // At the bottom, and at the trailing edge.
+        let corner = CGRect(x: 1300, y: 40, width: 190, height: 80)
+        let offset = PanelPlacement.pickerOffset(pickerSize: CGSize(width: 400, height: 334), cardFrame: corner, bounds: bounds)
+        let moved = CGRect(x: corner.midX - 200 + offset.width, y: corner.midY - 167 + offset.height, width: 400, height: 334)
+        #expect(bounds.contains(moved))
+        #expect(offset.width < 0 && offset.height > 0)
+    }
+
+    @Test func aPickerLargerThanTheBoundsIsPinnedToTheTop() {
+        let bounds = CGRect(x: 0, y: 0, width: 300, height: 300)
+        let card = CGRect(x: 50, y: 100, width: 200, height: 100)
+        let offset = PanelPlacement.pickerOffset(pickerSize: CGSize(width: 400, height: 500), cardFrame: card, bounds: bounds)
+        let moved = CGRect(x: card.midX - 200 + offset.width, y: card.midY - 250 + offset.height, width: 400, height: 500)
+        #expect(moved.minX == bounds.minX)
+        #expect(moved.maxY == bounds.maxY)
     }
 
     // MARK: Zoom
