@@ -648,7 +648,7 @@ final class NoteTextView: NSTextView {
     private func revealCaretIfNeeded() {
         guard caretNeedsReveal else { return }
         caretNeedsReveal = false
-        guard window?.firstResponder === self, !hasMarkedText(), let caret = caretRect(at: selectedRange().location) else { return }
+        guard window?.firstResponder === self, !hasMarkedText(), let caret = revealRect(at: selectedRange().location) else { return }
         scrollToVisible(caret.insetBy(dx: 0, dy: -textContainerInset.height))
     }
 
@@ -878,20 +878,39 @@ final class NoteTextView: NSTextView {
     private func caretRect(at location: Int) -> NSRect? {
         let lineHeight = (font ?? MarkdownStyler.baseFont(scale: 1)).boundingRectForFont.height
         let origin = textContainerOrigin
+        return caretSegment(at: location) ?? NSRect(x: origin.x, y: origin.y, width: 0, height: lineHeight)
+    }
+
+    /// The caret's segment at `location` in view coordinates, nil when TextKit has none (e.g.
+    /// after a space that hangs past the end of a full line).
+    private func caretSegment(at location: Int) -> NSRect? {
         guard let layout = textLayoutManager, let content = layout.textContentManager,
               let start = content.location(content.documentRange.location, offsetBy: location),
               let range = NSTextRange(location: start, end: start),
-              let laidOut = NSTextRange(location: content.documentRange.location, end: start) else {
-            return NSRect(x: origin.x, y: origin.y, width: 0, height: lineHeight)
-        }
+              let laidOut = NSTextRange(location: content.documentRange.location, end: start) else { return nil }
         layout.ensureLayout(for: laidOut) // from the start, like `segmentRects`
         var caret: NSRect?
         layout.enumerateTextSegments(in: range, type: .selection, options: .rangeNotRequired) { _, frame, _, _ in
             caret = frame
             return false
         }
-        guard let caret, caret.height > 0 else { return NSRect(x: origin.x, y: origin.y, width: 0, height: lineHeight) }
-        return caret.offsetBy(dx: origin.x, dy: origin.y)
+        guard let caret, caret.height > 0 else { return nil }
+        return caret.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+    }
+
+    /// The line to keep in view for the caret at `location`: its segment, else the character
+    /// before it, else (an empty last line) the end of the text. Never the top: that jumped.
+    private func revealRect(at location: Int) -> NSRect? {
+        let rect = caretSegment(at: location) ?? {
+            let ns = string as NSString
+            if location > 0, ns.character(at: location - 1) != 0x0A,
+               let previous = segmentRects(forCharacters: NSRange(location: location - 1, length: 1)).last {
+                return previous
+            }
+            return location == ns.length ? NSRect(x: 0, y: bounds.maxY - 1, width: 1, height: 1) : nil
+        }()
+        // Only the height matters: the text never scrolls sideways.
+        return rect.map { NSRect(x: 0, y: $0.minY, width: 1, height: $0.height) }
     }
 
     /// The first ⌫ after a chip selects it; the next one deletes it (an attachment chip: only
