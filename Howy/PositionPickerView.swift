@@ -36,6 +36,7 @@ struct PositionPickerOverlay: View {
         VStack(spacing: 10 * scale) {
             Text("Move panel")
                 .panelFont(.headline)
+                .foregroundStyle(Color.primary)
             Grid(horizontalSpacing: 8 * scale, verticalSpacing: 8 * scale) {
                 ForEach(0..<3, id: \.self) { row in
                     GridRow {
@@ -47,10 +48,10 @@ struct PositionPickerOverlay: View {
                     }
                 }
             }
-            KeyHints("←↑↓→ / hjkl · ↩ move · esc cancel")
+            KeyHints("←↑↓→ / hjkl · ↩ move · esc cancel", prominent: true)
         }
         .padding(14 * scale)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14 * scale, style: .continuous))
+        .background(.thickMaterial, in: RoundedRectangle(cornerRadius: 14 * scale, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14 * scale, style: .continuous)
                 .strokeBorder(Color.primary.opacity(0.12), lineWidth: 1)
@@ -65,17 +66,17 @@ struct PositionPickerOverlay: View {
         let current = slot == flow.current
         let shape = RoundedRectangle(cornerRadius: 6 * scale, style: .continuous)
         return shape
-            .fill(selected ? Color.accentColor : Color.primary.opacity(0.06))
+            .fill(selected ? Color.accentColor : Color.primary.opacity(0.08))
             .overlay {
                 RoundedRectangle(cornerRadius: 2 * scale, style: .continuous)
-                    .fill(selected ? Color.white : Color.primary.opacity(0.35))
+                    .fill(selected ? Color.white : Color.primary.opacity(0.5))
                     .frame(width: 34 * scale, height: 20 * scale)
                     .padding(EdgeInsets(top: slot.topPadding(tileHeight: tileHeight) * scale, leading: 8 * scale, bottom: 8 * scale, trailing: 8 * scale))
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: slot.alignment)
             }
             .overlay {
                 shape.strokeBorder(
-                    current ? Color.accentColor : Color.primary.opacity(0.18),
+                    current ? Color.accentColor : Color.primary.opacity(0.25),
                     lineWidth: current ? 2 : 1
                 )
             }
