@@ -34,7 +34,10 @@ widget silently doesn't load.
   "Sign to Run Locally".
 - Both the app and the widget extension are **sandboxed**. macOS won't load an
   unsandboxed widget.
-- For personal use only: no App Store and no notarisation.
+- Day-to-day builds are development-signed and use CloudKit's Development
+  environment. The Mac App Store is the eventual target: store builds use the
+  Production environment, so deploy schema changes in the CloudKit Console
+  before every store release.
 
 ## Project layout
 
