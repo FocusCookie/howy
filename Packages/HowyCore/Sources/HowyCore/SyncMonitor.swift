@@ -30,6 +30,14 @@ import os
 /// call `receiveNetwork(isOnline:)`. While offline the line says so (`SyncStatus`), and
 /// `onBackOnline` runs when the network returns.
 ///
+/// **Low Power Mode.** `startLowPowerModeChecks()` reads `ProcessInfo.isLowPowerModeEnabled` and
+/// follows `NSProcessInfoPowerStateDidChange`; tests call `receiveLowPowerMode(_:)`.
+/// While it is on, macOS delays silent pushes and background work, so sync may come late:
+/// `statusHint` says so under the line (`SyncStatus.hint(lowPowerMode:)`), and turning it on
+/// notifies (`SyncIncidents.lowPowerModeChanged`: off → on only, so not at launch when it is
+/// already on, and only while the store mirrors with a signed-in account). Turning it off hands
+/// the notice to `onAlertResolved`, which withdraws it.
+///
 /// **Notifications.** Events and account changes go through `SyncIncidents` (the CKError matrix,
 /// once per incident, over an hour); what it returns is handed to `onAlert`. `tick()` checks the
 /// "over an hour" rule between events. When each kind was last posted is saved in `defaults`, so
@@ -42,6 +50,11 @@ public final class SyncMonitor {
     public private(set) var account: AccountObservation?
     /// Whether the Mac has a network path; `true` until a check says otherwise.
     public private(set) var isOnline = true
+    /// Whether Low Power Mode is on; `false` until the first reading.
+    public private(set) var isLowPowerMode = false
+    /// Whether Low Power Mode was read at all (the first reading is the launch's, it never notifies).
+    @ObservationIgnored private var lowPowerModeKnown = false
+    @ObservationIgnored private var powerStateObserver: (any NSObjectProtocol)?
     /// The network came back after being offline: check for changes.
     @ObservationIgnored public var onBackOnline: () -> Void = {}
     @ObservationIgnored private var pathMonitor: NWPathMonitor?
@@ -51,6 +64,8 @@ public final class SyncMonitor {
     @ObservationIgnored public var onChange: () -> Void = {}
     /// A sync notification to post (once per incident; see `SyncIncidents`).
     @ObservationIgnored public var onAlert: (SyncAlert) -> Void = { _ in }
+    /// A notice no longer applies (Low Power Mode turned off): the app withdraws it.
+    @ObservationIgnored public var onAlertResolved: (SyncAlert) -> Void = { _ in }
     @ObservationIgnored private let now: () -> Date
     @ObservationIgnored private var observer: (any NSObjectProtocol)?
     @ObservationIgnored private let defaults: (any KeyValueStoring)?
@@ -88,6 +103,11 @@ public final class SyncMonitor {
     /// The line Settings shows now.
     public var status: SyncStatus {
         SyncStatus(state: state, account: account, isOnline: isOnline, now: now())
+    }
+
+    /// A sentence under the line, if any: the Low Power Mode hint (`SyncStatus.hint(lowPowerMode:)`).
+    public var statusHint: String? {
+        status.hint(lowPowerMode: isLowPowerMode)
     }
 
     /// The mode for how the shared store really opened: `.starting` while it isn't built,
@@ -137,6 +157,32 @@ public final class SyncMonitor {
             checkAccount()
             onBackOnline()
         }
+    }
+
+    /// Takes in whether Low Power Mode is on (from `startLowPowerModeChecks`, or a test). The
+    /// first reading is the launch's and never notifies; after that, turning it on may
+    /// (`SyncIncidents.lowPowerModeChanged`) and turning it off calls `onAlertResolved`.
+    public func receiveLowPowerMode(_ isOn: Bool) {
+        let wasOn: Bool? = lowPowerModeKnown ? isLowPowerMode : nil
+        lowPowerModeKnown = true
+        guard wasOn != isOn else { return }
+        isLowPowerMode = isOn
+        Self.log.info("Low Power Mode: \(isOn ? "on" : "off", privacy: .public)")
+        let alerts = SyncIncidents.lowPowerModeChanged(from: wasOn, to: isOn, mode: state.mode, account: account)
+        for alert in alerts { onAlert(alert) }
+        if wasOn == true, !isOn { onAlertResolved(.lowPowerMode) }
+    }
+
+    /// Reads Low Power Mode now and follows its changes. Calling it again does nothing.
+    public func startLowPowerModeChecks() {
+        guard powerStateObserver == nil else { return }
+        // Posted on a global queue; the value is read on the main actor, so the last reading wins.
+        powerStateObserver = NotificationCenter.default.addObserver(
+            forName: .NSProcessInfoPowerStateDidChange, object: nil, queue: nil
+        ) { [weak self] _ in
+            Task { @MainActor in self?.receiveLowPowerMode(ProcessInfo.processInfo.isLowPowerModeEnabled) }
+        }
+        receiveLowPowerMode(ProcessInfo.processInfo.isLowPowerModeEnabled)
     }
 
     private static let log = Logger(subsystem: "lueddemann.howy", category: "SyncMonitor")

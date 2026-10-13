@@ -13,6 +13,11 @@ import Foundation
 /// started then (by the import nudge) just doesn't end, which would read as syncing. The same
 /// can happen with a network path but no internet behind it, which the path doesn't show; so
 /// an import or export running longer than `hangsAfter` reads as waiting, not syncing.
+///
+/// **Low Power Mode** isn't a status of its own: sync still works, only later (macOS delays
+/// silent pushes and background work). It is a hint under the line (`hint(lowPowerMode:)`) while
+/// sync otherwise works (syncing, up to date, waiting), so "Last synced …" stays; every other
+/// status says more than the hint would and shows its own text alone.
 public enum SyncStatus: Hashable, Sendable {
     /// The store or the account isn't known yet (launch).
     case checking
@@ -137,6 +142,20 @@ public enum SyncStatus: Hashable, Sendable {
         case .restricted: "Your todos stay on this Mac."
         case .error: "Your todos stay on this Mac. Howy keeps trying and notifies you if it lasts."
         case .unavailable(let reason): "Howy runs on this Mac only until it's restarted (\(reason))."
+        }
+    }
+
+    /// The hint under the line while Low Power Mode is on.
+    public static let lowPowerModeHint = "Low Power Mode is on, so sync may be delayed."
+
+    /// A sentence shown below the line and its detail: the Low Power Mode hint while
+    /// `lowPowerMode` is on and sync otherwise works (syncing, up to date, waiting); `nil` for
+    /// the other statuses, whose own text takes priority.
+    public func hint(lowPowerMode: Bool) -> String? {
+        guard lowPowerMode else { return nil }
+        switch self {
+        case .syncing, .upToDate, .waiting: return Self.lowPowerModeHint
+        case .checking, .offline, .notSignedIn, .iCloudOff, .restricted, .error, .unavailable, .off: return nil
         }
     }
 

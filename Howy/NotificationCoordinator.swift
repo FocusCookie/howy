@@ -14,8 +14,9 @@ import UserNotifications
 ///
 /// It also posts the sync notifications (`post(_:)` with a `SyncAlert` from `SyncMonitor`):
 /// delivered right away, one per kind (a newer one replaces the older), and a click opens
-/// Settings at the sync line. A sync notice asks for permission itself if nobody has yet: it may
-/// say the todos were removed from this Mac, which shouldn't be lost for want of a due date.
+/// Settings at the sync line. A sync notice about a problem asks for permission itself if nobody
+/// has yet: it may say the todos were removed from this Mac, which shouldn't be lost for want of
+/// a due date. The Low Power Mode note doesn't (`SyncAlert.asksForPermission`).
 @MainActor
 @Observable
 final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate {
@@ -105,12 +106,13 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
 
     // MARK: Sync notices
 
-    /// Posts a sync notice now (asking for permission first if it was never asked).
+    /// Posts a sync notice now (asking for permission first if it was never asked and the notice
+    /// asks for it, `SyncAlert.asksForPermission`).
     func post(_ alert: SyncAlert) {
         log.notice("Sync notice: \(alert.title, privacy: .public)")
         Task {
             let settings = await center.notificationSettings()
-            if settings.authorizationStatus == .notDetermined {
+            if settings.authorizationStatus == .notDetermined, alert.asksForPermission {
                 do {
                     _ = try await center.requestAuthorization(options: [.alert, .sound])
                 } catch {
@@ -132,6 +134,12 @@ final class NotificationCoordinator: NSObject, UNUserNotificationCenterDelegate 
                 log.error("Posting a sync notice failed: \(error, privacy: .public)")
             }
         }
+    }
+
+    /// Removes a sync notice that no longer applies, delivered or still pending.
+    func withdraw(_ alert: SyncAlert) {
+        center.removeDeliveredNotifications(withIdentifiers: [alert.identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [alert.identifier])
     }
 
     // MARK: Sync

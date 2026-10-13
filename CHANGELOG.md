@@ -4,6 +4,20 @@ All notable changes to Howy are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **Low Power Mode hint for iCloud sync.** In Low Power Mode macOS delays
+  background work, so iCloud may sync your todos later than usual. Settings →
+  iCloud now says so under the sync line ("Low Power Mode is on, so sync may be
+  delayed.") while sync otherwise works, and Howy notifies you each time Low
+  Power Mode turns on while it syncs with a signed-in iCloud account, and
+  removes the notification when Low Power Mode turns off. Clicking
+  the notification opens Settings → iCloud with the sync line highlighted. It
+  doesn't notify at launch if Low Power Mode is already on, and it doesn't ask
+  for notification permission on its own.
+
 ## [2.4.0] - 2026-10-13
 
 ### Fixed

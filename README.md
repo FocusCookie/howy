@@ -225,7 +225,9 @@ Everything happens from a shortcut.
 - **Settings → iCloud** shows one status line: checking, syncing, up to date
   (with when it last synced), offline, waiting for iCloud, not signed in or
   iCloud off for Howy (Howy then works on this Mac only), or a sync error with
-  a short reason.
+  a short reason. In Low Power Mode, macOS delays background work, so while
+  sync otherwise works the line adds "Low Power Mode is on, so sync may be
+  delayed."
 - **Notifications** come once per problem, and clicking one opens Settings → iCloud
   with the status line highlighted: the todos were removed from this Mac (signed out, iCloud off
   for Howy, another account, or Howy's data deleted from iCloud), iCloud
@@ -233,6 +235,11 @@ Everything happens from a shortcut.
   short hiccup at iCloud never notifies. Storage-full and failing notices don't
   repeat within a day. If notifications were never allowed, the first notice
   asks for permission.
+- **Low Power Mode** turning on notifies too ("Sync may be delayed"), each
+  time it turns on while Howy syncs with a signed-in iCloud account, and Howy
+  removes the notice when it turns off. It doesn't
+  notify when Howy starts with Low Power Mode already on, and it only shows if
+  notifications are already allowed (it never asks for permission).
 - Editing the same todo on two Macs at the same moment can lose one of the
   two edits.
 - Howy waits until it has received the changes from iCloud before it runs its
