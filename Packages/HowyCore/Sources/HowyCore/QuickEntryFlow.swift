@@ -126,10 +126,11 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 ///   checklist items with it (`MarkdownTaskToggle`). ⌘O and ⌘E don't either: the editor opens /
 ///   edits the link at the caret (`NoteLinks`), the latter through `beginEditingLink`.
 /// - Title, note: ⌥Enter goes to the attachments.
-/// - Attachments: ←/→ select (clamped); Space/Enter ask to open the selected one, ⌥Enter to open
+/// - Attachments: ←/→ (or h/l) select (clamped); Space/Enter ask to open the selected one, ⌥Enter to open
 ///   it the other way (`takeRequest()`); Enter with none asks to pick files; ⌫ removes the
-///   selected one (and its references in the note); Shift+Tab goes back to the note. Other keys
-///   are swallowed (nothing to type into).
+///   selected one (and its references in the note); **I** (`insertKey`) inserts a chip for the
+///   selected one into the note (see "Attachment chips"); Shift+Tab goes back to the note. Other
+///   keys are swallowed (nothing to type into).
 /// - Anywhere active: ⌘Enter saves if the trimmed title is non-empty (otherwise consumed and
 ///   blocked); Esc cancels.
 /// - ⌘⌫ is never ours: the title and note delete to the start of the line, elsewhere it does nothing.
@@ -145,6 +146,33 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 /// `pendingNoteEdit` (it applies it as one undo step and calls `noteEditApplied`), unless the
 /// note changed in the meantime. A new link's title starts as the site's domain; with a
 /// `LinkTitleLookup` the page's own title replaces it when it arrives, unless the user typed first.
+///
+/// Attachment chips (`attachmentDialog`, in the note): references to attachments are chips like
+/// links (`NoteChips`); ⌘O / ⌥⌘O open the one at the caret, which the note editor handles itself.
+/// - Pasting or dropping one file onto the note asks for the chip's title before anything is
+///   attached (`beginAddingAttachment(fileName:token:isScreenshot:replacing:)`): ↩ asks the caller
+///   to stage the file (`AttachmentRequest.stage(token:)`), which then hands the staged attachment
+///   back (`attachStaged(_:token:)`) or reports failure (`stagingFailed(token:)`); Esc cancels and
+///   nothing is staged. The title starts as the file name without its extension (selected); a
+///   pasted screenshot starts empty with the placeholder "Screenshot". A blank title falls back to
+///   the staged name without its extension. Several files, or one pasted over a one-line selection,
+///   need no dialog: the editor inserts them itself (`NoteAttachments`).
+/// - **I** in the attachments inserts the selected one at the note's remembered selection
+///   (`noteSelectionChanged`, the editor reports it; the note shows it as `ghostNoteSelection`
+///   while in the attachments), or at the note's end when none is remembered. A non-empty one-line
+///   selection becomes the title and is replaced, without a dialog; any other selection gets the
+///   chip after it, through the dialog (`beginAddingAttachment(_:replacing:)`, also for a thumbnail
+///   dragged from the strip onto the note). Either way the note gets focus, the caret after the chip.
+///   Esc inserts nothing; the attachment stays.
+/// - ⌘E on an attachment chip edits its title only (`beginEditingAttachment`). ⌘⌫ there removes
+///   the reference; when it was the attachment's last one in the note the dialog first asks
+///   "Also delete the attachment?" (`isAskingToDeleteAttachment`): Y yes (the attachment goes
+///   too), N or ↩ no (only the reference goes; the safe default), Esc back to the title. Nothing
+///   else is typed while asking. ⌘Z in the note after a yes brings the reference back, and with it
+///   the attachment (its file is only deleted on save).
+/// - While the dialog is open its keys come first: ↩ (or ⌘↩) inserts / saves, Esc cancels, ⌘⌫ as
+///   above (adding: the field's), ⌘D, ⌥↩ and ⇥ are swallowed; other keys type into the title.
+/// - Every change goes to the editor as `pendingNoteEdit` (one undo step), as for links.
 ///
 /// Due date (`dueDialog`): ⌘T anywhere (or `beginDueDate()`, the clock in the header) opens the
 /// due-date dialog over the panel (`DueDateDialog`). While it is open its keys come first (the
@@ -175,7 +203,13 @@ public final class QuickEntryFlow {
         case open(TodoAttachment, alternate: Bool)
         /// Show a file picker; the chosen files are attached without a note reference.
         case chooseFiles
+        /// The attachment dialog for a pasted / dropped file was confirmed: stage the file kept
+        /// under `token` and hand it back with `attachStaged(_:token:)` (or `stagingFailed(token:)`).
+        case stage(token: UUID)
     }
+
+    /// **I** in the attachments: insert the selected one into the note.
+    public static let insertKey: Character = "i"
 
     public enum Mode: Hashable, Sendable {
         /// A new todo in this quadrant, starting in the title; ⇧⇥ from the title reaches the picker.
@@ -194,7 +228,12 @@ public final class QuickEntryFlow {
     /// The highlighted / chosen quadrant.
     public var quadrant: Quadrant
     public var title: String
-    public var note: String
+    public var note: String {
+        didSet { if !deletedFromDialog.isEmpty { reattachReferencedDeletions() } }
+    }
+    /// Attachments "Also delete" took out of the list, with where they were. They come back when
+    /// the note references them again (⌘Z in the editor); their files stay until the save.
+    @ObservationIgnored private var deletedFromDialog: [(index: Int, attachment: TodoAttachment)] = []
     /// The attachments, in the order they were added. Changed via `attach` / `removeAttachment`.
     public private(set) var attachments: [TodoAttachment]
     /// The selection while `phase == .browsingAttachments`: an attachment, or `attachments.count`
@@ -218,6 +257,13 @@ public final class QuickEntryFlow {
     public private(set) var linkDialog: LinkDialog?
     /// A finished link dialog's change to the note, for the note editor to apply.
     public private(set) var pendingNoteEdit: PendingNoteEdit?
+    /// The attachment dialog over the note (a chip's title), while it is open.
+    public private(set) var attachmentDialog: AttachmentDialog?
+    /// The note's selection as the editor last reported it (`noteSelectionChanged`), kept while
+    /// the focus is elsewhere: where **I** in the attachments inserts.
+    public private(set) var rememberedNoteSelection: NSRange?
+    /// A confirmed pasted / dropped file waiting for the caller to stage it.
+    @ObservationIgnored private var pendingStaging: PendingStaging?
     @ObservationIgnored private var nextDialogID = 0
     @ObservationIgnored private let linkTitles: (any LinkTitleLookup)?
     /// The running page-title lookup (tests await it).
@@ -302,6 +348,7 @@ public final class QuickEntryFlow {
     @discardableResult
     public func handle(_ key: QuickEntryKey) -> Bool {
         guard !isFinished, !isAbandoned else { return false }
+        if attachmentDialog != nil { return handleAttachmentDialogKey(key) }
         if linkDialog != nil { return handleLinkDialogKey(key) }
         if dueDialog != nil { return handleDueDialogKey(key) }
         switch key {
@@ -362,7 +409,7 @@ public final class QuickEntryFlow {
     }
 
     private func handleAttachmentKey(_ key: QuickEntryKey) {
-        switch key {
+        switch key.vimArrow() {
         case .left: moveAttachmentSelection(by: -1)
         case .right: moveAttachmentSelection(by: 1)
         case .space, .enter, .optionEnter:
@@ -373,6 +420,8 @@ public final class QuickEntryFlow {
             }
         case .backspace:
             if let attachment = selectedAttachment { removeAttachment(id: attachment.id) }
+        case .letter(Self.insertKey):
+            if let attachment = selectedAttachment { insertIntoNote(attachment) }
         case .shiftTab: phase = .editingNote
         default: break
         }
@@ -394,22 +443,24 @@ public final class QuickEntryFlow {
     /// The names already used, for naming a new attachment (`AttachmentNaming`).
     public var attachmentNames: [String] { attachments.map(\.name) }
 
-    /// Adds an attachment (its file is already staged). Returns the Markdown reference for the
-    /// note; the caller inserts it where it belongs (paste, drop on the note) or ignores it.
-    @discardableResult
-    public func attach(_ attachment: TodoAttachment) -> String {
-        guard !isFinished else { return "" }
+    /// Adds an attachment (its file is already staged). The caller puts a reference in the note
+    /// where it belongs (`NoteAttachments`) or leaves the attachment without one.
+    public func attach(_ attachment: TodoAttachment) {
+        guard !isFinished else { return }
         // With Add selected, its index now points at the first new file, which gets selected.
         attachments.append(attachment)
-        return AttachmentReference.markdown(for: attachment)
     }
 
     /// Removes an attachment and its references in the note. The selection stays in place (clamped).
     public func removeAttachment(id: UUID) {
+        removeAttachment(id: id, updatingNote: true)
+    }
+
+    private func removeAttachment(id: UUID, updatingNote: Bool) {
         guard !isFinished, let index = attachments.firstIndex(where: { $0.id == id }) else { return }
         let removed = attachments.remove(at: index)
-        if !attachments.contains(where: { $0.name == removed.name }) {
-            note = AttachmentReference.removing(name: removed.name, from: note)
+        if updatingNote, !attachments.contains(where: { $0.name == removed.name }) {
+            note = NoteAttachments.removeReferences(to: removed.name, in: note)
         }
         if let selected = selectedAttachmentIndex, selected > index || selected == attachments.count {
             // Keep the same attachment selected, or stay on the last one (Add once none are left).
@@ -477,6 +528,7 @@ public final class QuickEntryFlow {
             return false
         }
         closeLinkDialog()
+        closeAttachmentDialog()
         dueDialog = nil
         savedDraft = QuickEntryDraft(
             todoID: todoID,
@@ -504,6 +556,7 @@ public final class QuickEntryFlow {
     public func cancel() {
         guard !isFinished else { return }
         closeLinkDialog()
+        closeAttachmentDialog()
         dueDialog = nil
         if isEditing { setStash(nil) } else { stashCurrent() }
         phase = .cancelled
@@ -563,7 +616,7 @@ public final class QuickEntryFlow {
 
     /// ⌘T or the clock in the header: opens the due-date dialog, starting from the current date.
     public func beginDueDate() {
-        guard !isFinished, !isAbandoned, linkDialog == nil, dueDialog == nil else { return }
+        guard !isFinished, !isAbandoned, !hasDialog else { return }
         dueDialog = DueDateDialog(current: due)
     }
 
@@ -650,10 +703,12 @@ public final class QuickEntryFlow {
         }
     }
 
-    /// A change to the note from the link dialog. `id` tells one from the next.
+    /// A change to the note from the link or attachment dialog (or **I**). `id` tells one from the next.
     public struct PendingNoteEdit: Hashable, Sendable {
         public let id: Int
         public let edit: NoteLinks.Edit
+        /// For the editor's Undo menu item ("Undo Add Attachment").
+        public let actionName: String
     }
 
     /// A URL was pasted over `range` (the selection) in the note: ask for its title.
@@ -683,8 +738,11 @@ public final class QuickEntryFlow {
     }
 
     private var canOpenLinkDialog: Bool {
-        !isFinished && !isAbandoned && phase == .editingNote && linkDialog == nil && dueDialog == nil
+        !isFinished && !isAbandoned && phase == .editingNote && !hasDialog
     }
+
+    /// A link, attachment or due-date dialog is open (its keys come first).
+    public var hasDialog: Bool { linkDialog != nil || attachmentDialog != nil || dueDialog != nil }
 
     public func setLinkTitle(_ title: String) {
         guard var dialog = linkDialog, dialog.title != title else { return }
@@ -737,7 +795,7 @@ public final class QuickEntryFlow {
         closeLinkDialog()
         // The editor's text is the dialog's base only while the note is unchanged.
         guard note == dialog.note else { return }
-        pendingNoteEdit = PendingNoteEdit(id: dialog.id, edit: edit)
+        pendingNoteEdit = PendingNoteEdit(id: dialog.id, edit: edit, actionName: dialog.isEditing ? "Edit Link" : "Add Link")
     }
 
     private func closeLinkDialog() {
@@ -763,6 +821,251 @@ public final class QuickEntryFlow {
             guard linkDialog?.isEditing == true else { return false } // the field deletes to the line start
             removeLink()
         case .commandDone, .optionEnter: break
+        default: return false
+        }
+        return true
+    }
+
+    // MARK: Attachment chips
+
+    /// The dialog for an attachment chip's title: a new chip (a pasted or dropped file, **I**, a
+    /// thumbnail dragged onto the note) or an existing one (⌘E).
+    public struct AttachmentDialog: Hashable, Sendable {
+        public enum Kind: Hashable, Sendable {
+            /// A pasted or dropped file, not attached yet: the caller keeps it under `token` and
+            /// stages it only when asked (`AttachmentRequest.stage`).
+            case addIncoming(token: UUID)
+            /// An attachment the todo already has (**I**, a thumbnail dragged from the strip).
+            case addAttached(TodoAttachment)
+            /// ⌘E on a chip: only its title changes.
+            case edit(AttachmentChip)
+        }
+
+        public let kind: Kind
+        /// The file's name with its extension (the subtitle; never edited here).
+        public let fileName: String
+        public fileprivate(set) var title: String
+        /// Shown while the title field is empty ("Screenshot" for a pasted screenshot); a blank
+        /// title falls back to the file name without its extension.
+        public let placeholder: String
+        /// ⌘⌫ removed the attachment's last reference: "Also delete the attachment?" (Yes / No).
+        public fileprivate(set) var isAskingToDeleteAttachment = false
+        /// The note range the chip goes into (the paste's selection, the edited chip).
+        let range: NSRange
+        /// The note when the dialog opened; if it differs on confirm, nothing is applied.
+        let note: String
+        let id: Int
+
+        /// A thumbnail rather than a file icon.
+        public var isImage: Bool { AttachmentNaming.isImage(fileName) }
+
+        public var isEditing: Bool {
+            if case .edit = kind { true } else { false }
+        }
+    }
+
+    /// A confirmed pasted / dropped file the caller is staging.
+    private struct PendingStaging {
+        let token: UUID
+        let title: String
+        let range: NSRange
+        let note: String
+        let id: Int
+    }
+
+    /// The note editor's selection changed (it reports every change): remembered for **I** and
+    /// the ghost caret.
+    public func noteSelectionChanged(_ selection: NSRange) {
+        guard selection.location != NSNotFound, selection != rememberedNoteSelection else { return }
+        rememberedNoteSelection = selection
+    }
+
+    /// While in the attachments: where **I** would insert, for the note to show as a ghost caret
+    /// (or a tinted selection). The note's end when nothing is remembered. Nil elsewhere.
+    public var ghostNoteSelection: NSRange? {
+        phase == .browsingAttachments ? clampedNoteSelection : nil
+    }
+
+    private var clampedNoteSelection: NSRange {
+        let length = (note as NSString).length
+        guard let remembered = rememberedNoteSelection else { return NSRange(location: length, length: 0) }
+        let location = min(remembered.location, length)
+        return NSRange(location: location, length: min(remembered.length, length - location))
+    }
+
+    private var attachmentNameSet: Set<String> { Set(attachments.map(\.name)) }
+
+    /// A file pasted or dropped over `range` in the note: ask for the chip's title. Nothing is
+    /// attached until ↩ (then `AttachmentRequest.stage(token:)`); Esc drops it.
+    public func beginAddingAttachment(fileName: String, token: UUID, isScreenshot: Bool = false, replacing range: NSRange) {
+        guard canOpenAttachmentDialog else { return }
+        let defaultTitle = NoteAttachments.defaultTitle(for: fileName)
+        openAttachmentDialog(
+            kind: .addIncoming(token: token), fileName: fileName, title: isScreenshot ? "" : defaultTitle,
+            placeholder: isScreenshot ? "Screenshot" : defaultTitle, range: range
+        )
+    }
+
+    /// An attachment the todo already has goes into the note over `range` (a thumbnail dropped
+    /// onto the note, **I**): ask for the chip's title.
+    public func beginAddingAttachment(_ attachment: TodoAttachment, replacing range: NSRange) {
+        guard canOpenAttachmentDialog else { return }
+        let defaultTitle = NoteAttachments.defaultTitle(for: attachment.name)
+        openAttachmentDialog(kind: .addAttached(attachment), fileName: attachment.name, title: defaultTitle,
+                             placeholder: defaultTitle, range: range)
+    }
+
+    /// ⌘E (or the popover's Edit) on an attachment chip: its title.
+    public func beginEditingAttachment(_ chip: AttachmentChip) {
+        guard canOpenAttachmentDialog else { return }
+        openAttachmentDialog(kind: .edit(chip), fileName: chip.name, title: chip.title,
+                             placeholder: NoteAttachments.defaultTitle(for: chip.name), range: chip.range)
+    }
+
+    private var canOpenAttachmentDialog: Bool {
+        !isFinished && !isAbandoned && phase == .editingNote && !hasDialog
+    }
+
+    private func openAttachmentDialog(kind: AttachmentDialog.Kind, fileName: String, title: String, placeholder: String, range: NSRange) {
+        nextDialogID += 1
+        attachmentDialog = AttachmentDialog(kind: kind, fileName: fileName, title: title, placeholder: placeholder,
+                                            range: range, note: note, id: nextDialogID)
+    }
+
+    public func setAttachmentTitle(_ title: String) {
+        guard attachmentDialog?.isAskingToDeleteAttachment == false, attachmentDialog?.title != title else { return }
+        attachmentDialog?.title = title
+    }
+
+    /// ↩ (or Add / Save): inserts the chip, saves the title, or for a pasted file asks for it to be
+    /// staged first. While asking about the attachment, ↩ is No.
+    public func confirmAttachment() {
+        guard let dialog = attachmentDialog else { return }
+        if dialog.isAskingToDeleteAttachment { return answerDeleteAttachment(false) }
+        switch dialog.kind {
+        case .addIncoming(let token):
+            closeAttachmentDialog()
+            pendingStaging = PendingStaging(token: token, title: dialog.title, range: dialog.range, note: dialog.note, id: dialog.id)
+            request = .stage(token: token)
+        case .addAttached(let attachment):
+            finishAttachmentDialog(NoteAttachments.insert(attachment, title: dialog.title, replacing: dialog.range, in: dialog.note))
+        case .edit(let chip):
+            finishAttachmentDialog(NoteAttachments.retitle(chip, title: dialog.title))
+        }
+    }
+
+    /// The caller staged the confirmed file (`AttachmentRequest.stage`): it is attached and its
+    /// chip goes into the note, unless the note changed meanwhile (then it is only attached).
+    /// Ignored for any other token (e.g. a cancelled dialog).
+    public func attachStaged(_ attachment: TodoAttachment, token: UUID) {
+        guard let staging = pendingStaging, staging.token == token, !isFinished else { return }
+        pendingStaging = nil
+        attach(attachment)
+        guard note == staging.note else { return }
+        let edit = NoteAttachments.insert(attachment, title: staging.title, replacing: staging.range, in: staging.note)
+        pendingNoteEdit = PendingNoteEdit(id: staging.id, edit: edit, actionName: "Add Attachment")
+    }
+
+    /// Staging the confirmed file failed: nothing goes into the note.
+    public func stagingFailed(token: UUID) {
+        if pendingStaging?.token == token { pendingStaging = nil }
+    }
+
+    /// ⌘⌫ (or Remove) while editing a chip: removes the reference, or first asks about the
+    /// attachment when this is its last reference in the note.
+    public func removeAttachmentReference() {
+        guard let dialog = attachmentDialog, case .edit(let chip) = dialog.kind, !dialog.isAskingToDeleteAttachment else { return }
+        if NoteAttachments.isLastReference(chip, in: dialog.note, attachmentNames: attachmentNameSet) {
+            attachmentDialog?.isAskingToDeleteAttachment = true
+        } else {
+            finishAttachmentDialog(NoteAttachments.remove(chip, in: dialog.note))
+        }
+    }
+
+    /// The answer to "Also delete the attachment?": the reference goes either way; yes removes
+    /// the attachment too (only if the note is still the one the dialog opened on).
+    public func answerDeleteAttachment(_ alsoDelete: Bool) {
+        guard let dialog = attachmentDialog, dialog.isAskingToDeleteAttachment, case .edit(let chip) = dialog.kind else { return }
+        let applies = note == dialog.note
+        finishAttachmentDialog(NoteAttachments.remove(chip, in: dialog.note))
+        guard alsoDelete, applies else { return }
+        // The editor takes the chip out with the pending edit (one undo step), so the note stays.
+        for attachment in attachments where attachment.name == chip.name {
+            if let index = attachments.firstIndex(of: attachment) { deletedFromDialog.append((index, attachment)) }
+            removeAttachment(id: attachment.id, updatingNote: false)
+        }
+    }
+
+    /// The note references a deleted attachment again (⌘Z took the removal back): it is attached
+    /// again, at its old place. Its file is still there; the save is what deletes files.
+    private func reattachReferencedDeletions() {
+        let names = Set(deletedFromDialog.map(\.attachment.name))
+        let referenced = Set(AttachmentReference.matches(in: note, names: names).map(\.name))
+        guard !referenced.isEmpty, !isFinished else { return }
+        for entry in deletedFromDialog where referenced.contains(entry.attachment.name) {
+            if !attachments.contains(where: { $0.name == entry.attachment.name }) {
+                attachments.insert(entry.attachment, at: min(entry.index, attachments.count))
+            }
+        }
+        deletedFromDialog.removeAll { referenced.contains($0.attachment.name) }
+    }
+
+    /// Esc: back from the question to the title, else closes the dialog without touching the note.
+    public func cancelAttachment() {
+        if attachmentDialog?.isAskingToDeleteAttachment == true {
+            attachmentDialog?.isAskingToDeleteAttachment = false
+        } else {
+            closeAttachmentDialog()
+        }
+    }
+
+    /// **I**: the attachment into the note at the remembered selection (see the type's doc).
+    private func insertIntoNote(_ attachment: TodoAttachment) {
+        let selection = clampedNoteSelection
+        phase = .editingNote
+        if let edit = NoteAttachments.insert(attachment, titledBySelection: selection, in: note, attachmentNames: attachmentNameSet) {
+            nextDialogID += 1
+            pendingNoteEdit = PendingNoteEdit(id: nextDialogID, edit: edit, actionName: "Add Attachment")
+            return
+        }
+        // After the selection, and never inside a chip.
+        let end = NSRange(location: NSMaxRange(selection), length: 0)
+        let widened = NoteChips.widen(end, in: note, attachmentNames: attachmentNameSet)
+        beginAddingAttachment(attachment, replacing: NSRange(location: NSMaxRange(widened), length: 0))
+    }
+
+    private func finishAttachmentDialog(_ edit: NoteLinks.Edit) {
+        guard let dialog = attachmentDialog else { return }
+        closeAttachmentDialog()
+        guard note == dialog.note else { return }
+        let action = switch dialog.kind {
+        case .edit: edit.replacement.isEmpty ? "Remove Attachment" : "Edit Attachment"
+        case .addIncoming, .addAttached: "Add Attachment"
+        }
+        pendingNoteEdit = PendingNoteEdit(id: dialog.id, edit: edit, actionName: action)
+    }
+
+    private func closeAttachmentDialog() {
+        attachmentDialog = nil
+    }
+
+    private func handleAttachmentDialogKey(_ key: QuickEntryKey) -> Bool {
+        if attachmentDialog?.isAskingToDeleteAttachment == true {
+            switch key {
+            case .letter("y"): answerDeleteAttachment(true)
+            case .enter, .letter("n"): answerDeleteAttachment(false) // ↩ is the safe answer
+            case .escape: cancelAttachment()
+            default: break // nothing to type into
+            }
+            return true
+        }
+        switch key {
+        case .escape: cancelAttachment()
+        case .enter, .commandEnter: confirmAttachment()
+        case .commandDelete:
+            guard attachmentDialog?.isEditing == true else { return false } // the field deletes to the line start
+            removeAttachmentReference()
+        case .commandDone, .optionEnter, .tab, .shiftTab: break
         default: return false
         }
         return true

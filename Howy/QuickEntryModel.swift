@@ -14,6 +14,14 @@ final class QuickEntryModel {
     enum AttachmentSource {
         case file(URL)
         case image(Data)
+
+        /// The name it would be attached under, before making it unique.
+        var fileName: String {
+            switch self {
+            case .file(let url): url.lastPathComponent
+            case .image: "attachment.png"
+            }
+        }
     }
 
     let flow: QuickEntryFlow
@@ -35,8 +43,11 @@ final class QuickEntryModel {
     var hoveredAttachmentID: UUID?
     /// The attachment whose reference the caret is on, or the pointer hovers, in the note.
     var noteReferenceName: String?
-    /// The link at the caret in the note, and where its chip is (for the popover).
-    var noteLink: NoteLinkAnchor?
+    /// The chip (or bare URL) at the caret in the note, and where its chip is (for the popover).
+    var noteChip: NoteChipAnchor?
+    /// Pasted / dropped files waiting in the Add Attachment dialog, by its token; staged into
+    /// the store only once the dialog is confirmed (`AttachmentRequest.stage`).
+    @ObservationIgnored private var incoming: [UUID: AttachmentSource] = [:]
 
     init(flow: QuickEntryFlow, store: TodoStore) {
         self.flow = flow
@@ -71,29 +82,157 @@ final class QuickEntryModel {
         store.attachments?.url(for: attachment, todoID: flow.todoID)
     }
 
-    /// Copies the sources into staging and attaches them. Returns the note references, in order.
+    /// Copies the sources into staging and attaches them. Returns the attachments, in order.
     @discardableResult
-    func attach(_ sources: [AttachmentSource]) -> [String] {
-        guard let files = store.attachments else { return [] }
-        var references: [String] = []
+    func attach(_ sources: [AttachmentSource]) -> [TodoAttachment] {
+        var attached: [TodoAttachment] = []
         for source in sources {
-            do {
-                let attachment: TodoAttachment
-                switch source {
-                case .file(let url):
-                    let name = AttachmentNaming.unique(url.lastPathComponent, existing: flow.attachmentNames)
-                    attachment = try files.stage(copying: url, as: name)
-                case .image(let data):
-                    attachment = try files.stage(data: data, as: AttachmentNaming.pastedName(extension: "png", existing: flow.attachmentNames))
-                }
-                withAnimation(.snappy(duration: 0.2)) { references.append(flow.attach(attachment)) }
-                errorMessage = nil
-            } catch {
-                log.error("Attaching failed: \(error, privacy: .public)")
-                errorMessage = "Couldn't attach that file."
-            }
+            guard let attachment = stage(source) else { continue }
+            withAnimation(.snappy(duration: 0.2)) { flow.attach(attachment) }
+            attached.append(attachment)
         }
-        return references
+        return attached
+    }
+
+    /// The name a source would be attached under now (unique among the attachments).
+    private func attachmentName(for source: AttachmentSource) -> String {
+        switch source {
+        case .file(let url): AttachmentNaming.unique(url.lastPathComponent, existing: flow.attachmentNames)
+        case .image: AttachmentNaming.pastedName(extension: "png", existing: flow.attachmentNames)
+        }
+    }
+
+    /// Copies a source into staging (not attached yet). Nil, with the error shown, if that failed.
+    private func stage(_ source: AttachmentSource) -> TodoAttachment? {
+        guard let files = store.attachments else {
+            errorMessage = "Couldn't attach that file."
+            return nil
+        }
+        do {
+            let attachment: TodoAttachment
+            switch source {
+            case .file(let url): attachment = try files.stage(copying: url, as: attachmentName(for: source))
+            case .image(let data): attachment = try files.stage(data: data, as: attachmentName(for: source))
+            }
+            errorMessage = nil
+            return attachment
+        } catch {
+            log.error("Attaching failed: \(error, privacy: .public)")
+            errorMessage = "Couldn't attach that file."
+            return nil
+        }
+    }
+
+    // MARK: Attachment chips
+
+    /// One file pasted or dropped onto the note: the Add Attachment dialog asks for its chip's
+    /// title, the file kept here until it is confirmed (then staged, `performRequest`) or not.
+    func beginAddingAttachment(_ source: AttachmentSource, replacing range: NSRange) {
+        let token = UUID()
+        let kept: AttachmentSource
+        switch source {
+        case .file(let url):
+            // Copied now: a screenshot thumbnail or a file that is moved while the dialog is open
+            // would be gone by the time ↩ stages it. Nothing enters the attachment store yet.
+            guard let copy = keepTemporarily(url, token: token) else {
+                errorMessage = "Couldn't read that file."
+                return
+            }
+            kept = .file(copy)
+        case .image:
+            kept = source
+        }
+        incoming[token] = kept
+        let isScreenshot = if case .image = source { true } else { false }
+        withAnimation(.snappy(duration: 0.15)) {
+            flow.beginAddingAttachment(fileName: attachmentName(for: source), token: token, isScreenshot: isScreenshot, replacing: range)
+        }
+        dropUnusedIncoming()
+    }
+
+    /// A thumbnail from the strip dropped onto the note at `range`: the dialog for its chip.
+    /// False when the todo has no such attachment (nothing happens then).
+    func dropAttachment(id: UUID, replacing range: NSRange) -> Bool {
+        guard let attachment = flow.attachments.first(where: { $0.id == id }) else { return false }
+        if flow.phase != .editingNote { flow.focus(.editingNote) }
+        withAnimation(.snappy(duration: 0.15)) { flow.beginAddingAttachment(attachment, replacing: range) }
+        return true
+    }
+
+    /// ⌘O / ⌥⌘O / ⌘-click on an attachment chip (also where no strip is shown).
+    func openAttachment(named name: String, alternate: Bool) {
+        guard let attachment = flow.attachments.first(where: { $0.name == name }) else {
+            errorMessage = "That file is missing."
+            return
+        }
+        open(attachment, alternate: alternate)
+    }
+
+    /// The attachment a chip (or the dialog) points to.
+    func attachment(named name: String) -> TodoAttachment? {
+        flow.attachments.first { $0.name == name }
+    }
+
+    /// What the attachment dialog previews: the kept file (or screenshot) for a pasted one, the
+    /// staged or saved file otherwise.
+    func preview(for dialog: QuickEntryFlow.AttachmentDialog) -> AttachmentSource? {
+        switch dialog.kind {
+        case .addIncoming(let token): incoming[token]
+        case .addAttached(let attachment): url(for: attachment).map { .file($0) }
+        case .edit(let chip): attachment(named: chip.name).flatMap(url(for:)).map { .file($0) }
+        }
+    }
+
+    func confirmAttachment() {
+        withAnimation(.snappy(duration: 0.15)) { flow.confirmAttachment() }
+        performRequest()
+    }
+
+    func cancelAttachment() {
+        withAnimation(.snappy(duration: 0.15)) { flow.cancelAttachment() }
+        dropUnusedIncoming()
+    }
+
+    func removeAttachmentReference() {
+        withAnimation(.snappy(duration: 0.15)) { flow.removeAttachmentReference() }
+    }
+
+    func answerDeleteAttachment(_ alsoDelete: Bool) {
+        withAnimation(.snappy(duration: 0.2)) { flow.answerDeleteAttachment(alsoDelete) }
+    }
+
+    /// Forgets the kept files no open dialog waits for (Esc, a closed panel): nothing was staged.
+    private func dropUnusedIncoming() {
+        guard !incoming.isEmpty else { return }
+        let waiting: UUID? = if case .addIncoming(let token) = flow.attachmentDialog?.kind { token } else { nil }
+        for token in incoming.keys where token != waiting { discardKept(token) }
+    }
+
+    private func keptFolder(_ token: UUID) -> URL {
+        FileManager.default.temporaryDirectory.appending(path: token.uuidString, directoryHint: .isDirectory)
+    }
+
+    /// Copies a pasted / dropped file to `<tmp>/<token>/<name>`. Nil when that fails.
+    private func keepTemporarily(_ url: URL, token: UUID) -> URL? {
+        let access = url.startAccessingSecurityScopedResource()
+        defer { if access { url.stopAccessingSecurityScopedResource() } }
+        let folder = keptFolder(token)
+        let copy = folder.appending(path: url.lastPathComponent, directoryHint: .notDirectory)
+        do {
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            try FileManager.default.copyItem(at: url, to: copy)
+            return copy
+        } catch {
+            log.error("Keeping the file failed: \(error, privacy: .public)")
+            try? FileManager.default.removeItem(at: folder)
+            return nil
+        }
+    }
+
+    /// Forgets a kept file and deletes its temporary copy.
+    private func discardKept(_ token: UUID) {
+        incoming[token] = nil
+        try? FileManager.default.removeItem(at: keptFolder(token))
     }
 
     func remove(_ attachment: TodoAttachment) {
@@ -141,8 +280,17 @@ final class QuickEntryModel {
         switch flow.takeRequest() {
         case .open(let attachment, let alternate): open(attachment, alternate: alternate)
         case .chooseFiles: chooseFiles()
+        case .stage(let token):
+            // The Add Attachment dialog was confirmed: only now does the file go into the store.
+            if let source = incoming[token], let attachment = stage(source) {
+                withAnimation(.snappy(duration: 0.2)) { flow.attachStaged(attachment, token: token) }
+            } else {
+                flow.stagingFailed(token: token)
+            }
+            discardKept(token)
         case nil: break
         }
+        dropUnusedIncoming()
     }
 
     func save() {
@@ -166,7 +314,10 @@ final class QuickEntryModel {
         default:
             return
         }
-        if flow.isFinished { didFinish() }
+        if flow.isFinished {
+            for token in Array(incoming.keys) { discardKept(token) }
+            didFinish()
+        }
     }
 
     private func persist() -> Bool {
@@ -389,8 +540,8 @@ final class BrowseModel {
     func handle(_ key: QuickEntryKey) -> Bool {
         // `d` removes the selected row inside the flow; fire the burst first so the view can
         // still measure that row.
-        // A tile editor's link or due-date dialog takes every key first (Esc closes only the dialog).
-        if let tileEditor, tileEditor.flow.linkDialog != nil || tileEditor.flow.dueDialog != nil {
+        // A tile editor's link, attachment or due-date dialog takes every key first (Esc closes only the dialog).
+        if let tileEditor, tileEditor.flow.hasDialog {
             return tileEditor.handle(key)
         }
         if key == .letter(BrowseFlow.doneKey), flow.dueDialog == nil,

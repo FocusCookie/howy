@@ -4,14 +4,14 @@ import Foundation
 /// (`KeysReferenceTests`) can check it against the keys the flows really handle: each row names
 /// the `QuickEntryKey`s it stands for (`flowKeys`), and per screen those must be exactly the keys
 /// that do something there. Rows with no `flowKeys` are handled outside the flows (the note
-/// editor's ⇧⌘L, ⌘V, ⌘O, ⌘E; the global Open Howy shortcut).
+/// editor's ⇧⌘L, ⌘V, ⌘O, ⌥⌘O, ⌘E; the global Open Howy shortcut).
 ///
 /// Keys are written like the panels' footer hints (`KeyHint`): letters as capitals ("N"), vim keys
 /// in lower case as an alternative next to the arrows ("↑↓ / j k").
 public enum KeysReference {
     public enum ScreenID: String, CaseIterable, Hashable, Sendable {
         case everywhere, grid, list, movePicker, overview, archive
-        case editor, editorQuadrantPicker, attachments, dueDateDialog, linkDialog
+        case editor, editorQuadrantPicker, attachments, dueDateDialog, linkDialog, attachmentDialog
     }
 
     public struct Screen: Identifiable, Hashable, Sendable {
@@ -149,8 +149,9 @@ public enum KeysReference {
             Row(["⌥↩"], "Go to the attachments", [.optionEnter]),
             Row(["⇧⌘L"], "Note: make the lines checklist items, or tick them"),
             Row(["⌘V"], "Note: paste files or a screenshot as attachments, or a link"),
-            Row(["⌘O"], "Note: open the link at the caret"),
-            Row(["⌘E"], "Note: edit the link at the caret"),
+            Row(["⌘O"], "Note: open the link or attachment at the caret"),
+            Row(["⌥⌘O"], "Note: open the attachment at the caret the other way"),
+            Row(["⌘E"], "Note: edit the link or attachment at the caret"),
             Row(["esc"], "Close, keeping a new todo as a draft; an opened todo's changes are dropped", [.escape]),
         ]),
         Screen(id: .editorQuadrantPicker, title: "Editor's quadrant picker", note: "⇧⇥ from the title.", rows: [
@@ -159,10 +160,11 @@ public enum KeysReference {
             Row(["↩", "⇥"], "On to the title", [.enter, .tab]),
         ]),
         Screen(id: .attachments, title: "Attachments", note: "⌥↩ in the editor.", rows: [
-            Row(["←→"], "Select an attachment or the Add button", [.left, .right]),
+            Row(["←→", "h l"], "Select an attachment or the Add button", [.left, .right, .letter("h"), .letter("l")]),
             Row(["space", "↩"], "Open it (Add: choose files)", [.space, .enter]),
             Row(["⌥↩"], "Open it the other way (see Settings → General)", [.optionEnter]),
             Row(["⌫"], "Remove it", [.backspace]),
+            Row([cap(QuickEntryFlow.insertKey)], "Insert it into the note at the caret (a selected line becomes its title)", letter(QuickEntryFlow.insertKey)),
             Row(["⇧⇥"], "Back to the note", [.shiftTab]),
         ]),
         Screen(id: .dueDateDialog, title: "Due-date dialog", note: "⌘T in the editor, \(cap(BrowseFlow.dueKey)) in a list. Type \"fri 2pm\", \"24.12.\" or \"in a week\".", rows: [
@@ -177,6 +179,13 @@ public enum KeysReference {
             Row(["⇥ ⇧⇥"], "Switch between title and URL (⌘E)", [.tab, .shiftTab]),
             Row(["⌘⌫"], "Remove the link, keeping its title as text (⌘E)", [.commandDelete]),
             Row(["esc"], "Cancel", [.escape]),
+        ]),
+        Screen(id: .attachmentDialog, title: "Attachment dialog", note: "Pasting or dropping a file into the note, \(cap(QuickEntryFlow.insertKey)) in the attachments, or ⌘E on an attachment.", rows: [
+            Row(["↩", "⌘↩"], "Add the attachment, or save its title", [.enter, .commandEnter]),
+            Row(["⌘⌫"], "Remove it from the note (⌘E); asks whether to delete the attachment too", [.commandDelete]),
+            Row(["Y"], "Asked: yes, delete the attachment too", [.letter("y")]),
+            Row(["N", "↩"], "Asked: no, keep the attachment (the default)", [.letter("n")]),
+            Row(["esc"], "Cancel (asked: back to the title)", [.escape]),
         ]),
     ]
 }

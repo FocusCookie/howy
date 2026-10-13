@@ -39,5 +39,18 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Howy attachment id</string>
+			<key>UTTypeIdentifier</key>
+			<string>lueddemann.howy.attachment-id</string>
+		</dict>
+	</array>
 </dict>
 </plist>

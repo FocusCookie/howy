@@ -32,8 +32,8 @@ Everything happens from a shortcut.
   (**N**) todos right in their tile, and drag todos between quadrants.
 - **Vim keys** work next to the arrows wherever there's nothing to type into:
   **h j k l** on the grid and in the move picker, **j k** in a list and in the
-  archive, and in the Overview **j k** inside a tile and **h l** to the tile
-  beside it. In text fields and dialogs the letters are just typing.
+  archive, **h l** in a note's attachments, and in the Overview **j k** inside a
+  tile and **h l** to the tile beside it. In text fields and dialogs the letters are just typing.
 - **?** on the grid, in a list, in the Overview or in the archive opens
   Settings → Keys, a reference of every key on every screen.
 - **Esc** never loses your typing. Unsaved text is kept as a draft, even across
@@ -59,7 +59,27 @@ Everything happens from a shortcut.
   work on a bare address. In the file the note keeps plain Markdown,
   `[title](url)`.
 - **Attachments**: paste or drop screenshots and files into a todo. You get
-  thumbnails, and files open in Quick Look.
+  thumbnails, and files open in Quick Look (or in their app, see Settings →
+  General). Drop files on the strip under the note, or click it, to attach
+  them without putting them in the note.
+- **Attachment chips** in notes: an attachment in the note shows as a chip like
+  a link, with a paperclip (a file) or a photo (an image) and its title. Paste
+  or drop one file into the note and an **Add Attachment** dialog asks for the
+  chip's title (the file name without its extension, or empty with
+  "Screenshot" for a pasted screenshot). **↩** puts the chip in at the cursor,
+  **Esc** cancels and attaches nothing. Paste a file over selected text on one
+  line and that text becomes the title right away. Several files at once go in
+  with their names, on one line. In the attachments, **I** inserts the selected
+  one where the cursor was in the note (shown there as a wide, steady accent
+  caret), and you can also drag a thumbnail onto the note; dragging it out to
+  Finder copies the file. The chips of the selected or hovered attachment are
+  highlighted. On a chip, a popover shows the file name; **⌘O** (or
+  **⌘-click**) opens it, **⌥⌘O** the other way, and **⌘E** edits the title
+  (**⌘⌫** there removes the chip and, for its last chip, asks whether to
+  delete the attachment too: **Y** yes, **N** or **↩** no, so ↩ never deletes
+  by accident; **⌘Z** after a yes brings the attachment back). **⌫⌫** and
+  **⌘Z** take only the chip out; the attachment stays. In the file the note keeps plain Markdown, `[title](file)`
+  or `![title](image)`.
 - A small emoji and confetti burst when you finish something. You can turn it
   off.
 

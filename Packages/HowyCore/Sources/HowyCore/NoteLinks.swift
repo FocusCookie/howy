@@ -9,12 +9,20 @@ public struct NoteLink: Hashable, Sendable {
     public let url: String
     /// A bare URL, typed or pasted without a title.
     public let isBare: Bool
+    /// An image reference `![alt](target)`: never one of `NoteLinks.links(in:)`, only found for
+    /// the attachment chips (`NoteChips`).
+    let isImage: Bool
 
     public init(range: NSRange, title: String, url: String, isBare: Bool) {
+        self.init(range: range, title: title, url: url, isBare: isBare, isImage: false)
+    }
+
+    init(range: NSRange, title: String, url: String, isBare: Bool, isImage: Bool) {
         self.range = range
         self.title = title
         self.url = url
         self.isBare = isBare
+        self.isImage = isImage
     }
 
     /// A Markdown link, which the note editor shows as a chip with just its title.
@@ -58,64 +66,31 @@ public enum NoteLinks {
     /// The link the caret touches (either edge counts) or the selection lies in. A caret between
     /// two links belongs to the one before it, the one it just passed.
     public static func link(at selection: NSRange, in links: [NoteLink]) -> NoteLink? {
-        let hits = links.filter { selection.location >= $0.range.location && NSMaxRange(selection) <= NSMaxRange($0.range) }
-        return hits.first { NSMaxRange($0.range) == selection.location && selection.length == 0 }
-            ?? hits.first { selection.location > $0.range.location && NSMaxRange(selection) < NSMaxRange($0.range) }
-            ?? hits.first
+        NoteChips.item(at: selection, in: links, range: \.range)
     }
 
     // MARK: Chips as one character
 
-    /// The selection the editor should take instead of `proposed` (coming from `old`), so that
-    /// neither end stops inside a chip: an end moving forward goes to the chip's end, one moving
-    /// back to its start (so arrows step over a chip and a selection grows or shrinks by whole chips).
+    // The link chips alone; the note editor uses `NoteChips`, which knows the attachment chips too.
+
+    /// `NoteChips.snap` for link chips only.
     public static func snap(_ proposed: NSRange, from old: NSRange, in text: String) -> NSRange {
-        let chips = links(in: text).filter(\.isChip)
-        guard !chips.isEmpty else { return proposed }
-        func snapped(_ position: Int, forward: Bool) -> Int {
-            guard let chip = chips.first(where: { position > $0.range.location && position < NSMaxRange($0.range) }) else {
-                return position
-            }
-            return forward ? NSMaxRange(chip.range) : chip.range.location
-        }
-        let start = proposed.location, end = NSMaxRange(proposed)
-        if proposed.length == 0 {
-            let caret = snapped(start, forward: start >= old.location)
-            return NSRange(location: caret, length: 0)
-        }
-        // A changed end snaps in the direction it moved; an unchanged one (or a new selection) outward.
-        let newStart = snapped(start, forward: start != old.location && start > old.location)
-        let newEnd = snapped(end, forward: end == NSMaxRange(old) || end > NSMaxRange(old))
-        return NSRange(location: newStart, length: max(newEnd - newStart, 0))
+        NoteChips.snap(proposed, from: old, in: text, attachmentNames: [])
     }
 
-    /// ⌫ with the caret right after a chip selects the chip (the next ⌫ deletes it). Nil otherwise.
+    /// `NoteChips.deleteBackward` for link chips only.
     public static func deleteBackward(in text: String, selection: NSRange) -> NSRange? {
-        guard selection.length == 0 else { return nil }
-        return links(in: text).first { $0.isChip && NSMaxRange($0.range) == selection.location }?.range
+        NoteChips.deleteBackward(in: text, selection: selection, attachmentNames: [])
     }
 
-    /// ⌦ with the caret right before a chip selects the chip (the next ⌦ deletes it). Nil otherwise.
+    /// `NoteChips.deleteForward` for link chips only.
     public static func deleteForward(in text: String, selection: NSRange) -> NSRange? {
-        guard selection.length == 0 else { return nil }
-        return links(in: text).first { $0.isChip && $0.range.location == selection.location }?.range
+        NoteChips.deleteForward(in: text, selection: selection, attachmentNames: [])
     }
 
-    /// The range an edit of `range` should replace so that no chip is left cut in half: a chip it
-    /// overlaps only partly is taken whole.
+    /// `NoteChips.widen` for link chips only.
     public static func widen(_ range: NSRange, in text: String) -> NSRange {
-        var start = range.location, end = NSMaxRange(range)
-        for chip in links(in: text) where chip.isChip {
-            let chipStart = chip.range.location, chipEnd = NSMaxRange(chip.range)
-            let cuts = range.length == 0
-                ? start > chipStart && start < chipEnd
-                : start < chipEnd && end > chipStart && (start > chipStart || end < chipEnd)
-            if cuts {
-                start = min(start, chipStart)
-                end = max(end, chipEnd)
-            }
-        }
-        return NSRange(location: start, length: end - start)
+        NoteChips.widen(range, in: text, attachmentNames: [])
     }
 
     // MARK: Pasting

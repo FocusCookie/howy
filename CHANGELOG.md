@@ -6,6 +6,53 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-10-13
+
+### Added
+
+- **Attachment chips** in notes: references to attachments show as chips like
+  links, with a paperclip for a file and a photo for an image. They behave as
+  one character (the cursor steps over them, the first ⌫ selects one). Notes you
+  already have get chips by themselves; the Markdown stays the same.
+- **Add Attachment dialog**: pasting or dropping one file into the note asks for
+  the chip's title first; Esc attaches nothing. Pasted over a one-line
+  selection, the selection becomes the title without a dialog.
+- **I in the attachments** inserts the selected one into the note where the
+  cursor was, shown as a ghost caret while you're in the attachments. Dragging
+  a thumbnail onto the note does the same at the drop point; dragging it to
+  Finder copies the file.
+- **⌘O / ⌥⌘O / ⌘-click** on an attachment chip opens it, also in the Overview's
+  tiles; **⌘E** edits its title (Edit Attachment), where ⌘⌫ removes the chip and
+  asks "Also delete the attachment?" when it was the last one.
+- The chips of the selected or hovered attachment are highlighted, and a popover
+  on a chip shows the file name (with a thumbnail for an image).
+- **h l** select in a note's attachments, like ← →.
+
+### Changed
+
+- Pasted or dropped files go into the note inline at the cursor, several on one
+  line, instead of each on a line of its own.
+- ⌘Z takes back an added attachment chip in one step and keeps the
+  attachment, the same as ⌫⌫.
+- In "Also delete the attachment?", **↩** now answers No (the safe default);
+  **Y** is Yes, **N** is No. ⌘Z after a Yes brings the attachment back.
+
+### Fixed
+
+- Dragging an attachment out of the strip to Finder always copies the file; it
+  can no longer move it out of Howy.
+- A file pasted or dropped onto the note is copied when you paste it, so the
+  dialog still works if the original (a screenshot thumbnail, say) goes away.
+- Removing an attachment with ⌫ in the strip no longer leaves a double space
+  where its chip was.
+- The strip no longer lights up as a drop target for its own thumbnails.
+- A note changed from outside (an undo, a removed chip) keeps the cursor
+  where it was instead of jumping to the end.
+- Chips keep their icons when the note starts with a chip (they were drawn at
+  almost zero size).
+- The popover under a chip (links too) is no longer cut off at the card's
+  edge or covered by the attachment strip: it floats above the panel.
+
 ## [2.1.0] - 2026-10-13
 
 ### Added

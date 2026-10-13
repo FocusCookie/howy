@@ -33,8 +33,47 @@ struct AttachmentDivider: View {
     }
 }
 
+/// A thumbnail dragged out of the strip: the file itself (for Finder and other apps) plus the
+/// attachment's id under a type of Howy's own, so the note editor inserts a chip for the
+/// attachment instead of attaching the file again, and the strip ignores it.
+enum AttachmentDrag {
+    /// Declared in Info.plist (`UTExportedTypeDeclarations`, `project.yml`).
+    static let typeIdentifier = "lueddemann.howy.attachment-id"
+    static let type = UTType(exportedAs: typeIdentifier)
+    static let pasteboardType = NSPasteboard.PasteboardType(typeIdentifier)
+
+    /// The drag's item: the file as a representation receivers copy (so Finder never moves the
+    /// stored file out of the container), and the id as UTF-8 text under `typeIdentifier`.
+    static func itemProvider(for attachment: TodoAttachment, at url: URL) -> NSItemProvider {
+        let provider = NSItemProvider()
+        provider.suggestedName = attachment.name
+        let fileType = UTType(filenameExtension: url.pathExtension)?.identifier ?? UTType.data.identifier
+        provider.registerFileRepresentation(forTypeIdentifier: fileType, fileOptions: [], visibility: .all) { completion in
+            completion(url, false, nil) // not open-in-place: the system copies the file for the receiver
+            return nil
+        }
+        let id = Data(attachment.id.uuidString.utf8)
+        provider.registerDataRepresentation(forTypeIdentifier: typeIdentifier, visibility: .all) { completion in
+            completion(id, nil)
+            return nil
+        }
+        return provider
+    }
+
+    static func isOnPasteboard(_ pasteboard: NSPasteboard) -> Bool {
+        pasteboard.types?.contains(pasteboardType) ?? false
+    }
+
+    /// The dragged attachment's id, when the drag came from the strip.
+    static func attachmentID(on pasteboard: NSPasteboard) -> UUID? {
+        guard isOnPasteboard(pasteboard), let data = pasteboard.data(forType: pasteboardType) else { return nil }
+        return UUID(uuidString: String(decoding: data, as: UTF8.self))
+    }
+}
+
 /// The drop area under the note: thumbnails in the order added, plus a field to add more.
-/// Dropping here or clicking attaches without a note reference.
+/// Dropping here or clicking attaches without a note reference. A thumbnail can be dragged onto
+/// the note (a chip for it there) or out to Finder and other apps (a copy of the file).
 struct AttachmentStrip: View {
     let model: QuickEntryModel
     @State private var isTargeted = false
@@ -69,10 +108,7 @@ struct AttachmentStrip: View {
             )
         }
         .contentShape(shape)
-        .onDrop(of: [.fileURL], isTargeted: $isTargeted) { providers in
-            load(providers)
-            return true
-        }
+        .onDrop(of: [.fileURL], delegate: StripDropDelegate(isTargeted: $isTargeted) { load($0) })
         .animation(.easeOut(duration: 0.15), value: isTargeted)
         .animation(.easeOut(duration: 0.15), value: isActive)
     }
@@ -109,6 +145,27 @@ struct AttachmentStrip: View {
                 Task { @MainActor in model.attach([.file(url)]) }
             }
         }
+    }
+}
+
+/// Accepts files dropped from elsewhere, but not the strip's own thumbnails (they are attached
+/// already): those neither light the strip up nor drop.
+private struct StripDropDelegate: DropDelegate {
+    @Binding var isTargeted: Bool
+    let load: ([NSItemProvider]) -> Void
+
+    func validateDrop(info: DropInfo) -> Bool {
+        !info.hasItemsConforming(to: [AttachmentDrag.type]) && info.hasItemsConforming(to: [.fileURL])
+    }
+
+    func dropEntered(info: DropInfo) { isTargeted = true }
+
+    func dropExited(info: DropInfo) { isTargeted = false }
+
+    func performDrop(info: DropInfo) -> Bool {
+        isTargeted = false
+        load(info.itemProviders(for: [.fileURL]))
+        return true
     }
 }
 
@@ -155,6 +212,7 @@ private struct AttachmentTile: View {
             .scaleEffect(isLinked && !isSelected ? 1.06 : 1)
             .animation(.snappy(duration: 0.15), value: isLinked)
             .contentShape(shape)
+            .draggable(file: url.map { url in { AttachmentDrag.itemProvider(for: attachment, at: url) } })
             .onTapGesture {
                 model.open(attachment, alternate: NSEvent.modifierFlags.contains(.option))
             }
@@ -179,8 +237,15 @@ private struct AttachmentTile: View {
     }
 }
 
+private extension View {
+    /// Draggable only while there is a file to drag (a missing one has nothing to offer).
+    @ViewBuilder func draggable(file makeProvider: (() -> NSItemProvider)?) -> some View {
+        if let makeProvider { onDrag(makeProvider) } else { self }
+    }
+}
+
 /// A Quick Look thumbnail of the file (the image itself, a PDF page, …), or its icon.
-private struct AttachmentThumbnail: View {
+struct AttachmentThumbnail: View {
     let url: URL?
     let isImage: Bool
     let name: String

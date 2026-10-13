@@ -194,9 +194,9 @@ import Testing
         return flow
     }
 
-    @Test func attachingReturnsTheReferenceAndSavesTheList() {
+    @Test func attachingKeepsTheListAndSavesIt() {
         let flow = makeNoteFlow()
-        #expect(flow.attach(png) == "![attachment-1](attachment-1.png)")
+        flow.attach(png)
         flow.attach(pdf)
         flow.title = "T"
         flow.save()
@@ -244,6 +244,18 @@ import Testing
         #expect(flow.phase == .browsingAttachments)
     }
 
+    @Test func vimKeysSelectLikeTheArrows() {
+        let flow = makeNoteFlow()
+        flow.attach(png)
+        flow.attach(pdf)
+        flow.handle(.optionEnter)
+        flow.handle(.letter("h"))
+        #expect(flow.selectedAttachment == png)
+        flow.handle(.letter("l"))
+        #expect(flow.selectedAttachment == pdf)
+        #expect(flow.note.isEmpty) // not typed into the note
+    }
+
     @Test func enterWithoutAttachmentsAsksForFiles() {
         let flow = makeNoteFlow()
         flow.handle(.optionEnter)
@@ -282,7 +294,8 @@ import Testing
 
     @Test func backspaceRemovesTheSelectedOneAndItsReferences() {
         let flow = makeNoteFlow()
-        flow.note = "Error:\n" + flow.attach(png) + "\nmore"
+        flow.attach(png)
+        flow.note = "Error:\n" + AttachmentReference.markdown(for: png) + "\nmore"
         flow.attach(pdf)
         flow.handle(.optionEnter)
         flow.handle(.backspace)
@@ -297,7 +310,8 @@ import Testing
 
     @Test func deletingTheReferenceTextKeepsTheAttachment() {
         let flow = makeNoteFlow()
-        flow.note = flow.attach(png)
+        flow.attach(png)
+        flow.note = AttachmentReference.markdown(for: png)
         flow.note = ""
         #expect(flow.attachments == [png])
     }
