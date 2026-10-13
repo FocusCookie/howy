@@ -207,24 +207,6 @@ import Testing
 
     // MARK: Placement
 
-    @Test func compactCardCentreMatchesThePanelPlacement() {
-        let screen = CGRect(x: 0, y: 0, width: 1512, height: 945)
-        let centre = OverviewSize.compactCardCenter(in: screen, cardHeight: 300)
-        #expect(centre.x == 756)
-        #expect(abs(centre.y - (945 - 945 * 0.22 - 150)) < 0.0001)
-        #expect(OverviewSize.compactCardTop(in: screen) == 945 - 945 * 0.22)
-        let flipped = OverviewSize.compactCardCenter(in: screen, cardHeight: 300, yAxisUp: false)
-        #expect(abs(flipped.y - (945 * 0.22 + 150)) < 0.0001)
-        #expect(abs(flipped.y + centre.y - screen.height) < 0.0001, "the same place, counted from the top")
-    }
-
-    @Test func compactCardCentreOnAnOffsetScreen() {
-        let screen = CGRect(x: 1512, y: -200, width: 2560, height: 1400)
-        let centre = OverviewSize.compactCardCenter(in: screen, cardHeight: 200)
-        #expect(centre.x == screen.midX)
-        #expect(abs(centre.y - (screen.maxY - 1400 * 0.22 - 100)) < 0.0001)
-    }
-
     /// The Overview always opens in the middle of the screen, wherever the panel was moved.
     @Test(arguments: [
         CGRect(x: 0, y: 30, width: 1500, height: 900),

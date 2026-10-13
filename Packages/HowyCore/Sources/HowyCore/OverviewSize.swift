@@ -149,22 +149,6 @@ public struct OverviewSize: Hashable, Sendable {
         frame(in: visibleFrame, centeredOn: center, scale: minimumTileWidth / Self.minimumTileWidth)
     }
 
-    /// The centre of the compact panel's card on a screen, as `FloatingPanel.present` places it:
-    /// centred horizontally, its top `compactPanelTopFraction` of the height below the top edge.
-    ///
-    /// `yAxisUp`: AppKit screen coordinates (default; the top edge is `maxY`). Pass `false` for a
-    /// y-down space such as a SwiftUI preview (the top edge is `minY`).
-    public static func compactCardCenter(in visibleFrame: CGRect, cardHeight: CGFloat, yAxisUp: Bool = true) -> CGPoint {
-        let fromTop = visibleFrame.height * compactPanelTopFraction + cardHeight / 2
-        let y = yAxisUp ? visibleFrame.maxY - fromTop : visibleFrame.minY + fromTop
-        return CGPoint(x: visibleFrame.midX, y: y)
-    }
-
-    /// The compact panel's card top edge (AppKit, y up) on a screen; see `compactCardCenter`.
-    public static func compactCardTop(in visibleFrame: CGRect) -> CGFloat {
-        visibleFrame.maxY - visibleFrame.height * compactPanelTopFraction
-    }
-
     private static func clamped(_ percent: Int) -> Int {
         min(max(percent, percentRange.lowerBound), percentRange.upperBound)
     }
