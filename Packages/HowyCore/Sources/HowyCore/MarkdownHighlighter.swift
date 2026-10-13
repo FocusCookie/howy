@@ -67,6 +67,12 @@ public enum MarkdownHighlighter {
     /// Every Markdown link and bare URL outside code, in text order (`NoteLinks`). Found by the
     /// same pass as the `.link` spans, so a link is styled exactly where it is one.
     static func links(in text: String) -> [NoteLink] {
+        references(in: text).filter { !$0.isImage }
+    }
+
+    /// `links(in:)` plus the image references `![alt](target)` (`isImage`, title = alt text), in
+    /// text order, for the attachment chips (`NoteChips`).
+    static func references(in text: String) -> [NoteLink] {
         var links: [NoteLink] = []
         _ = spans(in: text, links: &links)
         return links.sorted { $0.range.location < $1.range.location }
@@ -188,7 +194,7 @@ public enum MarkdownHighlighter {
         }
         links += inlineLinks.map {
             NoteLink(range: NSRange(location: $0.range.location + content.location + offset, length: $0.range.length),
-                     title: $0.title, url: $0.url, isBare: $0.isBare)
+                     title: $0.title, url: $0.url, isBare: $0.isBare, isImage: $0.isImage)
         }
         return spans
     }
@@ -226,6 +232,9 @@ public enum MarkdownHighlighter {
             let alt = m.range(at: 1)
             spans.append(.init(.syntax, NSRange(location: m.range.location, length: 2)))
             if alt.length > 0 { spans.append(.init(.link, alt)) }
+            let source = text as NSString
+            links.append(NoteLink(range: m.range, title: source.substring(with: alt),
+                                  url: source.substring(with: m.range(at: 2)), isBare: false, isImage: true))
             spans.append(.init(.syntax, NSRange(location: NSMaxRange(alt), length: NSMaxRange(m.range) - NSMaxRange(alt))))
             blank(m.range)
         }

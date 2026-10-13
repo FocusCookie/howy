@@ -35,4 +35,16 @@ import Testing
         #expect(KeyHint.items(in: "") == [])
         #expect(KeyHint.items(in: "esc close · ") == [[.key("esc"), .text("close")]])
     }
+
+    /// The attachment chip and strip hints.
+    @Test func attachmentHints() {
+        #expect(KeyHint.items(in: "⌘O open · ⌘E edit") == [
+            [.key("⌘"), .key("O"), .text("open")],
+            [.key("⌘"), .key("E"), .text("edit")],
+        ])
+        #expect(KeyHint.items(in: "I insert · ⌥⌘O open other way") == [
+            [.key("I"), .text("insert")],
+            [.key("⌥"), .key("⌘"), .key("O"), .text("open other way")],
+        ])
+    }
 }

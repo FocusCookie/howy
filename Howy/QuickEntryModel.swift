@@ -141,6 +141,8 @@ final class QuickEntryModel {
         switch flow.takeRequest() {
         case .open(let attachment, let alternate): open(attachment, alternate: alternate)
         case .chooseFiles: chooseFiles()
+        // Nothing opens the attachment dialog for a pasted file yet, so there is nothing to stage.
+        case .stage(let token): flow.stagingFailed(token: token)
         case nil: break
         }
     }

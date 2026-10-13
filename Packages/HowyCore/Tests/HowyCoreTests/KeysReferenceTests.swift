@@ -181,7 +181,7 @@ import Testing
             + "\(String(describing: flow.selectedAttachmentIndex)) \(String(describing: flow.request)) "
             + "\(String(describing: flow.savedDraft)) \(String(describing: flow.due)) "
             + "\(String(describing: flow.dueDialog)) \(String(describing: flow.linkDialog)) "
-            + "\(String(describing: flow.pendingNoteEdit))"
+            + "\(String(describing: flow.pendingNoteEdit)) \(String(describing: flow.attachmentDialog))"
     }
 
     func editorEffective(_ setups: [() -> QuickEntryFlow]) -> Set<QuickEntryKey> {
@@ -251,6 +251,27 @@ import Testing
             return flow
         }
         expectSame(editorEffective([adding, editing]), reference(.linkDialog))
+    }
+
+    @Test func attachmentDialog() {
+        let file = TodoAttachment(name: "a.pdf")
+        let adding = { () -> QuickEntryFlow in
+            let flow = editor(keys: [.enter])()
+            flow.beginAddingAttachment(fileName: "a.pdf", token: UUID(), replacing: NSRange(location: 0, length: 0))
+            return flow
+        }
+        let editing = { () -> QuickEntryFlow in
+            let flow = editor(editing: true, attachments: [file], keys: [.enter])()
+            flow.note = "[A](a.pdf)"
+            flow.beginEditingAttachment(NoteChips.attachments(in: flow.note, attachmentNames: ["a.pdf"])[0])
+            return flow
+        }
+        let asking = { () -> QuickEntryFlow in
+            let flow = editing()
+            flow.handle(.commandDelete)
+            return flow
+        }
+        expectSame(editorEffective([adding, editing, asking]), reference(.attachmentDialog))
     }
 
     // MARK: Everywhere
