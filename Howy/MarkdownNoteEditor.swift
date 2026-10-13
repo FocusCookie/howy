@@ -102,6 +102,7 @@ struct MarkdownNoteEditor: NSViewRepresentable {
         textView.textContainer?.widthTracksTextView = true
         textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: .greatestFiniteMagnitude)
+        textView.textLayoutManager?.delegate = textView.blockLayout
         let scale = context.environment.panelScale
         textView.font = MarkdownStyler.baseFont(scale: scale)
         textView.typingAttributes = MarkdownStyler.baseAttributes(scale: scale)
@@ -449,6 +450,8 @@ final class NoteTextView: NSTextView {
         didSet { coordinator?.textViewForFocus = self }
     }
     private var hoverArea: NSTrackingArea?
+    /// The layout manager's delegate (held weakly there): code boxes and quote bars.
+    let blockLayout = BlockLayoutDelegate()
 
     override func becomeFirstResponder() -> Bool {
         let became = super.becomeFirstResponder()
@@ -543,8 +546,11 @@ final class NoteTextView: NSTextView {
         guard let layout = textLayoutManager, let content = layout.textContentManager,
               let start = content.location(content.documentRange.location, offsetBy: range.location),
               let end = content.location(start, offsetBy: range.length),
-              let textRange = NSTextRange(location: start, end: end) else { return [] }
-        layout.ensureLayout(for: textRange)
+              let textRange = NSTextRange(location: start, end: end),
+              let laidOut = NSTextRange(location: content.documentRange.location, end: end) else { return [] }
+        // From the start: lines above the viewport otherwise keep estimated heights, and the range
+        // would be measured off by the difference until they are laid out (scrolling up).
+        layout.ensureLayout(for: laidOut)
         var rects: [NSRect] = []
         layout.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
             rects.append(frame)
@@ -632,7 +638,21 @@ final class NoteTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         clearTaskHover()
+        caretNeedsReveal = true
         setNeedsChipUpdate()
+    }
+
+    /// An edit happened and the caret's line may be out of view.
+    private var caretNeedsReveal = false
+
+    /// TextKit 2 lays the text out (and makes the view taller) after the edit, too late for the
+    /// text view's own scrolling: a new line could end up below the editor. Once the layout is
+    /// done, the caret's line is scrolled into view.
+    private func revealCaretIfNeeded() {
+        guard caretNeedsReveal else { return }
+        caretNeedsReveal = false
+        guard window?.firstResponder === self, !hasMarkedText(), let caret = revealRect(at: selectedRange().location) else { return }
+        scrollToVisible(caret.insetBy(dx: 0, dy: -textContainerInset.height))
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -672,13 +692,15 @@ final class NoteTextView: NSTextView {
         setNeedsChipUpdate()
     }
 
-    /// Redraws the chip backgrounds (and the ghost caret) once the current layout pass is done.
+    /// Redraws the chip backgrounds (and the ghost caret), and after an edit reveals the caret,
+    /// once the current layout pass is done.
     func setNeedsChipUpdate() {
         guard !chipUpdateScheduled else { return }
         chipUpdateScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.chipUpdateScheduled = false
+            self.revealCaretIfNeeded()
             self.updateChips()
             self.updateGhost()
         }
@@ -797,19 +819,39 @@ final class NoteTextView: NSTextView {
     private func caretRect(at location: Int) -> NSRect? {
         let lineHeight = (font ?? MarkdownStyler.baseFont(scale: 1)).boundingRectForFont.height
         let origin = textContainerOrigin
+        return caretSegment(at: location) ?? NSRect(x: origin.x, y: origin.y, width: 0, height: lineHeight)
+    }
+
+    /// The caret's segment at `location` in view coordinates, nil when TextKit has none (e.g.
+    /// after a space that hangs past the end of a full line).
+    private func caretSegment(at location: Int) -> NSRect? {
         guard let layout = textLayoutManager, let content = layout.textContentManager,
               let start = content.location(content.documentRange.location, offsetBy: location),
-              let range = NSTextRange(location: start, end: start) else {
-            return NSRect(x: origin.x, y: origin.y, width: 0, height: lineHeight)
-        }
-        layout.ensureLayout(for: range)
+              let range = NSTextRange(location: start, end: start),
+              let laidOut = NSTextRange(location: content.documentRange.location, end: start) else { return nil }
+        layout.ensureLayout(for: laidOut) // from the start, like `segmentRects`
         var caret: NSRect?
         layout.enumerateTextSegments(in: range, type: .selection, options: .rangeNotRequired) { _, frame, _, _ in
             caret = frame
             return false
         }
-        guard let caret, caret.height > 0 else { return NSRect(x: origin.x, y: origin.y, width: 0, height: lineHeight) }
-        return caret.offsetBy(dx: origin.x, dy: origin.y)
+        guard let caret, caret.height > 0 else { return nil }
+        return caret.offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+    }
+
+    /// The line to keep in view for the caret at `location`: its segment, else the character
+    /// before it, else (an empty last line) the end of the text. Never the top: that jumped.
+    private func revealRect(at location: Int) -> NSRect? {
+        let rect = caretSegment(at: location) ?? {
+            let ns = string as NSString
+            if location > 0, ns.character(at: location - 1) != 0x0A,
+               let previous = segmentRects(forCharacters: NSRange(location: location - 1, length: 1)).last {
+                return previous
+            }
+            return location == ns.length ? NSRect(x: 0, y: bounds.maxY - 1, width: 1, height: 1) : nil
+        }()
+        // Only the height matters: the text never scrolls sideways.
+        return rect.map { NSRect(x: 0, y: $0.minY, width: 1, height: $0.height) }
     }
 
     /// The first ⌫ after a chip selects it; the next one deletes it (an attachment chip: only
@@ -1028,7 +1070,20 @@ enum MarkdownStyler {
         }
     }
 
-    private static let codeBackground = NSColor.quaternaryLabelColor.withAlphaComponent(0.12)
+    /// Behind inline code, and behind a fenced code block (`BlockLayoutFragment` draws that one).
+    nonisolated static let codeBackground = NSColor.quaternaryLabelColor.withAlphaComponent(0.12)
+
+    /// Xcode-like colours for the tokens in a code block; system colours, so they follow dark mode.
+    private static func codeColor(_ token: CodeHighlighter.Token) -> NSColor {
+        switch token {
+        case .keyword, .literal: .systemPink
+        case .string: .systemRed
+        case .number: .systemPurple
+        case .comment: .secondaryLabelColor
+        case .property: .systemBlue
+        case .type: .systemTeal
+        }
+    }
 
     /// Restyles the whole text; links and the references to the attachment `names` become chips
     /// (`NoteChips`), those of `highlightedName` in the accent colour (`NoteTextView` draws their
@@ -1043,11 +1098,17 @@ enum MarkdownStyler {
         storage.beginEditing()
         storage.setAttributes(base, range: full)
         for span in spans { apply(span, to: storage, scale: scale) }
+        markBlocks(MarkdownHighlighter.codeBlocks(in: storage.string), as: .codeBlockLine, in: storage, scale: scale)
+        markBlocks(MarkdownHighlighter.quoteBlocks(in: storage.string), as: .quoteLine, in: storage, scale: scale)
         for chip in NoteChips.chips(in: storage.string, attachmentNames: names) {
             let isHighlighted = highlightedName != nil && chip.attachment?.name == highlightedName
             applyChip(chip, to: storage, scale: scale, color: isHighlighted ? .controlAccentColor : .linkColor)
         }
         storage.endEditing()
+        // Restyling every line drops their layout; lines out of view would get estimated heights,
+        // the text's height would change with each keystroke and the view jump. Notes are short:
+        // lay it all out again.
+        if let layout = textView.textLayoutManager { layout.ensureLayout(for: layout.documentRange) }
         textView.typingAttributes = base
         (textView as? NoteTextView)?.bodyScale = scale
         (textView as? NoteTextView)?.setNeedsChipUpdate()
@@ -1072,6 +1133,29 @@ enum MarkdownStyler {
         storage.addAttribute(.foregroundColor, value: color, range: title)
     }
 
+    /// Marks each line of the blocks with `key` (a `BlockLine`), for `BlockLayoutFragment` to draw
+    /// the code box or the quote bar with the text. A code line is also inset, inside its box.
+    private static func markBlocks(_ blocks: [NSRange], as key: NSAttributedString.Key, in storage: NSTextStorage, scale: CGFloat) {
+        let ns = storage.string as NSString
+        for block in blocks {
+            var paragraphs: [NSRange] = []
+            ns.enumerateSubstrings(in: block, options: [.byParagraphs, .substringNotRequired]) { _, _, enclosing, _ in
+                paragraphs.append(enclosing)
+            }
+            for (index, paragraph) in paragraphs.enumerated() {
+                let line = BlockLine(isFirst: index == 0, isLast: index == paragraphs.count - 1, scale: scale)
+                storage.addAttribute(key, value: line, range: paragraph)
+                guard key == .codeBlockLine else { continue }
+                let style = (storage.attribute(.paragraphStyle, at: paragraph.location, effectiveRange: nil) as? NSParagraphStyle)?
+                    .mutableCopy() as? NSMutableParagraphStyle ?? NSMutableParagraphStyle()
+                style.firstLineHeadIndent = BlockLayoutFragment.codeInset * scale
+                style.headIndent = BlockLayoutFragment.codeInset * scale
+                style.tailIndent = -BlockLayoutFragment.codeInset * scale
+                storage.addAttribute(.paragraphStyle, value: style, range: paragraph)
+            }
+        }
+    }
+
     /// The space inside a chip at each end, at 100 %.
     static let chipPadding: CGFloat = 5
     /// The link icon at the start of a chip, and the space between it and the title, at 100 %.
@@ -1084,7 +1168,7 @@ enum MarkdownStyler {
     private static func order(_ style: MarkdownStyleSpan.Style) -> Int {
         switch style {
         case .heading, .quote, .codeBlock: 0
-        case .bold, .italic, .strikethrough, .link, .listMarker: 1
+        case .bold, .italic, .strikethrough, .link, .listMarker, .code: 1
         case .inlineCode, .taskDone: 2
         case .quoteMarker: 3
         case .syntax: 4
@@ -1114,12 +1198,19 @@ enum MarkdownStyler {
             transformFont(in: range, of: storage, scale: scale) {
                 NSFont.monospacedSystemFont(ofSize: $0.pointSize * 0.93, weight: .regular)
             }
-            storage.addAttribute(.backgroundColor, value: codeBackground, range: range)
+            // A block's background is one rounded box drawn with its lines (`BlockLayoutFragment`),
+            // without the gaps the line spacing leaves between per-line backgrounds.
+            if span.style == .inlineCode {
+                storage.addAttribute(.backgroundColor, value: codeBackground, range: range)
+            }
+        case .code(let token):
+            storage.addAttribute(.foregroundColor, value: codeColor(token), range: range)
         case .quote:
-            storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
+            transformFont(in: range, of: storage, scale: scale) { withTraits(.italic, $0) }
         case .quoteMarker:
+            // Invisible, but keeping its width: `BlockLayoutFragment` draws the quote's bar there.
             storage.addAttributes([
-                .foregroundColor: NSColor.controlAccentColor.withAlphaComponent(0.7),
+                .foregroundColor: NSColor.clear,
                 .font: NSFont.systemFont(ofSize: baseSize, weight: .heavy),
             ], range: range)
         case .listMarker:
@@ -1155,5 +1246,121 @@ enum MarkdownStyler {
     private static func withTraits(_ traits: NSFontDescriptor.SymbolicTraits, _ font: NSFont) -> NSFont {
         let descriptor = font.fontDescriptor.withSymbolicTraits(font.fontDescriptor.symbolicTraits.union(traits))
         return NSFont(descriptor: descriptor, size: font.pointSize) ?? font
+    }
+}
+
+// MARK: - Code boxes and quote bars
+
+extension NSAttributedString.Key {
+    /// A line of a fenced code block (a `BlockLine`).
+    static let codeBlockLine = NSAttributedString.Key("HowyCodeBlockLine")
+    /// A line of a quote (a `BlockLine`).
+    static let quoteLine = NSAttributedString.Key("HowyQuoteLine")
+}
+
+/// Where a line sits in its code block or quote: the first rounds the top corners, the last the
+/// bottom ones. `scale` is the panel zoom.
+final class BlockLine: NSObject {
+    let isFirst: Bool
+    let isLast: Bool
+    let scale: CGFloat
+
+    init(isFirst: Bool, isLast: Bool, scale: CGFloat) {
+        self.isFirst = isFirst
+        self.isLast = isLast
+        self.scale = scale
+    }
+
+    override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? BlockLine else { return false }
+        return isFirst == other.isFirst && isLast == other.isLast && scale == other.scale
+    }
+
+    override var hash: Int { Int(scale * 100) * 4 + (isFirst ? 2 : 0) + (isLast ? 1 : 0) }
+}
+
+/// Gives the lines of code blocks and quotes a `BlockLayoutFragment`, so the box or bar is laid
+/// out and drawn with the text itself and can never drift from it.
+final class BlockLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
+    func textLayoutManager(
+        _ textLayoutManager: NSTextLayoutManager, textLayoutFragmentFor location: any NSTextLocation, in textElement: NSTextElement
+    ) -> NSTextLayoutFragment {
+        let range = textElement.elementRange
+        guard let paragraph = textElement as? NSTextParagraph, paragraph.attributedString.length > 0 else {
+            return NSTextLayoutFragment(textElement: textElement, range: range)
+        }
+        let text = paragraph.attributedString
+        if let line = text.attribute(.codeBlockLine, at: 0, effectiveRange: nil) as? BlockLine {
+            return BlockLayoutFragment(textElement: textElement, range: range, line: line, kind: .code)
+        }
+        if let line = text.attribute(.quoteLine, at: 0, effectiveRange: nil) as? BlockLine {
+            let marker = (text.string as NSString).range(of: ">")
+            return BlockLayoutFragment(textElement: textElement, range: range, line: line, kind: .quote(marker: marker.location))
+        }
+        return NSTextLayoutFragment(textElement: textElement, range: range)
+    }
+}
+
+/// A line of a code block, on its part of the rounded box the width of the text, or a line of a
+/// quote, with its part of the accent bar where the (hidden) `>` sits. Consecutive lines' parts
+/// meet, line spacing included, so a block reads as one box or one bar.
+final class BlockLayoutFragment: NSTextLayoutFragment {
+    enum Kind {
+        case code
+        /// `marker`: the `>`'s offset in the line.
+        case quote(marker: Int)
+    }
+
+    /// The text's inset inside a code box, at 100 %.
+    static let codeInset: CGFloat = 8
+
+    private let line: BlockLine
+    private let kind: Kind
+
+    init(textElement: NSTextElement, range: NSTextRange?, line: BlockLine, kind: Kind) {
+        self.line = line
+        self.kind = kind
+        super.init(textElement: textElement, range: range)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    /// The box or bar, in the fragment's coordinates.
+    private var decoration: CGRect {
+        let height = layoutFragmentFrame.height
+        switch kind {
+        case .code:
+            let width = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+            return CGRect(x: -layoutFragmentFrame.minX, y: 0, width: width, height: height)
+        case .quote(let marker):
+            var x: CGFloat = 0
+            if let first = textLineFragments.first, marker != NSNotFound, marker < first.attributedString.length {
+                x = first.typographicBounds.minX + first.locationForCharacter(at: marker).x
+            }
+            return CGRect(x: x, y: 0, width: 3 * line.scale, height: height)
+        }
+    }
+
+    override var renderingSurfaceBounds: CGRect { super.renderingSurfaceBounds.union(decoration) }
+
+    override func draw(at point: CGPoint, in context: CGContext) {
+        let rect = decoration.offsetBy(dx: point.x, dy: point.y)
+        let (color, radius): (NSColor, CGFloat) = switch kind {
+        case .code: (MarkdownStyler.codeBackground, 6 * line.scale)
+        case .quote: (NSColor.controlAccentColor.withAlphaComponent(0.7), 1.5 * line.scale)
+        }
+        // Only the block's outer corners are round: the shape runs past the clip where it meets
+        // the next line.
+        var shape = rect
+        if !line.isFirst { shape.origin.y -= radius; shape.size.height += radius }
+        if !line.isLast { shape.size.height += radius }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: true)
+        NSBezierPath(rect: rect).addClip()
+        color.setFill()
+        NSBezierPath(roundedRect: shape, xRadius: radius, yRadius: radius).fill()
+        NSGraphicsContext.restoreGraphicsState()
+        super.draw(at: point, in: context)
     }
 }

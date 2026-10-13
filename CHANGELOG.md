@@ -6,6 +6,29 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-10-13
+
+### Added
+
+- **Code highlighting** in notes: the code in a fenced block is coloured by the
+  language after the fence (` ```json `, ` ```swift `, ` ```js ` / ` ```ts `,
+  ` ```python `, ` ```sh `, ` ```yaml `). Other languages get strings, numbers
+  and comments.
+
+### Changed
+
+- A fenced code block now sits on one rounded grey box the width of the note,
+  instead of a grey strip behind each line with gaps between them.
+- A quote shows an accent bar down its left side, from its first line to its
+  last, and its text is italic in the normal text colour (the `>` stays in the
+  note but is hidden behind the bar).
+
+### Fixed
+
+- Typing in a long note keeps the line with the cursor in view; new lines no
+  longer disappear below the editor until you scroll, and the text no longer
+  jumps by a line while you type in a note with a scrollbar.
+
 ## [2.2.0] - 2026-10-13
 
 ### Added

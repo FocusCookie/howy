@@ -89,6 +89,12 @@ import Testing
         #expect(covered(text, .italic) == ["*text*"])
     }
 
+    @Test func quoteBlocksJoinConsecutiveQuoteLines() {
+        let text = "> one\n> two\nplain\n>> three\n```\n> code\n```"
+        let ns = text as NSString
+        #expect(MarkdownHighlighter.quoteBlocks(in: text).map { ns.substring(with: $0) } == ["> one\n> two", ">> three"])
+    }
+
     @Test func linksColourTheTextAndDimTheURL() {
         let text = "see [the docs](https://example.com) now"
         #expect(covered(text, .link) == ["the docs"])
