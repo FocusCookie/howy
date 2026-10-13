@@ -7,7 +7,8 @@ import SwiftUI
 /// under the mouse at the remembered position (`PanelPositionStore`; centred in the upper third
 /// until the panel is moved). Closes itself when it loses key status for good.
 ///
-/// The panel can be moved: dragged by its background (the spot is saved once the mouse is up),
+/// The panel can be moved: dragged by its card's background (`PanelBackground`'s
+/// `WindowDragGesture`; the spot is saved once the mouse is up),
 /// or with the position picker (⌘⇧P, `PositionPickerFlow`), which moves it to one of nine slots.
 /// One position for every panel, stored relative to the screen (`PanelPlacement`).
 ///
@@ -1082,6 +1083,12 @@ struct PanelCard<Content: View>: View {
 }
 
 /// Blurred backdrop + translucent fill + hairline edge (a light inner highlight in dark mode).
+///
+/// It is also the card's drag handle: a drag that starts on the card's background (its padding,
+/// the gaps between controls) moves the panel (`WindowDragGesture`). `isMovableByWindowBackground`
+/// alone doesn't do that in a SwiftUI-hosted panel: the hosting view takes every mouse-down in
+/// the card, so AppKit never starts a background drag. Controls, rows and text views sit above
+/// the background and get their own clicks and drags; a click without a drag moves nothing.
 private struct PanelBackground: View {
     let shape: RoundedRectangle
     @Environment(\.colorScheme) private var colorScheme
@@ -1093,6 +1100,8 @@ private struct PanelBackground: View {
         }
         .clipShape(shape)
         .overlay { shape.strokeBorder(edge, lineWidth: 1) }
+        .contentShape(shape) // only the card: the transparent margin around it stays click-through
+        .gesture(WindowDragGesture())
     }
 
     private var isDark: Bool { colorScheme == .dark }

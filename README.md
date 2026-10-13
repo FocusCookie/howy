@@ -43,9 +43,10 @@ Everything happens from a shortcut.
 - **Panel zoom**: **⌘+** / **⌘-** make a panel's text and layout bigger or
   smaller in four steps (100–150 %), and **⌘0** goes back to 100 %. The size is
   remembered.
-- **Move the panel**: drag it by its background and let go anywhere; Howy
-  opens there from then on, on whichever screen the mouse is on (pulled back
-  onto the screen if it wouldn't fit). Or press **⌘⇧P** in any panel for the
+- **Move the panel**: drag it by its background (anywhere on the panel that
+  isn't a button, field, row or label, such as its edge) and let go anywhere; no
+  key needed. Howy opens there from then on, on whichever screen the mouse is
+  on (pulled back onto the screen if it wouldn't fit). Or press **⌘⇧P** in any panel for the
   position picker: a 3×3 grid of spots on the screen (top, middle, bottom ×
   left, centre, right, 24 pt inside the screen's edges). Choose one with
   **←↑↓→** or **h j k l** and press **↩** to move the panel there; **Esc** (or
