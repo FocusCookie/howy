@@ -284,11 +284,11 @@ struct ConfettiBurstView: View {
     static let lead: TimeInterval = 0.08
     /// How long a fleck flies once it is out.
     static let fly: TimeInterval = 0.62
-    private static let count = 18
+    nonisolated private static let count = 18
     /// The V's arms: this far off straight up, on either side, give or take `armSpread`.
-    private static let armAngle: Double = 42
-    private static let armSpread: Double = 16
-    private static let palette: [Color] = [.red, .orange, .blue, .green, .pink, .yellow, .purple, .mint]
+    nonisolated private static let armAngle: Double = 42
+    nonisolated private static let armSpread: Double = 16
+    nonisolated private static let palette: [Color] = [.red, .orange, .blue, .green, .pink, .yellow, .purple, .mint]
 
     /// One fleck's shape and path, drawn once so it stays put across view updates.
     private struct Fleck: Identifiable {

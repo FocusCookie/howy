@@ -352,7 +352,7 @@ struct BrowseView: View {
             .contentShape(Capsule())
         }
         .buttonStyle(.plain)
-        .help("Archive (\(BrowseFlow.archiveKey))")
+        .help("Archive (\(String(BrowseFlow.archiveKey)))")
         .animation(.snappy(duration: 0.22), value: isHighlighted)
         .accessibilityAddTraits(isHighlighted ? .isSelected : [])
     }
@@ -530,7 +530,7 @@ struct DoneButton: View {
         }
         .buttonStyle(.plain)
         .onHover { isHovered = $0 }
-        .help("Mark done (\(BrowseFlow.doneKey))")
+        .help("Mark done (\(String(BrowseFlow.doneKey)))")
         .accessibilityLabel("Mark done")
     }
 }

@@ -303,23 +303,30 @@ final class FloatingPanel: NSPanel {
 
     // MARK: Quick Look
 
+    // These come from an informal protocol on NSObject, so they aren't main-actor isolated;
+    // Quick Look calls them on the main thread.
+
     override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool {
-        previewSource != nil
+        MainActor.assumeIsolated { previewSource != nil }
     }
 
     override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        panel.dataSource = previewSource
-        panel.delegate = previewSource
-        panel.currentPreviewItemIndex = 0 // the source lists the chosen file first
+        MainActor.assumeIsolated {
+            panel.dataSource = previewSource
+            panel.delegate = previewSource
+            panel.currentPreviewItemIndex = 0 // the source lists the chosen file first
+        }
     }
 
     override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        panel.dataSource = nil
-        panel.delegate = nil
-        previewSource = nil
-        let end = onPreviewEnd
-        onPreviewEnd = nil
-        end?()
+        MainActor.assumeIsolated {
+            panel.dataSource = nil
+            panel.delegate = nil
+            previewSource = nil
+            let end = onPreviewEnd
+            onPreviewEnd = nil
+            end?()
+        }
     }
 
     override func becomeKey() {

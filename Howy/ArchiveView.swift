@@ -98,7 +98,7 @@ struct ArchiveView: View {
             }
             Spacer()
             Button("Restore") { model.restore(item) }
-                .help("Restore (\(ArchiveFlow.restoreKey))")
+                .help("Restore (\(String(ArchiveFlow.restoreKey)))")
             Button(role: .destructive) { model.delete(item) } label: {
                 Image(systemName: "trash")
             }
