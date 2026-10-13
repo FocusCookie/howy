@@ -543,8 +543,11 @@ final class NoteTextView: NSTextView {
         guard let layout = textLayoutManager, let content = layout.textContentManager,
               let start = content.location(content.documentRange.location, offsetBy: range.location),
               let end = content.location(start, offsetBy: range.length),
-              let textRange = NSTextRange(location: start, end: end) else { return [] }
-        layout.ensureLayout(for: textRange)
+              let textRange = NSTextRange(location: start, end: end),
+              let laidOut = NSTextRange(location: content.documentRange.location, end: end) else { return [] }
+        // From the start: lines above the viewport otherwise keep estimated heights, and the range
+        // would be measured off by the difference until they are laid out (scrolling up).
+        layout.ensureLayout(for: laidOut)
         var rects: [NSRect] = []
         layout.enumerateTextSegments(in: textRange, type: .standard, options: []) { _, frame, _, _ in
             rects.append(frame)
@@ -877,10 +880,11 @@ final class NoteTextView: NSTextView {
         let origin = textContainerOrigin
         guard let layout = textLayoutManager, let content = layout.textContentManager,
               let start = content.location(content.documentRange.location, offsetBy: location),
-              let range = NSTextRange(location: start, end: start) else {
+              let range = NSTextRange(location: start, end: start),
+              let laidOut = NSTextRange(location: content.documentRange.location, end: start) else {
             return NSRect(x: origin.x, y: origin.y, width: 0, height: lineHeight)
         }
-        layout.ensureLayout(for: range)
+        layout.ensureLayout(for: laidOut) // from the start, like `segmentRects`
         var caret: NSRect?
         layout.enumerateTextSegments(in: range, type: .selection, options: .rangeNotRequired) { _, frame, _, _ in
             caret = frame
