@@ -7,8 +7,9 @@ import Observation
 /// Keys (`handle(_:)` returns what the caller should do):
 /// - Picker: arrows move and clamp; ↓ from the bottom row highlights the Archive button below the
 ///   grid and ↑ comes back; 1–4 open that quadrant's list; Enter/Tab open the highlighted one (or
-///   the archive: `.openArchive`); `a` opens the archive; Esc closes (`.close`). Everything else
-///   is swallowed.
+///   the archive: `.openArchive`); `n` asks for a new todo in the highlighted quadrant (`.newTodo`;
+///   nothing with the Archive button highlighted; the grid stays as it is for coming back); `a`
+///   opens the archive; Esc closes (`.close`). Everything else is swallowed.
 /// - List: ↑/↓ move the selection (clamped); Enter → `.open(id)`; `d` completes the selected
 ///   todo (the row is removed here, the caller writes it: `.complete(id)`); ⌫ archives it the
 ///   same way but without the celebration (`.archive(id)`); 1–4 switch quadrant;
@@ -52,8 +53,13 @@ import Observation
 /// - Closed: every key is `.ignored`.
 ///
 /// An opened todo's edit modal comes back here (`resume(at:)`, with the `BrowseReturn` taken by
-/// `returnPoint`) on Esc, save or delete; so does the create screen `n` opens from the list
-/// (`BrowseReturn.afterCreate`: the new todo selected after a save).
+/// `returnPoint`) on Esc, save or delete; so does the create screen `n` opens from the grid (back
+/// to the grid, the same quadrant highlighted) or the list (`BrowseReturn.afterCreate`: the new
+/// todo selected after a save).
+///
+/// The grid starts on the quadrant given, else on the one opened last (`lastOpened`: a list
+/// opened, an Overview tile focused; the app shares it with the quadrant a new todo was last
+/// saved into), else on Do First.
 ///
 /// Rows keep the order they are given in (the store's order), until moved here.
 @MainActor
@@ -92,7 +98,7 @@ public final class BrowseFlow {
         /// The Overview closed, back to the picker: shrink the panel. A tile editor that was open
         /// is closed too; stash its edit.
         case hideOverview
-        /// List: create a new todo in this quadrant (the create screen, starting in the title).
+        /// Grid or list: create a new todo in this quadrant (the create screen, starting in the title).
         case newTodo(Quadrant)
         /// Overview: open this todo in the focused tile's editor (it is selected there). Stash any
         /// other tile editor still open first.
@@ -245,6 +251,8 @@ public final class BrowseFlow {
                 if let picked = Quadrant(shortcutNumber: n) { choose(picked) }
             case .letter(Self.archiveKey): return .openArchive
             case .letter(Self.overviewKey): return showOverview()
+            case .letter(Self.newKey):
+                if !isArchiveHighlighted { return .newTodo(quadrant) }
             case .enter, .tab:
                 if isArchiveHighlighted { return .openArchive }
                 choose(quadrant)
@@ -707,6 +715,14 @@ public final class BrowseFlow {
             return true
         }
         return false
+    }
+
+    /// Picker: puts the highlight on `quadrant` (coming back from the create screen `n` opened on
+    /// the grid). Nothing is remembered as opened.
+    public func highlight(_ quadrant: Quadrant) {
+        guard phase == .picking else { return }
+        self.quadrant = quadrant
+        isArchiveHighlighted = false
     }
 
     /// Picker: puts the highlight on the Archive button (e.g. coming back from the archive).

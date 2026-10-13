@@ -50,12 +50,47 @@ import Testing
         #expect(flow.handle(.letter("n")) == .newTodo(.notUrgentUnimportant))
     }
 
-    @Test func nInThePickerIsIgnored() {
+    // MARK: Grid
+
+    @Test func nOnTheGridAsksForANewTodoInTheHighlightedQuadrant() {
         let flow = make()
         flow.handle(.right)
-        #expect(flow.handle(.letter("n")) == .handled)
-        #expect(flow.phase == .picking)
+        #expect(flow.handle(.letter(BrowseFlow.newKey)) == .newTodo(.notUrgentImportant))
+        #expect(flow.phase == .picking, "the grid stays as it is, for coming back")
         #expect(flow.quadrant == .notUrgentImportant)
+    }
+
+    @Test func nWithTheArchiveButtonHighlightedDoesNothing() {
+        let flow = make()
+        flow.handle(.down)
+        flow.handle(.down)
+        #expect(flow.isArchiveHighlighted)
+        #expect(flow.handle(.letter(BrowseFlow.newKey)) == .handled)
+    }
+
+    @Test func theGridsReturnPointIsTheGridOnTheHighlightedQuadrant() {
+        let flow = make()
+        flow.handle(.down)
+        #expect(flow.handle(.letter("n")) == .newTodo(.urgentUnimportant))
+        #expect(flow.returnPoint() == BrowseReturn(quadrant: .urgentUnimportant, todoID: nil, index: nil, screen: .grid))
+    }
+
+    @Test(arguments: [false, true])
+    func saveOrEscFromTheGridComesBackToTheGridOnThatQuadrant(saved: Bool) {
+        let flow = make()
+        flow.handle(.right)
+        flow.handle(.down)
+        #expect(flow.handle(.letter("n")) == .newTodo(.notUrgentUnimportant))
+        let back = flow.returnPoint()
+        let new = TodoSnapshot(id: UUID(), title: "new", quadrant: .urgentImportant)
+        // Saved into another quadrant (⇧⇥ in the editor), or not saved at all: the grid either way.
+        let way = saved ? back.afterCreate(new.id, savedInto: .urgentImportant) : back.afterCreate(nil, savedInto: nil)
+        let resumed = BrowseFlow(todos: adding(new, to: flow), lastOpened: MemoryLastQuadrantStore(.notUrgentImportant))
+        resumed.resume(at: way)
+        #expect(resumed.phase == .picking)
+        #expect(resumed.quadrant == .notUrgentUnimportant)
+        #expect(!resumed.isArchiveHighlighted)
+        #expect(resumed.selectedIndex == nil)
     }
 
     @Test func nWithTheMovePickerOpenDoesNothing() {

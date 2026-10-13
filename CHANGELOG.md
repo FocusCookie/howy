@@ -23,6 +23,12 @@ All notable changes to Howy are documented here. The format follows
   the draft. ⇧⇥ from the title still reaches the quadrant picker. Old
   `howy://quick-add` links without a quadrant open the quadrant grid.
 
+### Added
+
+- **N on the quadrant grid** opens the editor for a new todo in the highlighted
+  quadrant. Saving or Esc brings you back to the grid with that quadrant still
+  highlighted. The grid's key hints show it.
+
 ### Removed
 
 - The Quick Add panel and its quadrant-choosing first step, and the menu's
