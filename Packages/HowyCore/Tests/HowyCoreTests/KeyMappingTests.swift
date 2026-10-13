@@ -36,6 +36,22 @@ import Testing
         #expect(key(48, .control) == nil)
     }
 
+    @Test func commandShiftPOpensThePositionPicker() {
+        #expect(key(35, [.command, .shift], "P") == .openPositionPicker)
+        #expect(key(35, [.command, .shift], "p") == .openPositionPicker)
+        #expect(key(35, [.command, .shift]) == .openPositionPicker, "no characters: by the US key code")
+        // Dvorak: P is on another key; the character decides.
+        #expect(key(15, [.command, .shift], "P") == .openPositionPicker)
+        #expect(key(35, [.command, .shift], "R") != .openPositionPicker)
+    }
+
+    @Test func commandPAndPlainPAreNotThePicker() {
+        #expect(key(35, .command, "p") == nil)
+        #expect(key(35, [], "p") == .letter("p"))
+        #expect(key(35, .shift, "P") == .other)
+        #expect(key(35, [.command, .option, .shift], "P") == nil)
+    }
+
     @Test func commandZIsUndoAndShiftCommandZIsNotOurs() {
         #expect(key(6, .command, "z") == .undo)
         #expect(key(6, .command, "Z") == .undo)

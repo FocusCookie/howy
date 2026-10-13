@@ -224,4 +224,18 @@ import Testing
         #expect(centre.x == screen.midX)
         #expect(abs(centre.y - (screen.maxY - 1400 * 0.22 - 100)) < 0.0001)
     }
+
+    /// The Overview always opens in the middle of the screen, wherever the panel was moved.
+    @Test(arguments: [
+        CGRect(x: 0, y: 30, width: 1500, height: 900),
+        CGRect(x: -1920, y: -120, width: 1920, height: 1050),
+    ])
+    func centredOnTheScreen(visible: CGRect) {
+        let size = OverviewSize(widthPercent: 70, heightPercent: 80)
+        let frame = size.centeredFrame(in: visible)
+        #expect(abs(frame.midX - visible.midX) < 0.0001)
+        #expect(abs(frame.midY - visible.midY) < 0.0001)
+        #expect(frame == size.frame(in: visible, centeredOn: CGPoint(x: visible.midX, y: visible.midY)))
+        #expect(visible.contains(frame))
+    }
 }

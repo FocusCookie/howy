@@ -17,7 +17,7 @@ import Testing
         var keys: [QuickEntryKey] = [
             .up, .down, .left, .right, .enter, .tab, .shiftTab, .commandEnter, .commandDelete,
             .commandDone, .escape, .closePanel, .space, .moveUp, .moveDown, .undo, .optionEnter,
-            .zoomIn, .zoomOut, .zoomReset, .backspace, .dueDate, .questionMark, .other,
+            .zoomIn, .zoomOut, .zoomReset, .backspace, .dueDate, .questionMark, .openPositionPicker, .other,
         ]
         for n in 0...9 { keys += [.digit(n), .commandDigit(n), .optionDigit(n)] }
         keys += "abcdefghijklmnopqrstuvwxyz".map(QuickEntryKey.letter)
@@ -30,7 +30,7 @@ import Testing
             case .up, .down, .left, .right, .digit, .commandDigit, .optionDigit, .enter, .tab, .shiftTab,
                  .commandEnter, .commandDelete, .commandDone, .escape, .closePanel, .space, .moveUp,
                  .moveDown, .undo, .optionEnter, .zoomIn, .zoomOut, .zoomReset, .backspace, .dueDate,
-                 .letter, .questionMark, .other:
+                 .letter, .questionMark, .openPositionPicker, .other:
                 break
             }
         }
@@ -159,6 +159,18 @@ import Testing
         expectSame(browseEffective(setups), reference(.dueDateDialog))
     }
 
+    // MARK: Position picker
+
+    @Test func positionPicker() {
+        let setups: [() -> PositionPickerFlow] = PanelSlot.allCases.map { slot in
+            { PositionPickerFlow(selected: slot, current: .center) }
+        }
+        let keys = effective(setups, fingerprint: { "\($0.selected)" }) { flow, key in
+            flow.handle(key) != .handled
+        }
+        expectSame(keys, reference(.positionPicker))
+    }
+
     // MARK: Archive
 
     @Test func archive() {
@@ -276,9 +288,10 @@ import Testing
 
     // MARK: Everywhere
 
-    /// The panel's own keys, which no flow handles: ⌘W / ⌘Esc and the zoom.
+    /// The panel's own keys, which no flow handles: ⌘W / ⌘Esc, the zoom and the position picker.
     @Test func everywhere() {
-        #expect(reference(.everywhere) == [.closePanel, .zoomIn, .zoomOut, .zoomReset])
+        #expect(reference(.everywhere) == [.closePanel, .zoomIn, .zoomOut, .zoomReset, .openPositionPicker])
+        #expect(QuickEntryKey(keyCode: 35, modifiers: [.command, .shift], characters: "P") == .openPositionPicker)
         #expect(QuickEntryKey(keyCode: 13, modifiers: .command, characters: "w") == .closePanel)
         #expect(QuickEntryKey(keyCode: 53, modifiers: .command, characters: nil) == .closePanel)
         #expect(QuickEntryKey(keyCode: 24, modifiers: [.command, .shift], characters: "+") == .zoomIn)
