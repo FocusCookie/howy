@@ -52,6 +52,8 @@ extension QuickEntryKey {
         default:
             if let zoom = Self.zoomKey(keyCode: keyCode, modifiers: modifiers, characters: characters) {
                 self = zoom
+            } else if modifiers == [.command, .shift], characters.map({ $0.lowercased() == "p" }) ?? (keyCode == 35) {
+                self = .openPositionPicker // ⌘⇧P, by character (any layout); US key code without one
             } else if modifiers == .command, characters?.lowercased() == "w" {
                 self = .closePanel
             } else if modifiers == .command, characters?.lowercased() == "k" {

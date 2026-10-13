@@ -29,7 +29,9 @@ Everything happens from a shortcut.
 - **Overview**: press **O** on the grid or in a list (or click the button
   between the quadrants) to see all four quadrants side by side. Focus one with
   **1–4** or **⌥1–4**, or move to the tile beside it with **←/→**; edit or add
-  (**N**) todos right in their tile, and drag todos between quadrants.
+  (**N**) todos right in their tile, and drag todos between quadrants. The
+  Overview always opens in the middle of the screen, wherever you moved the
+  panel, and flies back to the panel's spot when it closes.
 - **Vim keys** work next to the arrows wherever there's nothing to type into:
   **h j k l** on the grid and in the move picker, **j k** in a list and in the
   archive, **h l** in a note's attachments, and in the Overview **j k** inside a
@@ -41,6 +43,19 @@ Everything happens from a shortcut.
 - **Panel zoom**: **⌘+** / **⌘-** make a panel's text and layout bigger or
   smaller in four steps (100–150 %), and **⌘0** goes back to 100 %. The size is
   remembered.
+- **Move the panel**: drag it by its background (anywhere on the panel that
+  isn't a button, field, row or label, such as its edge) and let go anywhere; no
+  key needed. It stays on the screen as you drag, and goes right up to the menu
+  bar, down to the Dock and out to the screen's sides. Howy opens there from then on, on whichever screen the mouse is
+  on (pulled back onto the screen if it wouldn't fit). Or press **⌘⇧P** in any panel for the
+  position picker: a 3×3 grid of spots on the screen (top, middle, bottom ×
+  left, centre, right, 24 pt inside the screen's edges). Choose one with
+  **←↑↓→** or **h j k l** and press **↩** to move the panel there; **Esc** (or
+  **⌘⇧P** again) closes the picker and leaves what you typed as it was. The
+  middle spot is where Howy opened before it could be moved. A panel in the
+  lower third of the screen grows upward, so a long note stays on screen, and
+  the panel zoom keeps the panel's left edge (left third), right edge (right
+  third) or centre where they are. One position for every panel.
 - **Live Markdown** in notes: headings, bold, lists and links are styled as you
   type, and lists continue when you press ↩. A fenced code block (` ```json `)
   sits on one grey box and its code is coloured by the language after the

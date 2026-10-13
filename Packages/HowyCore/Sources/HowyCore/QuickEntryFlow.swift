@@ -49,6 +49,8 @@ public enum QuickEntryKey: Hashable, Sendable {
     /// reference on Browse's grid, list and Overview and in the archive (`.showKeys`). Typing in
     /// the text fields, tile editors and dialogs, like `other`.
     case questionMark
+    /// ⌘⇧P: the position picker (move the panel). The panel handles it before any flow does.
+    case openPositionPicker
     /// Any other key that is plain typing (letters, shifted keys, backspace...). The text field
     /// handles it, except where the flow has nothing to type into (picker, delete prompt).
     case other
@@ -392,7 +394,7 @@ public final class QuickEntryFlow {
             case .other, .questionMark, .letter, .space, .optionEnter, .optionDigit, .backspace, .commandDelete, .undo:
                 break // nothing to type into
             case .escape, .closePanel, .commandEnter, .commandDone, .dueDate: break
-            case .zoomIn, .zoomOut, .zoomReset: return false // the panel's, not the flow's
+            case .zoomIn, .zoomOut, .zoomReset, .openPositionPicker: return false // the panel's, not the flow's
             }
             return true
         case .editingTitle:

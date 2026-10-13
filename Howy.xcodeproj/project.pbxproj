@@ -10,6 +10,7 @@
 		019CF87496B336BC20D191A9 /* HowyWidgets.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = E9FE3030E07090E9F8BC6F18 /* HowyWidgets.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		0BEB18744CD3292407B6FAF5 /* KeyboardShortcuts in Frameworks */ = {isa = PBXBuildFile; productRef = E4F76CE09D2B7F3E46E75BB9 /* KeyboardShortcuts */; };
 		153C596D7F69E1F33BA723D8 /* AttachmentStrip.swift in Sources */ = {isa = PBXBuildFile; fileRef = C12FE93F971D6BC7323D0A45 /* AttachmentStrip.swift */; };
+		16898020411330C2755D2F55 /* PositionPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 791F10400FA88153C544C21F /* PositionPickerView.swift */; };
 		20BEB12BB1D529D71CD38B23 /* HowyWidgetsBundle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 118DD4D73296779867497E3E /* HowyWidgetsBundle.swift */; };
 		244FECEB4C6C6B3194C8803E /* AppController.swift in Sources */ = {isa = PBXBuildFile; fileRef = AAA157940BCFA22FDF04BFD5 /* AppController.swift */; };
 		25D5B2A27CCBCFF8ABBB75B0 /* BrowseView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B5509DAF1BE87FB19D03ADA /* BrowseView.swift */; };
@@ -96,6 +97,7 @@
 		63DC65DACE8A6E8A83D65AFF /* WidgetData.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetData.swift; sourceTree = "<group>"; };
 		6954A62D6557861C23C1905F /* NotificationCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationCoordinator.swift; sourceTree = "<group>"; };
 		708FD672BF271A0F2D99E688 /* AccessoryPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AccessoryPanel.swift; sourceTree = "<group>"; };
+		791F10400FA88153C544C21F /* PositionPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PositionPickerView.swift; sourceTree = "<group>"; };
 		7DA58E55DDC556509EDF4ADE /* ArchiveView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ArchiveView.swift; sourceTree = "<group>"; };
 		7F9104238927E773B54C4668 /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 		82DDD24CA1511C11CC068778 /* HowyCore */ = {isa = PBXFileReference; lastKnownFileType = folder; name = HowyCore; path = Packages/HowyCore; sourceTree = SOURCE_ROOT; };
@@ -200,6 +202,7 @@
 				010CD0FEE36D7BBC57C87D57 /* OverviewView.swift */,
 				5BB2F0FB9E18457F94C0E324 /* PanelEffects.swift */,
 				E8DCC0EBC32977CBF8994EC2 /* PanelScale.swift */,
+				791F10400FA88153C544C21F /* PositionPickerView.swift */,
 				9F019D8038DDDA7EA01E402E /* QuadrantGrid.swift */,
 				4C67371D1BD06CC98E9938C2 /* QuickEntryModel.swift */,
 				863690EEA21F9E6873E85406 /* QuickEntryView.swift */,
@@ -290,7 +293,7 @@
 					56F1319CBBBABE9C9C8A334D = {
 						DevelopmentTeam = GQ9M79TF33;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.ApplicationGroups.Mac\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.ApplicationGroups.Mac\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1], \"com.apple.iCloud\": [\"enabled\": 1]]";
 					};
 				};
 			};
@@ -352,6 +355,7 @@
 				671AA6B198F1606C750DB690 /* OverviewView.swift in Sources */,
 				FF3F3E4AB4EB81E4BE20CD3B /* PanelEffects.swift in Sources */,
 				B2C9D747286103DD16C2CC3F /* PanelScale.swift in Sources */,
+				16898020411330C2755D2F55 /* PositionPickerView.swift in Sources */,
 				97DAF4E1F5C8FFDFDE99EF36 /* QuadrantGrid.swift in Sources */,
 				382DA95CE190BB17CDE95C7D /* QuickEntryModel.swift in Sources */,
 				882E6D310D0C467DF5D54791 /* QuickEntryView.swift in Sources */,
@@ -440,7 +444,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HOWY_STORE_FILE_NAME = Howy.store;
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 2.5.0;
+				MARKETING_VERSION = 2.6.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -511,7 +515,7 @@
 				GCC_WARN_UNUSED_VARIABLE = YES;
 				HOWY_STORE_FILE_NAME = "Howy-Debug.store";
 				MACOSX_DEPLOYMENT_TARGET = 27.0;
-				MARKETING_VERSION = 2.5.0;
+				MARKETING_VERSION = 2.6.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;

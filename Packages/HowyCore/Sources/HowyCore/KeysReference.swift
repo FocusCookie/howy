@@ -10,7 +10,7 @@ import Foundation
 /// in lower case as an alternative next to the arrows ("↑↓ / j k").
 public enum KeysReference {
     public enum ScreenID: String, CaseIterable, Hashable, Sendable {
-        case everywhere, grid, list, movePicker, overview, archive
+        case everywhere, positionPicker, grid, list, movePicker, overview, archive
         case editor, editorQuadrantPicker, attachments, dueDateDialog, linkDialog, attachmentDialog
     }
 
@@ -80,6 +80,12 @@ public enum KeysReference {
             Row(["⌘W", "⌘esc"], "Close Howy from any screen (an unsaved todo is kept as a draft)", [.closePanel]),
             Row(["⌘+ ⌘-"], "Make the panel bigger or smaller", [.zoomIn, .zoomOut]),
             Row(["⌘0"], "Panel size back to 100 %", [.zoomReset]),
+            Row(["⌘⇧P"], "Move the panel (position picker); or drag it by its background", [.openPositionPicker]),
+        ]),
+        Screen(id: .positionPicker, title: "Position picker", note: "⌘⇧P in any panel. Howy remembers the spot.", rows: [
+            Row(["←↑↓→", "h j k l"], "Choose a spot on the screen", arrows.union(vim)),
+            Row(["↩"], "Move the panel there", [.enter]),
+            Row(["esc", "⌘⇧P"], "Close the picker, leaving the panel where it is", [.escape, .openPositionPicker]),
         ]),
         Screen(id: .grid, title: "Quadrant grid", note: "What Open Howy shows first.", rows: [
             Row(["←↑↓→", "h j k l"], "Move the highlight (↓ from the bottom row reaches Archive)", arrows.union(vim)),
