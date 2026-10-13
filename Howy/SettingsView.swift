@@ -219,7 +219,7 @@ struct ICloudSettingsView: View {
             } header: {
                 Text("Sync")
             } footer: {
-                FooterText("Howy syncs your todos and their attachments through your iCloud account. Signing out of iCloud or turning it off for Howy removes the synced todos from this Mac (signing back in brings them back). Howy tells you when that happens, when iCloud is full, or when sync has failed for over an hour. The daily backups are under Data.")
+                FooterText("Howy syncs your todos and their attachments through your iCloud account. Signing out of iCloud or turning it off for Howy removes the synced todos from this Mac (signing back in brings them back). Howy tells you when that happens, when iCloud is full, when sync has failed for over an hour, or when Low Power Mode turns on and sync may be delayed. The daily backups are under Data.")
             }
         }
         .settingsForm()
@@ -378,17 +378,24 @@ struct KeysSettingsView: View {
     }
 }
 
-/// Settings' sync line: `SyncMonitor.status`, re-read every 15 seconds (whether an event still
-/// counts as running, and "last synced", depend on the time). Highlighted for a moment when a sync
-/// notice was clicked (`AppController.syncLineHighlightRequest`, a few seconds old at most).
+/// Settings' sync line: `SyncMonitor.status` (with `statusHint`, e.g. Low Power Mode, below it),
+/// re-read every 15 seconds (whether an event still counts as running, and "last synced", depend on
+/// the time). Highlighted for a moment when a sync notice was clicked
+/// (`AppController.syncLineHighlightRequest`, a few seconds old at most).
 private struct SyncStatusRow: View {
     let monitor: SyncMonitor
     let highlightRequest: Date?
     @State private var highlighted = false
 
+    /// The title, then the sentences under it (each ends with its own full stop).
+    private static func spoken(_ title: String, _ sentences: [String]) -> String {
+        sentences.isEmpty ? title : "\(title). " + sentences.joined(separator: " ")
+    }
+
     var body: some View {
         TimelineView(.periodic(from: .now, by: 15)) { _ in
             let status = monitor.status
+            let hint = monitor.statusHint
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Image(systemName: status.symbolName)
                     .foregroundStyle(status.isProblem ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
@@ -406,12 +413,18 @@ private struct SyncStatusRow: View {
                             .foregroundStyle(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }
+                    if let hint {
+                        Text(hint)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 }
                 Spacer(minLength: 0)
             }
             .accessibilityElement(children: .combine)
             .accessibilityLabel("iCloud sync")
-            .accessibilityValue(status.detail.map { "\(status.title). \($0)" } ?? status.title)
+            .accessibilityValue(Self.spoken(status.title, [status.detail, hint].compactMap { $0 }))
         }
         .listRowBackground(highlighted ? Color.accentColor.opacity(0.18) : nil)
         .animation(.easeInOut(duration: 0.3), value: highlighted)

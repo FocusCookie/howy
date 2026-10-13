@@ -17,8 +17,9 @@ let log = Logger(subsystem: "lueddemann.howy", category: "app")
 /// store change, and at the date the gate names (`recheck`).
 ///
 /// **Account and notices.** `syncMonitor` reads the iCloud account at launch, on
-/// `CKAccountChanged` and on wake, and checks the "failing for over an hour" rule every 5 minutes
-/// (with the import nudge). The notices it raises go to `NotificationCoordinator`; a click on
+/// `CKAccountChanged` and on wake, follows the network and Low Power Mode, and checks the "failing
+/// for over an hour" rule every 5 minutes (with the import nudge). The notices it raises (also
+/// "sync may be delayed" when Low Power Mode turns on) go to `NotificationCoordinator`; a click on
 /// one opens Settings with the sync line highlighted (`showSyncSettings()`).
 @MainActor
 @Observable
@@ -194,11 +195,13 @@ final class AppController {
         syncMonitor.onImport = { [weak self] in self?.storeChangedRemotely() }
         syncMonitor.onChange = { [weak self] in self?.retryDeferredWork() }
         syncMonitor.onAlert = { alert in NotificationCoordinator.shared.post(alert) }
+        syncMonitor.onAlertResolved = { alert in NotificationCoordinator.shared.withdraw(alert) }
         syncMonitor.onBackOnline = { [weak self] in self?.nudgeImport() }
         // Only a build that mirrors (a valid store file name) has an account worth watching.
         if TodoStore.hasValidStoreFileName {
             syncMonitor.startAccountChecks(containerIdentifier: StoreSync.containerIdentifier)
             syncMonitor.startNetworkChecks()
+            syncMonitor.startLowPowerModeChecks()
         }
         // The widget's checkbox writes from its own process; the open panel reads again.
         CFNotificationCenterAddObserver(

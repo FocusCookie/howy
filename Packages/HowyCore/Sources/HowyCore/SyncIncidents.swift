@@ -109,6 +109,9 @@ public enum SyncAlert: Hashable, Sendable {
     case storageFull
     /// Sync has failed for over an hour without a success.
     case failing(reason: String)
+    /// Low Power Mode turned on while the store mirrors with a signed-in account: sync may be
+    /// delayed (`SyncIncidents.lowPowerModeChanged`).
+    case lowPowerMode
 
     /// The prefix of every sync notification's identifier (a click on one is told apart by it).
     public static let identifierPrefix = "howy.sync."
@@ -116,12 +119,23 @@ public enum SyncAlert: Hashable, Sendable {
     /// The notification's identifier: one per kind, so a newer one replaces the older.
     public var identifier: String { Self.identifierPrefix + cooldownKey }
 
+    /// Whether posting this asks for notification permission when it was never asked. The
+    /// problems do (the todos may have left this Mac); the Low Power Mode note only shows if
+    /// notifications are already allowed: it isn't worth a permission prompt.
+    public var asksForPermission: Bool {
+        switch self {
+        case .dataRemoved, .storageFull, .failing: true
+        case .lowPowerMode: false
+        }
+    }
+
     /// The kind as a key, for the cooldown record.
     var cooldownKey: String {
         switch self {
         case .dataRemoved: "dataRemoved"
         case .storageFull: "storageFull"
         case .failing: "failing"
+        case .lowPowerMode: "lowPowerMode"
         }
     }
 
@@ -132,6 +146,7 @@ public enum SyncAlert: Hashable, Sendable {
         case .dataRemoved(.iCloudDataDeleted): "Howy's iCloud data was deleted"
         case .storageFull: "iCloud storage is full"
         case .failing: "iCloud sync isn't working"
+        case .lowPowerMode: "Sync may be delayed"
         }
     }
 
@@ -149,6 +164,8 @@ public enum SyncAlert: Hashable, Sendable {
             "Howy can't upload changes until there's space. Your todos stay on this Mac. Free up space in System Settings → Apple Account → iCloud."
         case .failing(let reason):
             "Howy hasn't been able to sync for over an hour (\(reason)). Your todos stay on this Mac."
+        case .lowPowerMode:
+            "Low Power Mode is on, so iCloud may sync your todos later than usual."
         }
     }
 }
@@ -169,6 +186,9 @@ public enum SyncAlert: Hashable, Sendable {
 ///
 /// On top of that, storage-full and failing notices don't repeat within `repeatCooldown`, also
 /// across launches: `lastPosted` is what the app saves and hands back.
+///
+/// - **Low Power Mode** (`lowPowerModeChanged`) notifies every time it turns on (no cooldown)
+///   while the store mirrors with a signed-in account; not at launch when it is already on.
 ///
 /// A value with the time passed in (`at:`), so it is tested by feeding events and dates.
 public struct SyncIncidents: Hashable, Sendable {
@@ -250,6 +270,23 @@ public struct SyncIncidents: Hashable, Sendable {
     public mutating func accountUnavailable() {
         endFailure()
         quotaOpen = false
+    }
+
+    /// Low Power Mode went from `wasOn` to `isOn` (`wasOn` is `nil` for the first reading, at
+    /// launch). Notifies when it turns on (off → on; the launch reading never notifies, the
+    /// Settings line shows the hint then) and sync would be affected: the store mirrors
+    /// (`.iCloud`) and the account is signed in (available, or temporarily unavailable). Not for
+    /// a store that doesn't mirror or fell back to local, no account, iCloud off for Howy,
+    /// restricted, or an account not known yet. A turn-on while the account or store isn't known
+    /// yet is not notified later, when they become known. No cooldown: each turn-on notifies.
+    public static func lowPowerModeChanged(
+        from wasOn: Bool?, to isOn: Bool, mode: SyncState.Mode, account: AccountObservation?
+    ) -> [SyncAlert] {
+        guard wasOn == false, isOn, mode == .iCloud else { return [] }
+        switch account {
+        case .available?, .temporarilyUnavailable?: return [.lowPowerMode]
+        case nil, .noAccount?, .iCloudOffForApp?, .restricted?, .couldNotDetermine?: return []
+        }
     }
 
     /// Checks the "over an hour" rule without an event (the app calls it every few minutes).
