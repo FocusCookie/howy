@@ -71,6 +71,9 @@ targets:
         CFBundleDisplayName: Howy
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Only Apple's own TLS/CloudKit encryption, so App Store uploads skip
+        # the export-compliance question.
+        ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: public.app-category.productivity
         LSMinimumSystemVersion: $(MACOSX_DEPLOYMENT_TARGET)
         LSUIElement: true

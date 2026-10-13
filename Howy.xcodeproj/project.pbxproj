@@ -290,7 +290,7 @@
 					56F1319CBBBABE9C9C8A334D = {
 						DevelopmentTeam = GQ9M79TF33;
 						ProvisioningStyle = Automatic;
-						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1], \"com.apple.ApplicationGroups.Mac\": [\"enabled\": 1]]";
+						SystemCapabilities = "[\"com.apple.iCloud\": [\"enabled\": 1], \"com.apple.ApplicationGroups.Mac\": [\"enabled\": 1], \"com.apple.Push\": [\"enabled\": 1]]";
 					};
 				};
 			};
