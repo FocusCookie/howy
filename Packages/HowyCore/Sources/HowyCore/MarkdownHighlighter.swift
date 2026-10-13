@@ -13,6 +13,9 @@ public struct MarkdownStyleSpan: Hashable, Sendable {
         case inlineCode
         /// A fenced code block, fences included.
         case codeBlock
+        /// A token in the body of a fenced code block, coloured by the fence's language
+        /// (`CodeHighlighter`).
+        case code(CodeHighlighter.Token)
         /// A whole quote line, marker included.
         case quote
         /// The `>` of a quote line (styled as a bar).
@@ -79,26 +82,63 @@ public enum MarkdownHighlighter {
     }
 
     private static func spans(in text: String, links: inout [NoteLink]) -> [MarkdownStyleSpan] {
+        let ns = text as NSString
         var spans: [MarkdownStyleSpan] = []
-        var fenceStart: Int?
+        var open: (start: Int, language: String?, body: [NSRange])?
+
+        func codeSpans(_ body: [NSRange], language: String?) {
+            guard let first = body.first, let last = body.last else { return }
+            let range = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+            spans += CodeHighlighter.tokens(in: ns.substring(with: range), language: language).map {
+                .init(.code($0.token), NSRange(location: $0.range.location + range.location, length: $0.range.length))
+            }
+        }
+
         for line in lines(of: text) {
             if let fence = line.fence {
-                if let start = fenceStart {
-                    spans.append(.init(.codeBlock, NSRange(location: start, length: NSMaxRange(line.range) - start)))
+                if let block = open {
+                    spans.append(.init(.codeBlock, NSRange(location: block.start, length: NSMaxRange(line.range) - block.start)))
                     spans.append(.init(.syntax, fence))
-                    fenceStart = nil
+                    codeSpans(block.body, language: block.language)
+                    open = nil
                 } else {
-                    fenceStart = line.range.location
+                    open = (line.range.location, language(ofFence: ns.substring(with: fence)), [])
                     spans.append(.init(.syntax, fence))
                 }
-            } else if !line.isCode {
+            } else if open != nil {
+                open?.body.append(line.range)
+            } else {
                 spans += lineSpans(line.text, at: line.range.location, links: &links)
             }
         }
-        if let start = fenceStart { // unclosed fence runs to the end
-            spans.append(.init(.codeBlock, NSRange(location: start, length: (text as NSString).length - start)))
+        if let block = open { // unclosed fence runs to the end
+            spans.append(.init(.codeBlock, NSRange(location: block.start, length: ns.length - block.start)))
+            codeSpans(block.body, language: block.language)
         }
         return spans
+    }
+
+    /// The language of an opening fence: its first word ("```json" → "json"), nil when there is none.
+    private static func language(ofFence fence: String) -> String? {
+        let info = fence.trimmingCharacters(in: .whitespaces).drop { $0 == "`" || $0 == "~" }
+        return info.split(whereSeparator: \.isWhitespace).first.map(String.init)
+    }
+
+    /// Every fenced code block, fences included, in text order (the editor draws one background
+    /// behind each).
+    public static func codeBlocks(in text: String) -> [NSRange] {
+        var blocks: [NSRange] = []
+        var start: Int?
+        for line in lines(of: text) where line.fence != nil {
+            if let open = start {
+                blocks.append(NSRange(location: open, length: NSMaxRange(line.range) - open))
+                start = nil
+            } else {
+                start = line.range.location
+            }
+        }
+        if let start { blocks.append(NSRange(location: start, length: (text as NSString).length - start)) }
+        return blocks
     }
 
     /// Every task box in list items outside fenced code, in text order.

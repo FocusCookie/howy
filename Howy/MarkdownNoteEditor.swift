@@ -691,7 +691,37 @@ final class NoteTextView: NSTextView {
     /// The panel zoom the text was last styled at (`MarkdownStyler.apply`).
     var bodyScale: CGFloat = 1
 
+    // MARK: Code blocks
+
+    /// One rounded box behind each fenced code block, the width of the text (reused).
+    private var codeBlockViews: [RoundedHighlightView] = []
+    private var drawnCodeBlocks: [NSRect] = []
+
+    private func updateCodeBlocks() {
+        let width = textContainer?.size.width ?? bounds.width
+        let pad = 2 * bodyScale
+        let frames = (string.isEmpty ? [] : MarkdownHighlighter.codeBlocks(in: string)).compactMap { block -> NSRect? in
+            guard let rect = rect(forCharacters: block) else { return nil }
+            return NSRect(x: textContainerOrigin.x, y: rect.minY - pad, width: width, height: rect.height + 2 * pad).integral
+        }
+        guard frames != drawnCodeBlocks else { return }
+        drawnCodeBlocks = frames
+        let radius = 6 * bodyScale
+        while codeBlockViews.count < frames.count {
+            let view = RoundedHighlightView(color: MarkdownStyler.codeBackground, cornerRadius: radius)
+            addSubview(view, positioned: .below, relativeTo: nil)
+            codeBlockViews.append(view)
+        }
+        for (index, view) in codeBlockViews.enumerated() {
+            view.isHidden = index >= frames.count
+            guard index < frames.count else { continue }
+            view.frame = frames[index]
+            view.layer?.cornerRadius = radius
+        }
+    }
+
     private func updateChips() {
+        updateCodeBlocks()
         let names = coordinator?.parent.attachmentNames ?? []
         let highlighted = coordinator?.parent.highlightedName
         let chips = string.isEmpty ? [] : NoteChips.chips(in: string, attachmentNames: names)
@@ -1028,7 +1058,20 @@ enum MarkdownStyler {
         }
     }
 
-    private static let codeBackground = NSColor.quaternaryLabelColor.withAlphaComponent(0.12)
+    /// Behind inline code, and behind a fenced code block (`NoteTextView` draws that one).
+    static let codeBackground = NSColor.quaternaryLabelColor.withAlphaComponent(0.12)
+
+    /// Xcode-like colours for the tokens in a code block; system colours, so they follow dark mode.
+    private static func codeColor(_ token: CodeHighlighter.Token) -> NSColor {
+        switch token {
+        case .keyword, .literal: .systemPink
+        case .string: .systemRed
+        case .number: .systemPurple
+        case .comment: .secondaryLabelColor
+        case .property: .systemBlue
+        case .type: .systemTeal
+        }
+    }
 
     /// Restyles the whole text; links and the references to the attachment `names` become chips
     /// (`NoteChips`), those of `highlightedName` in the accent colour (`NoteTextView` draws their
@@ -1084,7 +1127,7 @@ enum MarkdownStyler {
     private static func order(_ style: MarkdownStyleSpan.Style) -> Int {
         switch style {
         case .heading, .quote, .codeBlock: 0
-        case .bold, .italic, .strikethrough, .link, .listMarker: 1
+        case .bold, .italic, .strikethrough, .link, .listMarker, .code: 1
         case .inlineCode, .taskDone: 2
         case .quoteMarker: 3
         case .syntax: 4
@@ -1114,7 +1157,13 @@ enum MarkdownStyler {
             transformFont(in: range, of: storage, scale: scale) {
                 NSFont.monospacedSystemFont(ofSize: $0.pointSize * 0.93, weight: .regular)
             }
-            storage.addAttribute(.backgroundColor, value: codeBackground, range: range)
+            // A block's background is one rounded box drawn by `NoteTextView`, without the gaps
+            // the line spacing leaves between per-line backgrounds.
+            if span.style == .inlineCode {
+                storage.addAttribute(.backgroundColor, value: codeBackground, range: range)
+            }
+        case .code(let token):
+            storage.addAttribute(.foregroundColor, value: codeColor(token), range: range)
         case .quote:
             storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
         case .quoteMarker:

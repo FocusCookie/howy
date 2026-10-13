@@ -6,6 +6,18 @@ All notable changes to Howy are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Code highlighting** in notes: the code in a fenced block is coloured by the
+  language after the fence (` ```json `, ` ```swift `, ` ```js ` / ` ```ts `,
+  ` ```python `, ` ```sh `, ` ```yaml `). Other languages get strings, numbers
+  and comments.
+
+### Changed
+
+- A fenced code block now sits on one rounded grey box the width of the note,
+  instead of a grey strip behind each line with gaps between them.
+
 ## [2.2.0] - 2026-10-13
 
 ### Added

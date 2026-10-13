@@ -42,7 +42,10 @@ Everything happens from a shortcut.
   smaller in four steps (100–150 %), and **⌘0** goes back to 100 %. The size is
   remembered.
 - **Live Markdown** in notes: headings, bold, lists and links are styled as you
-  type, and lists continue when you press ↩.
+  type, and lists continue when you press ↩. A fenced code block (` ```json `)
+  sits on one grey box and its code is coloured by the language after the
+  fence: JSON, Swift, JavaScript / TypeScript, Python, shell and YAML (other
+  languages get strings, numbers and comments).
 - **Checklists** in notes: **⇧⌘L** turns the lines you've selected into
   `- [ ]` items, and pressed again it ticks or unticks them. Click a box to
   tick or untick it. Ticked items are crossed out and greyed. **⌘Z** undoes
