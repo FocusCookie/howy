@@ -8,7 +8,8 @@ All notable changes to Howy are documented here. The format follows
 
 ### Added
 
-- **Move the panel.** Drag it by its background and Howy remembers the spot,
+- **Move the panel.** Drag it by its background (right up to the menu bar,
+  down to the Dock and out to the sides) and Howy remembers the spot,
   also across restarts: it opens there on the screen under the mouse, pulled
   back onto the screen if it wouldn't fit. **⌘⇧P** in any panel shows a
   position picker over the panel, a 3×3 grid of spots on the screen; choose one

@@ -272,6 +272,64 @@ import Testing
         #expect(tall.maxY == topLayout.anchorEdge)
     }
 
+    // MARK: Drag
+
+    @Test func aDragInsideTheScreenMovesTheCardByTheMouse() {
+        let card = CGRect(x: 400, y: 400, width: 600, height: 300)
+        let offset = PanelPlacement.dragOffset(cardFrame: card, translation: CGSize(width: -120, height: 85), in: Self.visible)
+        #expect(offset == CGSize(width: -120, height: 85))
+    }
+
+    @Test func aDragUpStopsWithTheCardRightBelowTheMenuBar() {
+        // The card's top may reach the visible frame's top edge: closer than a top slot's 24 pt.
+        let card = CGRect(x: 400, y: 400, width: 600, height: 300)
+        let offset = PanelPlacement.dragOffset(cardFrame: card, translation: CGSize(width: 0, height: 5000), in: Self.visible)
+        #expect(card.maxY + offset.height == Self.visible.maxY)
+        let slotTop = frame(.top).maxY
+        #expect(card.maxY + offset.height > slotTop)
+    }
+
+    @Test func aDragStopsAtTheDockAndTheSideEdges() {
+        let v = Self.visible
+        let card = CGRect(x: 400, y: 400, width: 600, height: 300)
+        let downLeft = PanelPlacement.dragOffset(cardFrame: card, translation: CGSize(width: -5000, height: -5000), in: v)
+        #expect(card.offsetBy(dx: downLeft.width, dy: downLeft.height) == CGRect(x: v.minX, y: v.minY, width: 600, height: 300))
+        let right = PanelPlacement.dragOffset(cardFrame: card, translation: CGSize(width: 5000, height: 0), in: v)
+        #expect(card.maxX + right.width == v.maxX)
+        #expect(right.height == 0)
+    }
+
+    @Test func aBottomCardCanBeDraggedAllTheWayUp() {
+        let v = Self.visible
+        let bottom = frame(.bottom)
+        let offset = PanelPlacement.dragOffset(cardFrame: bottom, translation: CGSize(width: 0, height: 2000), in: v)
+        #expect(bottom.maxY + offset.height == v.maxY)
+    }
+
+    @Test func aDragOntoAnotherScreenKeepsTheCardOnThatScreen() {
+        // A second screen to the right, lower and shorter; the card starts on the first.
+        let other = CGRect(x: 1500, y: 0, width: 1200, height: 700)
+        let card = CGRect(x: 800, y: 600, width: 600, height: 300)
+        let offset = PanelPlacement.dragOffset(cardFrame: card, translation: CGSize(width: 900, height: 200), in: other)
+        let dropped = card.offsetBy(dx: offset.width, dy: offset.height)
+        #expect(other.contains(dropped))
+        #expect(dropped.minX == 1700)
+        #expect(dropped.maxY == other.maxY)
+    }
+
+    @Test func aDragMovesByWholePoints() {
+        let card = CGRect(x: 400, y: 400, width: 600, height: 300)
+        let offset = PanelPlacement.dragOffset(cardFrame: card, translation: CGSize(width: 10.4, height: -7.6), in: Self.visible)
+        #expect(offset == CGSize(width: 10, height: -8))
+    }
+
+    @Test func aCardTallerThanTheScreenIsPinnedToItsTop() {
+        let v = Self.visible
+        let card = CGRect(x: 400, y: 0, width: 600, height: 1200)
+        let offset = PanelPlacement.dragOffset(cardFrame: card, translation: CGSize(width: 0, height: -300), in: v)
+        #expect(card.maxY + offset.height == v.maxY)
+    }
+
     // MARK: Picker
 
     @Test func aPickerThatFitsStaysCentredOnTheCard() {

@@ -7,8 +7,8 @@ import SwiftUI
 /// under the mouse at the remembered position (`PanelPositionStore`; centred in the upper third
 /// until the panel is moved). Closes itself when it loses key status for good.
 ///
-/// The panel can be moved: dragged by its card's background (`PanelBackground`'s
-/// `WindowDragGesture`; the spot is saved once the mouse is up),
+/// The panel can be moved: dragged by its card's background (`PanelBackground`, `dragPanel`; the
+/// spot is saved once the mouse is up),
 /// or with the position picker (⌘⇧P, `PositionPickerFlow`), which moves it to one of nine slots.
 /// One position for every panel, stored relative to the screen (`PanelPlacement`).
 ///
@@ -137,7 +137,9 @@ final class FloatingPanel: NSPanel {
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
         isFloatingPanel = true
         hidesOnDeactivate = false
-        isMovableByWindowBackground = true
+        // No window-server drags: those keep the *window's* top edge below the menu bar, and this
+        // window reaches well past the card (`dragPanel` moves it instead).
+        isMovableByWindowBackground = false
         isReleasedWhenClosed = false
         backgroundColor = .clear
         isOpaque = false
@@ -162,6 +164,10 @@ final class FloatingPanel: NSPanel {
         contentView = container
 
         presentation.choosePosition = { [weak self] slot in self?.finishPicker(slot) }
+        presentation.drag = PanelDrag(
+            changed: { [weak self] translation in self?.dragPanel(translation: translation) },
+            ended: { [weak self] in self?.drag = nil }
+        )
         // Both posted on the main thread; `queue: nil` runs the block right away, so a move
         // inside `placeWindow` is seen while `isPlacing` is still set.
         observers.append(NotificationCenter.default.addObserver(
@@ -218,8 +224,14 @@ final class FloatingPanel: NSPanel {
 
     override func sendEvent(_ event: NSEvent) {
         if didClose { return } // fading out: nothing may change behind the fade
-        if event.type == .leftMouseDown { mouseDownInPanel = true }
-        if event.type == .leftMouseUp { mouseDownInPanel = false }
+        if event.type == .leftMouseDown {
+            mouseDownInPanel = true
+            drag = nil
+        }
+        if event.type == .leftMouseUp {
+            mouseDownInPanel = false
+            drag = nil
+        }
         if event.type == .keyDown, !isComposingText {
             if closeOnShortcut(event) { return }
             if pickerOnShortcut(event) { return }
@@ -352,6 +364,42 @@ final class FloatingPanel: NSPanel {
     private func screenOfCard(_ card: NSRect) -> NSScreen? {
         let center = NSPoint(x: card.midX, y: card.midY)
         return NSScreen.screens.first { NSMouseInRect(center, $0.frame, false) } ?? screen ?? NSScreen.main
+    }
+
+    // MARK: Drag
+
+    /// The drag in progress (`dragPanel`): the mouse (screen coordinates) and the window's origin
+    /// where it began, and the card's frame then (the Overview's while it is open).
+    private var drag: (mouse: NSPoint, origin: NSPoint, card: NSRect)?
+
+    /// Moves the panel with a drag on the card's background (`PanelBackground`). `translation` is
+    /// the gesture's, used once to find where the mouse went down; after that the mouse is read in
+    /// screen coordinates, which don't move with the window as the gesture's own space does.
+    ///
+    /// Howy moves the window itself instead of handing the drag to the window server
+    /// (`WindowDragGesture`, `performDrag`): the window server keeps the *window's* top edge below
+    /// the menu bar, and this window reaches a margin above the card (or, anchored at the bottom,
+    /// up to the top of the screen), so the card could never get near the menu bar. Here the card
+    /// is what is kept on screen: inside the visible frame of the screen under the mouse
+    /// (`PanelPlacement.dragOffset`); `constrainFrameRect` lets the window reach past the edges.
+    /// The moves are the user's (the button is down in the panel), so `windowDidMove` saves the
+    /// spot once the button is up, as with any drag.
+    private func dragPanel(translation: CGSize) {
+        guard !didClose else { return }
+        let mouse = NSEvent.mouseLocation
+        if drag == nil {
+            finishSlide()
+            // SwiftUI's y points down; the screen's up.
+            let start = NSPoint(x: mouse.x - translation.width, y: mouse.y + translation.height)
+            drag = (start, frame.origin, compactWindowFrame == nil ? compactCardFrame : cardFrame)
+        }
+        guard let drag else { return }
+        let screen = NSScreen.screens.first { NSMouseInRect(mouse, $0.frame, false) } ?? screenOfCard(drag.card)
+        guard let visible = screen?.visibleFrame else { return }
+        let translation = CGSize(width: mouse.x - drag.mouse.x, height: mouse.y - drag.mouse.y)
+        let offset = PanelPlacement.dragOffset(cardFrame: drag.card, translation: translation, in: visible)
+        let origin = NSPoint(x: drag.origin.x + offset.width, y: drag.origin.y + offset.height)
+        if origin != frame.origin { setFrameOrigin(origin) }
     }
 
     /// True while the user drags the panel: the button went down in it and is still down. A move
@@ -975,6 +1023,8 @@ final class PanelPresentation {
     var pickerBounds = CGRect.zero
     /// A click in the picker: a slot to move to, or `nil` to close it (set by `FloatingPanel`).
     @ObservationIgnored var choosePosition: ((PanelSlot?) -> Void)?
+    /// Moves the panel for a drag on the card's background (set by `FloatingPanel`).
+    @ObservationIgnored var drag: PanelDrag?
     /// Hidden for a moment to fade in the Overview's new size under Reduce Motion.
     var isFadedForMorph = false
     /// The Overview's frame in SwiftUI's window space while the card has that size, else `nil`.
@@ -992,6 +1042,15 @@ final class PanelPresentation {
 extension EnvironmentValues {
     /// Where the enclosing panel is in its open/close animation (`.shown` outside panels).
     @Entry var panelState: PanelPresentation.State = .shown
+    /// What a drag on the card's background does (`nil` outside panels: nothing).
+    @Entry var panelDrag: PanelDrag? = nil
+}
+
+/// A drag on a panel card's background: `changed` with the gesture's translation (SwiftUI's
+/// coordinates), `ended` once it is over.
+struct PanelDrag: Sendable {
+    var changed: @MainActor @Sendable (CGSize) -> Void
+    var ended: @MainActor @Sendable () -> Void
 }
 
 /// The panel's root: one card for every screen the panel shows, pinned to the top of the (taller,
@@ -1026,6 +1085,7 @@ private struct PanelRoot: View {
             .environment(\.panelState, presentation.state)
             .environment(\.panelHeightLimit, max(presentation.heightLimit, 0))
             .environment(\.panelEffects, presentation.effects)
+            .environment(\.panelDrag, presentation.drag)
             .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { frame in
                 presentation.cardFrame = frame
                 if !presentation.isMorphing, presentation.effectsCardFrame != frame { presentation.effectsCardFrame = frame }
@@ -1085,13 +1145,14 @@ struct PanelCard<Content: View>: View {
 /// Blurred backdrop + translucent fill + hairline edge (a light inner highlight in dark mode).
 ///
 /// It is also the card's drag handle: a drag that starts on the card's background (its padding,
-/// the gaps between controls) moves the panel (`WindowDragGesture`). `isMovableByWindowBackground`
-/// alone doesn't do that in a SwiftUI-hosted panel: the hosting view takes every mouse-down in
-/// the card, so AppKit never starts a background drag. Controls, rows and text views sit above
-/// the background and get their own clicks and drags; a click without a drag moves nothing.
+/// the gaps between controls) moves the panel (`\.panelDrag`, `FloatingPanel.dragPanel`, which
+/// keeps the card on screen; not `WindowDragGesture`, whose window-server drag keeps the much
+/// larger window below the menu bar). Controls, rows and text views sit above the background and
+/// get their own clicks and drags; a click without a drag moves nothing.
 private struct PanelBackground: View {
     let shape: RoundedRectangle
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.panelDrag) private var drag
 
     var body: some View {
         ZStack {
@@ -1101,7 +1162,11 @@ private struct PanelBackground: View {
         .clipShape(shape)
         .overlay { shape.strokeBorder(edge, lineWidth: 1) }
         .contentShape(shape) // only the card: the transparent margin around it stays click-through
-        .gesture(WindowDragGesture())
+        .gesture(
+            DragGesture(minimumDistance: 2, coordinateSpace: .global)
+                .onChanged { drag?.changed($0.translation) }
+                .onEnded { _ in drag?.ended() }
+        )
     }
 
     private var isDark: Bool { colorScheme == .dark }

@@ -254,6 +254,19 @@ public enum PanelPlacement {
         return min(max(minX, visible.minX), visible.maxX - newWidth)
     }
 
+    // MARK: Drag
+
+    /// How far a drag moves the panel (its window and the card in it alike): the mouse's
+    /// `translation` since the drag began, cut short so the card (`cardFrame`, where it was when
+    /// the drag began) stays fully inside `visible`, the visible frame of the screen under the
+    /// mouse. Whole points. The card can reach right up to the menu bar and down to the Dock: it
+    /// is the card that is kept on screen, not the (larger, mostly transparent) window.
+    public static func dragOffset(cardFrame: CGRect, translation: CGSize, in visible: CGRect) -> CGSize {
+        let moved = cardFrame.offsetBy(dx: translation.width.rounded(), dy: translation.height.rounded())
+        let kept = clamped(moved, in: visible)
+        return CGSize(width: (kept.minX - cardFrame.minX).rounded(), height: (kept.minY - cardFrame.minY).rounded())
+    }
+
     // MARK: Picker
 
     /// How far the position picker (`pickerSize`, centred on the card) moves so that it lies inside
