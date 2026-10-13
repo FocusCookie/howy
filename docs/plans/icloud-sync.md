@@ -562,7 +562,9 @@ Test 4, offline for over an hour: no notice (passed), but the line stayed on
 "Syncing…": offline, mirroring reports no error, and the nudged import just
 never ends. Fixed: `SyncMonitor` follows the network path (`NWPathMonitor`), the
 line says "Offline" while there's none, and the app nudges an import when it
-returns. Test 4 needs to be run again. Test 6 is skipped: there's no
+returns. Also, an import or export running over 3 minutes reads "Waiting for
+iCloud" (a path without internet). Re-run on the other Mac with the fix: Wi-Fi
+off → "Offline" and no notice; Wi-Fi on → syncs again. Test 4 passed. Test 6 is skipped: there's no
 second iCloud account.
 
 #### Known limits
