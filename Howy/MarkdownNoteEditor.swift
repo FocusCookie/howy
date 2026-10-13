@@ -632,7 +632,21 @@ final class NoteTextView: NSTextView {
     override func didChangeText() {
         super.didChangeText()
         clearTaskHover()
+        caretNeedsReveal = true
         setNeedsChipUpdate()
+    }
+
+    /// An edit happened and the caret's line may be out of view.
+    private var caretNeedsReveal = false
+
+    /// TextKit 2 lays the text out (and makes the view taller) after the edit, too late for the
+    /// text view's own scrolling: a new line could end up below the editor. Once the layout is
+    /// done, the caret's line is scrolled into view.
+    private func revealCaretIfNeeded() {
+        guard caretNeedsReveal else { return }
+        caretNeedsReveal = false
+        guard window?.firstResponder === self, !hasMarkedText(), let caret = caretRect(at: selectedRange().location) else { return }
+        scrollToVisible(caret.insetBy(dx: 0, dy: -textContainerInset.height))
     }
 
     override func setFrameSize(_ newSize: NSSize) {
@@ -672,13 +686,15 @@ final class NoteTextView: NSTextView {
         setNeedsChipUpdate()
     }
 
-    /// Redraws the chip backgrounds (and the ghost caret) once the current layout pass is done.
+    /// Redraws the chip backgrounds (and the ghost caret), and after an edit reveals the caret,
+    /// once the current layout pass is done.
     func setNeedsChipUpdate() {
         guard !chipUpdateScheduled else { return }
         chipUpdateScheduled = true
         DispatchQueue.main.async { [weak self] in
             guard let self else { return }
             self.chipUpdateScheduled = false
+            self.revealCaretIfNeeded()
             self.updateChips()
             self.updateGhost()
         }
@@ -720,8 +736,40 @@ final class NoteTextView: NSTextView {
         }
     }
 
+    // MARK: Quote bars
+
+    /// One accent bar beside each run of quote lines, where their `>` sit (reused).
+    private var quoteBarViews: [RoundedHighlightView] = []
+    private var drawnQuoteBars: [NSRect] = []
+    private static let quoteBarColor = NSColor.controlAccentColor.withAlphaComponent(0.7)
+
+    private func updateQuoteBars() {
+        let ns = string as NSString
+        let width = 3 * bodyScale
+        let frames = (string.isEmpty ? [] : MarkdownHighlighter.quoteBlocks(in: string)).compactMap { block -> NSRect? in
+            let marker = ns.range(of: ">", range: block)
+            guard marker.location != NSNotFound, let lines = rect(forCharacters: block),
+                  let markerRect = rect(forCharacters: NSRange(location: marker.location, length: 1)) else { return nil }
+            return NSRect(x: markerRect.minX, y: lines.minY, width: width, height: lines.height).integral
+        }
+        guard frames != drawnQuoteBars else { return }
+        drawnQuoteBars = frames
+        while quoteBarViews.count < frames.count {
+            let view = RoundedHighlightView(color: Self.quoteBarColor, cornerRadius: 1.5)
+            addSubview(view, positioned: .below, relativeTo: nil)
+            quoteBarViews.append(view)
+        }
+        for (index, view) in quoteBarViews.enumerated() {
+            view.isHidden = index >= frames.count
+            guard index < frames.count else { continue }
+            view.frame = frames[index]
+            view.layer?.cornerRadius = width / 2
+        }
+    }
+
     private func updateChips() {
         updateCodeBlocks()
+        updateQuoteBars()
         let names = coordinator?.parent.attachmentNames ?? []
         let highlighted = coordinator?.parent.highlightedName
         let chips = string.isEmpty ? [] : NoteChips.chips(in: string, attachmentNames: names)
@@ -1165,10 +1213,11 @@ enum MarkdownStyler {
         case .code(let token):
             storage.addAttribute(.foregroundColor, value: codeColor(token), range: range)
         case .quote:
-            storage.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: range)
+            transformFont(in: range, of: storage, scale: scale) { withTraits(.italic, $0) }
         case .quoteMarker:
+            // Invisible, but keeping its width: `NoteTextView` draws the quote's bar there.
             storage.addAttributes([
-                .foregroundColor: NSColor.controlAccentColor.withAlphaComponent(0.7),
+                .foregroundColor: NSColor.clear,
                 .font: NSFont.systemFont(ofSize: baseSize, weight: .heavy),
             ], range: range)
         case .listMarker:

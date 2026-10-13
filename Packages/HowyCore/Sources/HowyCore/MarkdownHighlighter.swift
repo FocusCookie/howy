@@ -141,6 +141,23 @@ public enum MarkdownHighlighter {
         return blocks
     }
 
+    /// Every run of consecutive quote lines outside fenced code, from the first line's start to
+    /// the last line's end (the editor draws one bar beside each).
+    public static func quoteBlocks(in text: String) -> [NSRange] {
+        var blocks: [NSRange] = []
+        var current: NSRange?
+        for line in lines(of: text) {
+            if !line.isCode, match(Pattern.quote, in: line.text) != nil {
+                current = current.map { NSRange(location: $0.location, length: NSMaxRange(line.range) - $0.location) } ?? line.range
+            } else if let block = current {
+                blocks.append(block)
+                current = nil
+            }
+        }
+        if let current { blocks.append(current) }
+        return blocks
+    }
+
     /// Every task box in list items outside fenced code, in text order.
     public static func taskBoxes(in text: String) -> [TaskBox] {
         lines(of: text).compactMap { line in

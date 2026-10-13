@@ -17,6 +17,14 @@ All notable changes to Howy are documented here. The format follows
 
 - A fenced code block now sits on one rounded grey box the width of the note,
   instead of a grey strip behind each line with gaps between them.
+- A quote shows an accent bar down its left side, from its first line to its
+  last, and its text is italic in the normal text colour (the `>` stays in the
+  note but is hidden behind the bar).
+
+### Fixed
+
+- Typing in a long note keeps the line with the cursor in view; new lines no
+  longer disappear below the editor until you scroll.
 
 ## [2.2.0] - 2026-10-13
 
