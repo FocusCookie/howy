@@ -553,8 +553,10 @@ final class AppController {
 
     private func presentQuickEntry(_ model: QuickEntryModel, kind: PanelKind, activate: Bool) {
         let panel = present(kind, activate: activate) { QuickEntryView(model: model) }
-        panel.keyHandler = { event in
+        panel.keyHandler = { [weak panel] event in
             guard let key = QuickEntryKey(event: event) else { return false }
+            // ⇧⇥ in a nested list item outdents it; elsewhere it goes back to the title.
+            if key == .shiftTab, let note = panel?.firstResponder as? NoteTextView, note.outdentListItems() { return true }
             return model.handle(key)
         }
         model.close = { [weak panel] in panel?.dismiss() }

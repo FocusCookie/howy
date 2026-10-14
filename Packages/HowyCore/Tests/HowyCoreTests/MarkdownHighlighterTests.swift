@@ -89,6 +89,18 @@ import Testing
         #expect(covered(text, .italic) == ["*text*"])
     }
 
+    @Test func threeOrMoreDashesStarsOrUnderscoresAreARule() {
+        let text = "above\n---\n***\n___\n- - -\n  -----  \nbelow"
+        #expect(covered(text, .rule) == ["---", "***", "___", "- - -", "  -----  "])
+        #expect(covered(text, .listMarker).isEmpty) // "- - -" is a rule, not a list item
+        #expect(covered(text, .italic).isEmpty)
+    }
+
+    @Test func shorterOrMixedLinesAreNoRule() {
+        #expect(covered("--\n-*-\n--- text\n    ---", .rule).isEmpty)
+        #expect(covered("```\n---\n```", .rule).isEmpty)
+    }
+
     @Test func quoteBlocksJoinConsecutiveQuoteLines() {
         let text = "> one\n> two\nplain\n>> three\n```\n> code\n```"
         let ns = text as NSString

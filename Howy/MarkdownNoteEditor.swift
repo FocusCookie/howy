@@ -21,6 +21,10 @@ import SwiftUI
 /// strong accent highlight. While the flow is in the attachments, `ghostSelection` shows where
 /// **I** inserts: a wide, steady accent caret (or a tinted range).
 ///
+/// Lists: Tab nests the list items the selection touches one level deeper, ⇧⇥ takes one level
+/// away (`MarkdownListIndent`); ⇧⇥ on a top-level item or outside a list still goes to the title.
+/// A line of three or more `-`, `*` or `_` is drawn as a horizontal rule.
+///
 /// Checklists: ⇧⌘L turns the selected lines into task items or ticks / unticks them
 /// (`MarkdownTaskToggle`), and a click on a box ticks or unticks it, with a pointing hand and a
 /// soft rounded highlight over the box. Both are one undo step each.
@@ -392,8 +396,12 @@ struct MarkdownNoteEditor: NSViewRepresentable {
             return false
         }
 
-        /// Enter inside a list item continues the list; Enter on an empty item ends it.
+        /// Enter inside a list item continues the list; Enter on an empty item ends it. Tab nests
+        /// the list items under the selection (a plain tab elsewhere).
         func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+            if selector == #selector(NSResponder.insertTab(_:)) {
+                return (textView as? NoteTextView)?.indentListItems() ?? false
+            }
             guard selector == #selector(NSResponder.insertNewline(_:)), !textView.hasMarkedText() else { return false }
             let selection = textView.selectedRange()
             guard selection.length == 0 else { return false }
@@ -512,6 +520,47 @@ final class NoteTextView: NSTextView {
     private func toggleChecklist() {
         guard !hasMarkedText(), let edit = MarkdownTaskToggle.toggle(in: string, selection: selectedRange()) else { return }
         applyEdit(range: edit.range, replacement: edit.replacement, selection: edit.selection, actionName: Self.checklistUndoName)
+    }
+
+    // MARK: List nesting
+
+    /// Tab: nests the list items under the selection one level deeper (`MarkdownListIndent`).
+    /// False when there's none, so Tab types a tab.
+    func indentListItems() -> Bool {
+        guard !hasMarkedText(), let edit = MarkdownListIndent.indent(in: string, selection: selectedRange()) else { return false }
+        applyEdit(range: edit.range, replacement: edit.replacement, selection: edit.selection, actionName: "Indent")
+        return true
+    }
+
+    /// ⇧⇥: takes one level from the nested list items under the selection. False when there's
+    /// none, so ⇧⇥ goes back to the title.
+    func outdentListItems() -> Bool {
+        guard !hasMarkedText(), let edit = MarkdownListIndent.outdent(in: string, selection: selectedRange()) else { return false }
+        applyEdit(range: edit.range, replacement: edit.replacement, selection: edit.selection, actionName: "Outdent")
+        return true
+    }
+
+    // MARK: Caret
+
+    /// The caret, wider than the system's 1 pt so it is easy to find, also in dark mode.
+    private var caretWidth: CGFloat { max(2, 2 * bodyScale) }
+
+    override func drawInsertionPoint(in rect: NSRect, color: NSColor, turnedOn flag: Bool) {
+        var rect = rect
+        rect.size.width = caretWidth
+        if flag {
+            color.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: caretWidth / 2, yRadius: caretWidth / 2).fill()
+        } else {
+            setNeedsDisplay(rect, avoidAdditionalLayout: true)
+        }
+    }
+
+    /// The text view invalidates a 1 pt caret; the wide one needs its whole rect redrawn.
+    override func setNeedsDisplay(_ rect: NSRect, avoidAdditionalLayout flag: Bool) {
+        var rect = rect
+        rect.size.width += caretWidth
+        super.setNeedsDisplay(rect, avoidAdditionalLayout: flag)
     }
 
     /// Replaces as one undo step through the normal text-change path (binding, restyle).
@@ -1100,6 +1149,7 @@ enum MarkdownStyler {
         for span in spans { apply(span, to: storage, scale: scale) }
         markBlocks(MarkdownHighlighter.codeBlocks(in: storage.string), as: .codeBlockLine, in: storage, scale: scale)
         markBlocks(MarkdownHighlighter.quoteBlocks(in: storage.string), as: .quoteLine, in: storage, scale: scale)
+        markBlocks(spans.filter { $0.style == .rule }.map(\.range), as: .ruleLine, in: storage, scale: scale)
         for chip in NoteChips.chips(in: storage.string, attachmentNames: names) {
             let isHighlighted = highlightedName != nil && chip.attachment?.name == highlightedName
             applyChip(chip, to: storage, scale: scale, color: isHighlighted ? .controlAccentColor : .linkColor)
@@ -1167,7 +1217,7 @@ enum MarkdownStyler {
     /// italic fonts stay, a link in it turns grey too, and its markup is still dimmed below that.
     private static func order(_ style: MarkdownStyleSpan.Style) -> Int {
         switch style {
-        case .heading, .quote, .codeBlock: 0
+        case .heading, .quote, .codeBlock, .rule: 0
         case .bold, .italic, .strikethrough, .link, .listMarker, .code: 1
         case .inlineCode, .taskDone: 2
         case .quoteMarker: 3
@@ -1221,7 +1271,7 @@ enum MarkdownStyler {
                 .foregroundColor: NSColor.linkColor,
                 .underlineStyle: NSUnderlineStyle.single.rawValue,
             ], range: range)
-        case .syntax, .taskBox:
+        case .syntax, .taskBox, .rule:
             storage.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
         case .taskCheck:
             storage.addAttribute(.foregroundColor, value: NSColor.controlAccentColor, range: range)
@@ -1256,6 +1306,8 @@ extension NSAttributedString.Key {
     static let codeBlockLine = NSAttributedString.Key("HowyCodeBlockLine")
     /// A line of a quote (a `BlockLine`).
     static let quoteLine = NSAttributedString.Key("HowyQuoteLine")
+    /// A thematic break line, "---" (a `BlockLine`).
+    static let ruleLine = NSAttributedString.Key("HowyRuleLine")
 }
 
 /// Where a line sits in its code block or quote: the first rounds the top corners, the last the
@@ -1297,18 +1349,23 @@ final class BlockLayoutDelegate: NSObject, NSTextLayoutManagerDelegate {
             let marker = (text.string as NSString).range(of: ">")
             return BlockLayoutFragment(textElement: textElement, range: range, line: line, kind: .quote(marker: marker.location))
         }
+        if let line = text.attribute(.ruleLine, at: 0, effectiveRange: nil) as? BlockLine {
+            return BlockLayoutFragment(textElement: textElement, range: range, line: line, kind: .rule)
+        }
         return NSTextLayoutFragment(textElement: textElement, range: range)
     }
 }
 
-/// A line of a code block, on its part of the rounded box the width of the text, or a line of a
-/// quote, with its part of the accent bar where the (hidden) `>` sits. Consecutive lines' parts
+/// A line of a code block, on its part of the rounded box the width of the text, a line of a
+/// quote, with its part of the accent bar where the (hidden) `>` sits, or a rule line. Consecutive lines' parts
 /// meet, line spacing included, so a block reads as one box or one bar.
 final class BlockLayoutFragment: NSTextLayoutFragment {
     enum Kind {
         case code
         /// `marker`: the `>`'s offset in the line.
         case quote(marker: Int)
+        /// A horizontal rule across the width, through the (dimmed) dashes.
+        case rule
     }
 
     /// The text's inset inside a code box, at 100 %.
@@ -1339,6 +1396,16 @@ final class BlockLayoutFragment: NSTextLayoutFragment {
                 x = first.typographicBounds.minX + first.locationForCharacter(at: marker).x
             }
             return CGRect(x: x, y: 0, width: 3 * line.scale, height: height)
+        case .rule:
+            let width = textLayoutManager?.textContainer?.size.width ?? layoutFragmentFrame.width
+            let thickness = max(1, line.scale)
+            var y = height / 2
+            if let first = textLineFragments.first, first.attributedString.length > 0,
+               let font = first.attributedString.attribute(.font, at: 0, effectiveRange: nil) as? NSFont {
+                // Through the middle of a dash: half the x-height above the baseline.
+                y = first.typographicBounds.minY + first.glyphOrigin.y - font.xHeight / 2
+            }
+            return CGRect(x: -layoutFragmentFrame.minX, y: y - thickness / 2, width: width, height: thickness)
         }
     }
 
@@ -1349,6 +1416,7 @@ final class BlockLayoutFragment: NSTextLayoutFragment {
         let (color, radius): (NSColor, CGFloat) = switch kind {
         case .code: (MarkdownStyler.codeBackground, 6 * line.scale)
         case .quote: (NSColor.controlAccentColor.withAlphaComponent(0.7), 1.5 * line.scale)
+        case .rule: (NSColor.tertiaryLabelColor, 0)
         }
         // Only the block's outer corners are round: the shape runs past the clip where it meets
         // the next line.
