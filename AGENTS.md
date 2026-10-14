@@ -49,6 +49,7 @@ HowyWidgets/             WidgetKit extension: Matrix + Quadrant widgets, Complet
 Packages/HowyCore/       Swift package with all logic and state machines, plus its tests
   Sources/HowyCore/      TodoStore (SwiftData), flows, drafts, attachments, Markdown, deep links
   Tests/HowyCoreTests/   Swift Testing suites
+assets/                  Design sources (icon.afdesign, the Affinity source of the app icon)
 README.md                What Howy does and how to use it (features, keys, settings)
 CHANGELOG.md             Release history; Unreleased lists what changed since the last release
 ```
@@ -103,7 +104,7 @@ xcodebuild -project Howy.xcodeproj -scheme Howy -configuration Release \
 ```
 
 `build/` is git-ignored. The app icon is an Icon Composer file
-(`Howy/AppIcon.icon`), and `icon.afdesign` is its Affinity source.
+(`Howy/AppIcon.icon`), and `assets/icon.afdesign` is its Affinity source.
 
 ## Tests
 
