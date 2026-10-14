@@ -20,6 +20,8 @@ public struct MarkdownStyleSpan: Hashable, Sendable {
         case quote
         /// The `>` of a quote line (styled as a bar).
         case quoteMarker
+        /// A whole thematic break line ("---", "***", "___"), drawn as a horizontal rule.
+        case rule
         /// A list bullet or number ("-", "1.").
         case listMarker
         /// A task box, brackets included ("[ ]", "[x]"); dimmed like a list marker.
@@ -44,7 +46,7 @@ public struct MarkdownStyleSpan: Hashable, Sendable {
 }
 
 /// Finds Markdown styling in source text, keeping every character in place (Bear/Typora-style
-/// editing): blocks per line (headings, quotes, list markers, task boxes, fenced code), then inline
+/// editing): blocks per line (headings, quotes, rules, list markers, task boxes, fenced code), then inline
 /// styles (code, bold, italic, strikethrough, links, bare URLs) outside code.
 ///
 /// Spans may overlap (e.g. italic inside bold inside a heading); apply them in order.
@@ -220,6 +222,11 @@ public enum MarkdownHighlighter {
 
         func shifted(_ range: NSRange) -> NSRange { NSRange(location: range.location + offset, length: range.length) }
 
+        // A rule before a list item: "- - -" is a rule.
+        if match(Pattern.rule, in: line) != nil {
+            return [.init(.rule, shifted(NSRange(location: 0, length: ns.length)))]
+        }
+
         if let heading = match(Pattern.heading, in: line) {
             let hashes = heading.range(at: 1)
             spans.append(.init(.heading(level: hashes.length), shifted(NSRange(location: 0, length: ns.length))))
@@ -332,6 +339,8 @@ public enum MarkdownHighlighter {
         static let fence = regex(#"^ {0,3}(```|~~~).*$"#)
         static let heading = regex(#"^ {0,3}(#{1,6})(?:[ \t]+|$)"#)
         static let quote = regex(#"^ {0,3}(>+) ?"#)
+        // three or more of the same "-", "*" or "_", spaces allowed between them
+        static let rule = regex(#"^ {0,3}([-*_])(?: *\1){2,} *$"#)
         static let listItem = regex(#"^[ \t]*([-*+]|\d{1,9}[.)])[ \t]+"#)
         // marker, box, box character; the box is followed by spacing or the line's end
         static let taskItem = regex(#"^[ \t]*([-*+]|\d{1,9}[.)])[ \t]+(\[([ xX])\])(?:[ \t]+|$)"#)

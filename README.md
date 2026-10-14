@@ -57,7 +57,10 @@ Everything happens from a shortcut.
   the panel zoom keeps the panel's left edge (left third), right edge (right
   third) or centre where they are. One position for every panel.
 - **Live Markdown** in notes: headings, bold, lists and links are styled as you
-  type, and lists continue when you press ↩. A fenced code block (` ```json `)
+  type, and lists continue when you press ↩. **⇥** in a list item nests it
+  one level deeper under the item before, **⇧⇥** takes a level away (on a
+  top-level item it still goes back to the title). A line of three or more
+  `-`, `*` or `_` (`---`) is drawn as a horizontal rule. A fenced code block (` ```json `)
   sits on one grey box and its code is coloured by the language after the
   fence: JSON, Swift, JavaScript / TypeScript, Python, shell and YAML (other
   languages get strings, numbers and comments).

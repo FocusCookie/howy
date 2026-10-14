@@ -4,6 +4,21 @@ All notable changes to Howy are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [Semantic Versioning](https://semver.org/).
 
+## [2.7.0] - 2026-10-14
+
+### Added
+
+- **Nested lists** in notes: **⇥** in a list item nests it one level deeper,
+  **⇧⇥** takes a level away (on a top-level item it still goes back to the
+  title). With several lines selected, every list item among them moves.
+  One **⌘Z** undoes each.
+- **Horizontal rules** in notes: a line of three or more `-`, `*` or `_`
+  (`---`) is drawn as a line across the note.
+
+### Changed
+
+- The cursor in notes is wider, so it's easier to see, also in dark mode.
+
 ## [2.6.0] - 2026-10-13
 
 ### Added

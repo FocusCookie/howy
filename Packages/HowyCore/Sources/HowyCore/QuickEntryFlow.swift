@@ -123,7 +123,8 @@ public final class UserDefaultsLastQuadrantStore: LastQuadrantStore {
 /// - Picker: arrows move on the 2×2 grid and **clamp** at the edges (no wrap);
 ///   1–4 choose a quadrant and jump to the title; Enter/Tab go to the title.
 /// - Title: Enter/Tab go to the note; Shift+Tab goes back to the picker.
-/// - Note: Enter is a line break (not consumed); Tab not consumed; Shift+Tab goes to the title.
+/// - Note: Enter is a line break (not consumed); Tab not consumed (the editor nests list items with
+///   it); Shift+Tab goes to the title (the editor takes it first to outdent a nested list item).
 ///   ⇧⌘L never reaches the flow (`KeyMapping` leaves it unmapped): the note editor toggles
 ///   checklist items with it (`MarkdownTaskToggle`). ⌘O and ⌘E don't either: the editor opens /
 ///   edits the link at the caret (`NoteLinks`), the latter through `beginEditingLink`.

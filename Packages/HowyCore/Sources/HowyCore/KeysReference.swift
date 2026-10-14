@@ -154,6 +154,7 @@ public enum KeysReference {
             Row(["⇧⇥"], "Back: note to title, title to the quadrant picker", [.shiftTab]),
             Row(["⌥↩"], "Go to the attachments", [.optionEnter]),
             Row(["⇧⌘L"], "Note: make the lines checklist items, or tick them"),
+            Row(["⇥ ⇧⇥"], "Note: nest a list item one level deeper, or less deep"),
             Row(["⌘V"], "Note: paste files or a screenshot as attachments, or a link"),
             Row(["⌘O"], "Note: open the link or attachment at the caret"),
             Row(["⌥⌘O"], "Note: open the attachment at the caret the other way"),
