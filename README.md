@@ -9,6 +9,17 @@ floating panels that appear above everything, like Spotlight or Raycast. Desktop
 widgets show your matrix at a glance. Howy has no Dock icon and no main window.
 Everything happens from a shortcut.
 
+## Screenshots
+
+| | |
+| :---: | :---: |
+| ![The Howy panel with the four quadrants and their open counts](screenshots/Panels.png) | ![A quadrant's todo list with due date, attachment and move buttons](screenshots/List.png) |
+| **The four quadrants** | **A quadrant's todos** |
+| ![The Overview with all four quadrants side by side](screenshots/Overview.png) | ![The note editor with live Markdown, a checklist, a code block, a link and an attachment](screenshots/Note.png) |
+| **Overview** | **Notes with live Markdown and attachments** |
+| ![The due-date dialog reading "tomorrow at 10am"](screenshots/Reminders.png) | ![The position picker, a 3×3 grid of spots on the screen](screenshots/Move%20Panel.png) |
+| **Due dates in plain English** | **Move the panel** |
+
 ## What it can do (v2.1.0)
 
 ### Floating panels, driven by the keyboard
